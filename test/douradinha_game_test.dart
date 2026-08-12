@@ -235,6 +235,65 @@ void main() {
       expect(DouradinhaGame.botCanDecideChallengeForTeam(1), isTrue);
     });
 
+    test('robô não desafia quando a Douradinha adversária já ganhou a mão', () {
+      final game = DouradinhaGame(random: Random(23));
+      game.currentPlayerIndex = 1;
+      game.trickWinners.addAll([0, 1]);
+      game.currentTrick.add(
+        const PlayedCard(
+          playerIndex: 0,
+          card: PlayingCard('Q', 'o'),
+        ),
+      );
+
+      game.takeBotTurn();
+
+      expect(game.pendingChallenge, isNull);
+      expect(game.lastChallengeTeam, isNull);
+      expect(game.currentTrick, hasLength(2));
+    });
+
+    test('trio de robôs conversa e corre quando todos estão fracos', () {
+      final game = DouradinhaGame(random: Random(29));
+      for (final player in game.players.where((player) => player.team == 1)) {
+        player.hand
+          ..clear()
+          ..addAll(const [
+            PlayingCard('4', 'o'),
+            PlayingCard('4', 'e'),
+            PlayingCard('5', 'o'),
+          ]);
+      }
+
+      game.requestHumanChallenge();
+      game.resolveBotChallenge();
+
+      expect(game.phase, MatchPhase.handFinished);
+      expect(game.lastHandWinner, 0);
+      expect(game.challengeNotice, contains('conversou e correu'));
+    });
+
+    test('trio de robôs aumenta quando recebe apoio forte dos parceiros', () {
+      final game = DouradinhaGame(random: Random(31));
+      final strongCards = <int, List<PlayingCard>>{
+        1: const [PlayingCard('Q', 'o')],
+        3: const [PlayingCard('J', 'p')],
+        5: const [PlayingCard('2', 'p')],
+      };
+      for (final entry in strongCards.entries) {
+        game.players[entry.key].hand
+          ..clear()
+          ..addAll(entry.value);
+      }
+
+      game.requestHumanChallenge();
+      game.resolveBotChallenge();
+
+      expect(game.humanMustAnswerChallenge, isTrue);
+      expect(game.pendingChallenge?.requestedValue, 3);
+      expect(game.statusMessage, contains('consultou os parceiros'));
+    });
+
     test('reduz o relógio individual após jogadas automáticas', () {
       expect(DouradinhaGame.timeLimitAfterTimeouts(0), 15);
       expect(DouradinhaGame.timeLimitAfterTimeouts(1), 12);

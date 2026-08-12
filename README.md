@@ -23,6 +23,9 @@ O GitHub Pages é atualizado automaticamente a cada envio para a branch `main`.
 - diálogo informando quando o trio adversário aceita o desafio ou corre;
 - mão de dez, consulta às cartas do trio e desistência por um tento;
 - robôs adversários que desafiam, aceitam, aumentam e blefam;
+- decisão estatística e coletiva dos robôs: cada parceiro sinaliza se corre,
+  aceita ou aumenta usando apenas a própria mão e as cartas já abertas, sem
+  revelar suas cartas aos demais;
 - decisões de aposta do Trio Azul exclusivas do jogador humano; os parceiros
   robôs apenas jogam suas próprias cartas;
 - relógio individual de 15 segundos, reduzido para 12 e depois 8 segundos após

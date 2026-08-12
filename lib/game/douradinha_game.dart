@@ -147,6 +147,7 @@ class DouradinhaGame extends ChangeNotifier {
   late final List<PlayerSeat> players;
   final List<int> scores = [0, 0];
   final List<PlayedCard> currentTrick = [];
+  final List<PlayedCard> playedCards = [];
   final List<int?> trickWinners = [];
   final List<String> history = [];
   final List<bool> _tenDecisionMade = [true, true];
@@ -299,6 +300,7 @@ class DouradinhaGame extends ChangeNotifier {
     lastCompletedHandNumber = 0;
     lastCompletedHandWinnerTeam = null;
     currentTrick.clear();
+    playedCards.clear();
     trickWinners.clear();
     awaitingNextTrick = false;
     nextTrickLeader = null;
@@ -429,13 +431,141 @@ class DouradinhaGame extends ChangeNotifier {
         handValue >= 6) {
       return false;
     }
+    if (_currentTrickIsLockedAgainst(player.team)) return false;
+
+    final requested = nextChallengeValue;
+    if (requested == null) return false;
+    final votes = _consultBotTeam(player.team, requested);
+    final raises =
+        votes.where((vote) => vote == ChallengeDecision.raise).length;
+    final accepts =
+        votes.where((vote) => vote == ChallengeDecision.accept).length;
+
+    // Cada parceiro informa somente se ajuda, aumenta ou corre. A mão exata
+    // nunca é compartilhada. Um pedido forte pode convencer o trio sozinho;
+    // sinais de apoio dos demais tornam o desafio mais provável.
+    if (raises == 0) return false;
+    final challengeChance = (.08 + raises * .26 + accepts * .14).clamp(.0, .9);
+    return _random.nextDouble() < challengeChance;
+  }
+
+  List<ChallengeDecision> _consultBotTeam(int team, int requestedValue) =>
+      players
+          .where((player) => player.team == team)
+          .map((player) => _botChallengeVote(player, requestedValue))
+          .toList(growable: false);
+
+  ChallengeDecision _botChallengeVote(
+    PlayerSeat player,
+    int requestedValue,
+  ) {
+    if (_currentTrickIsLockedAgainst(player.team)) {
+      return ChallengeDecision.fold;
+    }
+
+    final confidence = _botStatisticalConfidence(player);
+    final required = switch (requestedValue) {
+      2 => .40,
+      3 => .49,
+      4 => .58,
+      _ => .68,
+    };
+    if (confidence < required) return ChallengeDecision.fold;
+    if (requestedValue < 6 && confidence >= required + .17) {
+      return ChallengeDecision.raise;
+    }
+    return ChallengeDecision.accept;
+  }
+
+  double _botStatisticalConfidence(PlayerSeat player) {
     final strengths = player.hand.map((card) => card.strength).toList()..sort();
-    final best = strengths.last;
-    final average = strengths.fold<int>(0, (a, b) => a + b) / strengths.length;
-    final confidence = (best >= 12 ? .52 : 0) +
-        (average >= 8 ? .25 : 0) +
-        (handValue == 1 ? .08 : -.08);
-    return _random.nextDouble() < max(.035, confidence);
+    final best = strengths.isEmpty ? 1 : strengths.last;
+    final average = strengths.isEmpty
+        ? 1.0
+        : strengths.fold<int>(0, (sum, value) => sum + value) /
+            strengths.length;
+
+    // O robô conhece sua própria mão e todas as cartas já abertas na mesa.
+    // As cartas ainda escondidas são tratadas apenas como possibilidades.
+    final knownCodes = <String>{
+      ...playedCards.map((play) => play.card.code),
+      ...player.hand.map((card) => card.code),
+    };
+    final unseen = PlayingCard.fullDeck()
+        .where((card) => !knownCodes.contains(card.code))
+        .toList();
+    final strongerUnseen = unseen.where((card) => card.strength > best).length;
+    final safety = unseen.isEmpty ? 1.0 : 1 - strongerUnseen / unseen.length;
+
+    var confidence = .08 +
+        ((best - 1) / 18) * .48 +
+        ((average - 1) / 18) * .22 +
+        safety * .14;
+
+    if (currentTrick.isNotEmpty) {
+      final topStrength =
+          currentTrick.map((play) => play.card.strength).reduce(max);
+      final topTeams = currentTrick
+          .where((play) => play.card.strength == topStrength)
+          .map((play) => players[play.playerIndex].team)
+          .toSet();
+      if (topTeams.length == 1 && topTeams.single == player.team) {
+        confidence += .13;
+      } else if (topTeams.length == 1) {
+        confidence += best > topStrength ? .10 : -.18;
+      }
+    }
+
+    final teamWins =
+        trickWinners.where((winner) => winner == player.team).length;
+    final opponentWins =
+        trickWinners.where((winner) => winner == 1 - player.team).length;
+    confidence += (teamWins - opponentWins) * .08;
+
+    // Na terceira mão, perder a carta mais alta é especialmente perigoso,
+    // pois o desempate pode ser definido pela primeira mão.
+    if (trickWinners.length == 2 &&
+        currentTrick.isNotEmpty &&
+        !_teamCurrentlyLeadsTrick(player.team)) {
+      confidence -= .10;
+    }
+    return confidence.clamp(0.0, 1.0);
+  }
+
+  bool _teamCurrentlyLeadsTrick(int team) {
+    if (currentTrick.isEmpty) return false;
+    final topStrength =
+        currentTrick.map((play) => play.card.strength).reduce(max);
+    final topTeams = currentTrick
+        .where((play) => play.card.strength == topStrength)
+        .map((play) => players[play.playerIndex].team)
+        .toSet();
+    return topTeams.length == 1 && topTeams.single == team;
+  }
+
+  bool _currentTrickIsLockedAgainst(int team) {
+    if (currentTrick.isEmpty) return false;
+    final topStrength =
+        currentTrick.map((play) => play.card.strength).reduce(max);
+    final publicCodes = <String>{
+      ...playedCards.map((play) => play.card.code),
+      ...currentTrick.map((play) => play.card.code),
+    };
+    final aStrongerCardCanStillAppear = PlayingCard.fullDeck().any(
+      (card) => !publicCodes.contains(card.code) && card.strength > topStrength,
+    );
+    if (aStrongerCardCanStillAppear) return false;
+
+    final topTeams = currentTrick
+        .where((play) => play.card.strength == topStrength)
+        .map((play) => players[play.playerIndex].team)
+        .toSet();
+    final provisionalWinner = topTeams.length == 1 ? topTeams.single : null;
+    final disputeWinner = resolveDisputeWinner([
+      ...trickWinners,
+      provisionalWinner,
+    ]);
+    return disputeWinner != null && disputeWinner != team;
   }
 
   void requestHumanChallenge() {
@@ -455,7 +585,9 @@ class DouradinhaGame extends ChangeNotifier {
       responderPlayer: _nextPlayerOnTeam(playerIndex, 1 - team),
     );
     final call = challengeLabelForPoints(requested);
-    statusMessage = '${players[playerIndex].name} pediu $call';
+    statusMessage = playerIndex == 0
+        ? '${players[playerIndex].name} pediu $call'
+        : '${players[playerIndex].name} consultou os parceiros e pediu $call';
     _addHistory(statusMessage);
     notifyListeners();
   }
@@ -495,29 +627,29 @@ class DouradinhaGame extends ChangeNotifier {
   void resolveBotChallenge() {
     final challenge = pendingChallenge;
     if (challenge == null || challenge.targetTeam == 0) return;
-    final responder = players[challenge.responderPlayer];
-    final strengths = responder.hand.map((card) => card.strength).toList();
-    final best = strengths.isEmpty ? 1 : strengths.reduce(max);
-    final average = strengths.isEmpty
-        ? 1.0
-        : strengths.fold<int>(0, (a, b) => a + b) / strengths.length;
-    final pressure = challenge.requestedValue / 6;
-    final confidence = (best / 15) * .65 + (average / 15) * .35;
-    final roll = _random.nextDouble();
+    final votes = _consultBotTeam(1, challenge.requestedValue);
+    final folds = votes.where((vote) => vote == ChallengeDecision.fold).length;
+    final raises =
+        votes.where((vote) => vote == ChallengeDecision.raise).length;
+    final accepts =
+        votes.where((vote) => vote == ChallengeDecision.accept).length;
 
-    if (confidence + .18 < pressure && roll < .62) {
-      challengeNotice = 'O Trio Dourado correu do desafio.';
+    // O trio decide pelos sinais: um parceiro muito confiante evita uma fuga
+    // precipitada, mas o aumento exige apoio de pelo menos dois robôs.
+    if (folds >= 2 && raises == 0) {
+      challengeNotice = 'O Trio Dourado conversou e correu do desafio.';
       challengeNoticeAccepted = false;
       _finishHand(
         challenge.challengerTeam,
         points: handValue,
-        reason: 'O Trio Dourado correu do desafio.',
+        reason: 'O Trio Dourado conversou e correu do desafio.',
       );
-    } else if (challenge.requestedValue < 6 && confidence > .72 && roll < .45) {
+    } else if (challenge.requestedValue < 6 &&
+        (raises >= 2 || (raises == 1 && accepts == 2))) {
       _raiseChallenge(1, challenge.responderPlayer);
     } else {
       _acceptChallenge(
-        'O Trio Dourado aceitou: vale ${spokenValueForPoints(challenge.requestedValue)}.',
+        'O Trio Dourado conversou e aceitou: vale ${spokenValueForPoints(challenge.requestedValue)}.',
         showNotice: true,
       );
     }
@@ -554,8 +686,9 @@ class DouradinhaGame extends ChangeNotifier {
       requestedValue: requested,
       responderPlayer: _nextPlayerOnTeam(playerIndex, 1 - raisingTeam),
     );
-    statusMessage =
-        '${players[playerIndex].name} pediu ${challengeLabelForPoints(requested)}';
+    statusMessage = playerIndex == 0
+        ? '${players[playerIndex].name} pediu ${challengeLabelForPoints(requested)}'
+        : '${players[playerIndex].name} consultou os parceiros e pediu ${challengeLabelForPoints(requested)}';
     _addHistory(statusMessage);
     notifyListeners();
   }
@@ -563,7 +696,9 @@ class DouradinhaGame extends ChangeNotifier {
   void _playCard(int playerIndex, PlayingCard card) {
     final player = players[playerIndex];
     player.hand.remove(card);
-    currentTrick.add(PlayedCard(playerIndex: playerIndex, card: card));
+    final play = PlayedCard(playerIndex: playerIndex, card: card);
+    currentTrick.add(play);
+    playedCards.add(play);
     statusMessage = '${player.name} jogou ${card.displayName}.';
     _addHistory(statusMessage);
 
