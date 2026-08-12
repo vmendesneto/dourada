@@ -410,9 +410,10 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
               Positioned.fill(
                 child: _WinnerOverlay(
                   game: game,
-                  onPlayAgain: () => unawaited(
-                    tableSession.startNewMatch(game),
-                  ),
+                  automaticReturn: tableSession.enabled,
+                  onPlayAgain: tableSession.enabled
+                      ? null
+                      : () => unawaited(tableSession.startNewMatch(game)),
                 ),
               ),
             if (!tableSession.canPlayHere)
@@ -542,15 +543,16 @@ class _WaitingRoom extends StatelessWidget {
                       height: 52,
                       child: FilledButton.icon(
                         key: const ValueKey('colocar-robos'),
-                        onPressed:
-                            session.connecting || session.missingPlayers == 0
-                                ? null
-                                : session.fillRemainingWithBots,
+                        onPressed: session.connecting
+                            ? null
+                            : session.fillRemainingWithBots,
                         icon: const Icon(Icons.smart_toy_rounded),
                         label: Text(
-                          session.missingPlayers == 1
-                              ? 'COLOCAR 1 ROBÔ E INICIAR'
-                              : 'COLOCAR ${session.missingPlayers} ROBÔS E INICIAR',
+                          session.missingPlayers == 0
+                              ? 'INICIAR NOVA PARTIDA'
+                              : session.missingPlayers == 1
+                                  ? 'COLOCAR 1 ROBÔ E INICIAR'
+                                  : 'COLOCAR ${session.missingPlayers} ROBÔS E INICIAR',
                         ),
                         style: FilledButton.styleFrom(
                           backgroundColor: const Color(0xFFE7A93E),
@@ -1690,10 +1692,15 @@ class _HandResultProgressState extends State<HandResultProgress>
 }
 
 class _WinnerOverlay extends StatelessWidget {
-  const _WinnerOverlay({required this.game, required this.onPlayAgain});
+  const _WinnerOverlay({
+    required this.game,
+    required this.automaticReturn,
+    required this.onPlayAgain,
+  });
 
   final DouradinhaGame game;
-  final VoidCallback onPlayAgain;
+  final bool automaticReturn;
+  final VoidCallback? onPlayAgain;
 
   @override
   Widget build(BuildContext context) {
@@ -1719,11 +1726,23 @@ class _WinnerOverlay extends StatelessWidget {
               style: const TextStyle(color: Colors.white70, fontSize: 22),
             ),
             const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: onPlayAgain,
-              icon: const Icon(Icons.replay),
-              label: const Text('JOGAR NOVAMENTE'),
-            ),
+            if (automaticReturn) ...[
+              const Text(
+                'Removendo os robôs e voltando para a sala de espera...',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white70),
+              ),
+              const SizedBox(height: 10),
+              const SizedBox(
+                width: 260,
+                child: HandResultProgress(color: Color(0xFFFFC857)),
+              ),
+            ] else
+              FilledButton.icon(
+                onPressed: onPlayAgain,
+                icon: const Icon(Icons.replay),
+                label: const Text('JOGAR NOVAMENTE'),
+              ),
           ],
         ),
       ),

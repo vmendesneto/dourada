@@ -47,6 +47,8 @@ O GitHub Pages é atualizado automaticamente a cada envio para a branch `main`.
   vazias ou aguardando;
 - sala de espera compartilhada: seis humanos iniciam automaticamente, ou um
   participante pode preencher todas as cadeiras restantes com robôs;
+- ao fim da partida, os robôs são removidos e os humanos retornam à sala da
+  própria mesa para aguardar jogadores ou iniciar novamente com robôs;
 - mesa online persistente com número e token privado de cada cadeira salvo no
   navegador;
 - reconexão automática à mesa enquanto a partida estiver em andamento;

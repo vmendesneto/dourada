@@ -180,11 +180,7 @@ export class GameTable extends DurableObject<Env> {
     }
 
     if (payload.type === "restart" && table.gameState?.phase === "gameOver") {
-      table.phase = "waiting";
-      table.gameState = null;
-      table.nextActionAt = null;
-      table.seats = table.seats.map((seat) => (seat?.kind === "human" ? seat : null));
-      table.updatedAt = Date.now();
+      this.returnToWaitingRoom(table, Date.now());
       await this.saveAndSchedule(table);
       this.broadcast(table);
     }
@@ -244,6 +240,12 @@ export class GameTable extends DurableObject<Env> {
     if (game.phase === "gameOver") {
       if (activeHumans.size === 0 && this.allHumansPastGrace(table, now)) {
         await this.ctx.storage.deleteAll();
+        return;
+      }
+      if (activeHumans.size > 0) {
+        this.returnToWaitingRoom(table, now);
+        await this.saveAndSchedule(table);
+        this.broadcast(table);
         return;
       }
       await this.saveAndSchedule(table);
@@ -458,6 +460,16 @@ export class GameTable extends DurableObject<Env> {
     table.gameState = createInitialGame();
     table.updatedAt = Date.now();
     table.nextActionAt = this.nextActionAt(table, this.activeHumanSeats());
+  }
+
+  private returnToWaitingRoom(table: SharedTableState, now: number): void {
+    table.phase = "waiting";
+    table.gameState = null;
+    table.nextActionAt = null;
+    table.seats = table.seats.map((seat) =>
+      seat?.kind === "human" ? seat : null,
+    );
+    table.updatedAt = now;
   }
 
   private entry(table: SharedTableState, seatIndex: number): Record<string, unknown> {
