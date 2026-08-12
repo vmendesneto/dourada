@@ -197,6 +197,8 @@ void main() {
       expect(game.isTenHand, isTrue);
       expect(game.humanTenDecisionPending, isTrue);
       expect(game.handValue, 2);
+      expect(game.canHumanChallenge, isFalse);
+      expect(game.challengeButtonLabel, 'TRUCO PROIBIDO');
       expect(DouradinhaGame.scorePointsForHandValue(game.handValue), 4);
     });
 
@@ -275,6 +277,7 @@ void main() {
       expect(game.canHumanSeePartnerCardsInTenHand, isFalse);
       expect(game.canCurrentPlayerPlayCard, isTrue);
       expect(game.handValue, 2);
+      expect(game.challengeButtonLabel, 'TRUCO PROIBIDO');
       expect(game.statusMessage, contains('jogo obrigatório'));
 
       game.foldHumanTenHand();

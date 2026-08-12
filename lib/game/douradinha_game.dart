@@ -236,6 +236,14 @@ class DouradinhaGame extends ChangeNotifier {
 
   int? get nextChallengeValue => nextChallengeAfter(handValue);
 
+  String get challengeButtonLabel {
+    if (isTenHand) return 'TRUCO PROIBIDO';
+    final nextValue = nextChallengeValue;
+    return nextValue == null
+        ? 'SEM DESAFIO'
+        : challengeLabelForPoints(nextValue);
+  }
+
   static int? nextChallengeAfter(int currentValue) => switch (currentValue) {
         1 => 2,
         2 => 3,

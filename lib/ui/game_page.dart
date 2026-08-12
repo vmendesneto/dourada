@@ -789,11 +789,7 @@ class _HumanControls extends StatelessWidget {
               ),
               icon: const Icon(Icons.campaign),
               label: Text(
-                game.nextChallengeValue != null
-                    ? DouradinhaGame.challengeLabelForPoints(
-                        game.nextChallengeValue!,
-                      )
-                    : 'SEM DESAFIO',
+                game.challengeButtonLabel,
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
             ),
