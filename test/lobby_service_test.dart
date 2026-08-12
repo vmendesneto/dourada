@@ -4,6 +4,15 @@ import 'package:dourada/online/lobby_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('normaliza caracteres invisiveis na URL do servidor', () {
+    final service = LobbyService(
+      serverUrl: '\uFEFF  https://dourada.example.workers.dev///\n',
+    );
+
+    expect(service.serverUrl, 'https://dourada.example.workers.dev');
+    service.dispose();
+  });
+
   test('decodifica atualização enviada pelo WebSocket do lobby', () {
     final tables = LobbyService.decodeTables(jsonEncode({
       'type': 'lobby',

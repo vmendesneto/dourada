@@ -14,10 +14,11 @@ class TableSession extends ChangeNotifier {
     http.Client? client,
     String? serverUrl,
   })  : _client = client ?? http.Client(),
-        _serverUrl = (entry?.serverUrl ??
-                serverUrl ??
-                const String.fromEnvironment('DOURADA_SERVER_URL'))
-            .replaceFirst(RegExp(r'/$'), '') {
+        _serverUrl = normalizeServerUrl(
+          entry?.serverUrl ??
+              serverUrl ??
+              const String.fromEnvironment('DOURADA_SERVER_URL'),
+        ) {
     if (entry != null) {
       tableNumber = entry!.tableNumber;
       playerToken = entry!.playerToken;

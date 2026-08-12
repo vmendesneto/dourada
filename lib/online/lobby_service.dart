@@ -128,12 +128,15 @@ class TableEntry {
 DateTime? _dateTimeFromMilliseconds(Object? value) =>
     value is num ? DateTime.fromMillisecondsSinceEpoch(value.toInt()) : null;
 
+String normalizeServerUrl(String value) =>
+    value.replaceAll('\uFEFF', '').trim().replaceFirst(RegExp(r'/+$'), '');
+
 class LobbyService {
   LobbyService({http.Client? client, String? serverUrl})
       : _client = client ?? http.Client(),
-        serverUrl =
-            (serverUrl ?? const String.fromEnvironment('DOURADA_SERVER_URL'))
-                .replaceFirst(RegExp(r'/$'), '');
+        serverUrl = normalizeServerUrl(
+          serverUrl ?? const String.fromEnvironment('DOURADA_SERVER_URL'),
+        );
 
   static const tableNumberKey = 'douradinha_numero_mesa_v2';
   static const playerTokenKey = 'douradinha_token_jogador_v2';
