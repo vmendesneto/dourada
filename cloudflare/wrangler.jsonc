@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "dourada-mesas",
+  "account_id": "76a09d6b94b21ef21f5a0a3d4fc1e3cf",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-12",
   "durable_objects": {
