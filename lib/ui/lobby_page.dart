@@ -26,9 +26,11 @@ class _LobbyPageState extends State<LobbyPage> {
       seats: List<LobbySeat?>.filled(6, null),
     ),
   );
-  String? _savedTable;
   int? _openingTable;
   String? _error;
+  bool _loading = false;
+  bool _resumeOfferHandled = false;
+  bool _resumeDialogOpen = false;
 
   @override
   void initState() {
@@ -39,21 +41,73 @@ class _LobbyPageState extends State<LobbyPage> {
   }
 
   Future<void> _load() async {
+    if (_loading) return;
+    _loading = true;
     try {
       final values = await Future.wait<Object?>([
         _service.fetchTables(),
-        _service.savedTableNumber(),
+        _service.savedSession(),
       ]);
       if (!mounted) return;
+      final tables = values[0] as List<LobbyTable>;
+      final savedSession = values[1] as SavedTableSession?;
       setState(() {
-        _tables = values[0] as List<LobbyTable>;
-        _savedTable = values[1] as String?;
+        _tables = tables;
         _error = null;
       });
+      if (!_resumeOfferHandled && !_resumeDialogOpen && savedSession != null) {
+        await _offerResume(savedSession, tables);
+      }
     } on Object {
       if (mounted) {
         setState(() => _error = 'Não foi possível atualizar as mesas.');
       }
+    } finally {
+      _loading = false;
+    }
+  }
+
+  Future<void> _offerResume(
+    SavedTableSession savedSession,
+    List<LobbyTable> tables,
+  ) async {
+    _resumeDialogOpen = true;
+    try {
+      final tableNumber = int.tryParse(savedSession.tableNumber);
+      final table = tableNumber == null
+          ? null
+          : tables.where((item) => item.tableNumber == tableNumber).firstOrNull;
+      final valid = table != null &&
+          table.phase != LobbyTablePhase.empty &&
+          await _service.canResume(savedSession);
+      if (!mounted) return;
+      if (!valid) {
+        _resumeOfferHandled = true;
+        await _service.clearSavedSession();
+        return;
+      }
+
+      _resumeOfferHandled = true;
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      final resume = await showDialog<bool>(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => ResumeTableDialog(
+              tableNumber: table.tableNumber,
+              robotIsPlaying: table.phase == LobbyTablePhase.playing,
+            ),
+          ) ??
+          false;
+      if (!mounted) return;
+      if (resume) {
+        await _enter(table);
+      } else {
+        await _service.clearSavedSession();
+        if (mounted) setState(() {});
+      }
+    } finally {
+      _resumeDialogOpen = false;
     }
   }
 
@@ -160,15 +214,11 @@ class _LobbyPageState extends State<LobbyPage> {
                           itemCount: _tables.length,
                           itemBuilder: (context, index) {
                             final table = _tables[index];
-                            final resume =
-                                _savedTable == '${table.tableNumber}';
                             return _TableCard(
                               table: table,
-                              resume: resume,
                               opening: _openingTable == table.tableNumber,
-                              onEnter: (table.canJoin || resume)
-                                  ? () => _enter(table)
-                                  : null,
+                              onEnter:
+                                  table.canJoin ? () => _enter(table) : null,
                               firstButtonKey: index == 0
                                   ? const ValueKey('entrar-em-uma-mesa')
                                   : null,
@@ -188,14 +238,12 @@ class _LobbyPageState extends State<LobbyPage> {
 class _TableCard extends StatelessWidget {
   const _TableCard({
     required this.table,
-    required this.resume,
     required this.opening,
     required this.onEnter,
     this.firstButtonKey,
   });
 
   final LobbyTable table;
-  final bool resume;
   final bool opening;
   final VoidCallback? onEnter;
   final Key? firstButtonKey;
@@ -290,12 +338,110 @@ class _TableCard extends StatelessWidget {
                       dimension: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : Text(resume
-                      ? 'RETOMAR'
-                      : table.phase == LobbyTablePhase.playing
-                          ? 'SEM VAGA'
-                          : 'ENTRAR EM UMA MESA'),
+                  : Text(table.phase == LobbyTablePhase.playing
+                      ? 'SEM VAGA'
+                      : 'ENTRAR EM UMA MESA'),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ResumeTableDialog extends StatefulWidget {
+  const ResumeTableDialog({
+    super.key,
+    required this.tableNumber,
+    this.robotIsPlaying = true,
+  });
+
+  final int tableNumber;
+  final bool robotIsPlaying;
+
+  @override
+  State<ResumeTableDialog> createState() => _ResumeTableDialogState();
+}
+
+class _ResumeTableDialogState extends State<ResumeTableDialog> {
+  static const _totalSeconds = 20;
+  Timer? _timer;
+  int _secondsLeft = _totalSeconds;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      if (_secondsLeft <= 1) {
+        _timer?.cancel();
+        Navigator.of(context).pop(false);
+        return;
+      }
+      setState(() => _secondsLeft--);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      child: AlertDialog(
+        backgroundColor: const Color(0xFF074333),
+        icon: const Icon(
+          Icons.chair_rounded,
+          color: Color(0xFFFFC857),
+          size: 42,
+        ),
+        title: Text(
+          'VOLTAR PARA A MESA ${widget.tableNumber}?',
+          textAlign: TextAlign.center,
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              widget.robotIsPlaying
+                  ? 'Um robô está jogando na sua cadeira. Deseja assumir novamente?'
+                  : 'Sua cadeira continua reservada. Deseja voltar para a mesa?',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 18),
+            LinearProgressIndicator(
+              key: const ValueKey('tempo-retomar-mesa'),
+              value: _secondsLeft / _totalSeconds,
+              minHeight: 7,
+              borderRadius: BorderRadius.circular(4),
+              color: const Color(0xFFFFC857),
+              backgroundColor: Colors.white12,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Fechando em $_secondsLeft ${_secondsLeft == 1 ? 'segundo' : 'segundos'}. '
+              'Sem resposta: não voltar.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white.withValues(alpha: .65)),
+            ),
+          ],
+        ),
+        actionsAlignment: MainAxisAlignment.center,
+        actions: [
+          OutlinedButton(
+            key: const ValueKey('nao-voltar-mesa'),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('NÃO VOLTAR'),
+          ),
+          FilledButton.icon(
+            key: const ValueKey('voltar-mesa'),
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.login_rounded),
+            label: const Text('VOLTAR PARA A MESA'),
           ),
         ],
       ),

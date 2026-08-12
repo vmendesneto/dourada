@@ -5,6 +5,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 enum LobbyTablePhase { empty, waiting, playing }
 
+class SavedTableSession {
+  const SavedTableSession(
+      {required this.tableNumber, required this.playerToken});
+
+  final String tableNumber;
+  final String playerToken;
+}
+
 class LobbySeat {
   const LobbySeat({
     required this.index,
@@ -190,9 +198,40 @@ class LobbyService {
     return entry;
   }
 
-  Future<String?> savedTableNumber() async {
+  Future<SavedTableSession?> savedSession() async {
     final preferences = await SharedPreferences.getInstance();
-    return preferences.getString(tableNumberKey);
+    final tableNumber = preferences.getString(tableNumberKey);
+    final playerToken = preferences.getString(playerTokenKey);
+    if (tableNumber == null || playerToken == null) return null;
+    return SavedTableSession(
+      tableNumber: tableNumber,
+      playerToken: playerToken,
+    );
+  }
+
+  Future<bool> canResume(SavedTableSession session) async {
+    if (!enabled) return false;
+    final response = await _client
+        .post(
+          Uri.parse(
+            '$serverUrl/api/tables/${session.tableNumber}/can-resume',
+          ),
+          headers: const {'Content-Type': 'application/json'},
+          body: jsonEncode({'playerToken': session.playerToken}),
+        )
+        .timeout(const Duration(seconds: 12));
+    if (response.statusCode != 200) return false;
+    final payload = jsonDecode(response.body) as Map<String, dynamic>;
+    return payload['canResume'] == true;
+  }
+
+  Future<void> clearSavedSession() async {
+    final preferences = await SharedPreferences.getInstance();
+    await Future.wait([
+      preferences.remove(tableNumberKey),
+      preferences.remove(playerTokenKey),
+      preferences.remove(seatIndexKey),
+    ]);
   }
 
   void dispose() => _client.close();

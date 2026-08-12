@@ -75,7 +75,7 @@ export default {
     }
 
     const action = url.pathname.match(
-      /^\/api\/tables\/(10|[1-9])\/(join|fill-bots|connect)$/,
+      /^\/api\/tables\/(10|[1-9])\/(join|fill-bots|can-resume|connect)$/,
     );
     if (action) {
       const tableNumber = Number(action[1]);
@@ -96,6 +96,7 @@ export default {
         error: "Não foi possível acessar a mesa.",
       }))) as Record<string, unknown>;
       if (!internal.ok) return json(request, body, internal.status);
+      if (operation === "can-resume") return json(request, body, internal.status);
       return json(
         request,
         {
@@ -134,6 +135,9 @@ export class GameTable extends DurableObject<Env> {
     }
     if (url.pathname === "/fill-bots" && request.method === "POST") {
       return this.fillBots(request, requestedTableNumber);
+    }
+    if (url.pathname === "/can-resume" && request.method === "POST") {
+      return this.canResume(request, requestedTableNumber);
     }
     if (url.pathname.match(/^\/api\/tables\/(10|[1-9])\/connect$/)) {
       return this.connectSocket(request);
@@ -338,6 +342,20 @@ export class GameTable extends DurableObject<Env> {
     await this.saveAndSchedule(table);
     this.broadcast(table);
     return Response.json(this.entry(table, seatIndex));
+  }
+
+  private async canResume(request: Request, tableNumber?: number): Promise<Response> {
+    const payload = (await request.json().catch(() => ({}))) as {
+      playerToken?: string;
+    };
+    const table = await this.load(tableNumber);
+    const seatIndex = table.seats.findIndex(
+      (seat) => seat?.kind === "human" && seat.token === payload.playerToken,
+    );
+    return Response.json({
+      canResume: seatIndex >= 0 && table.phase !== "empty",
+      phase: table.phase,
+    });
   }
 
   private async connectSocket(request: Request): Promise<Response> {
