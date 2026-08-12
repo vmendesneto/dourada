@@ -50,7 +50,7 @@ void main() {
         '4p': 'Zap',
         '5p': 'Cinquinho',
         'Ap': 'Azinho',
-        '2p': 'Dunginha',
+        '2p': 'Dunguinha',
         'Jp': 'Valetinho',
         'Qo': 'Douradinha',
       };
@@ -271,6 +271,32 @@ void main() {
       expect(game.phase, MatchPhase.handFinished);
       expect(game.lastHandWinner, 0);
       expect(game.challengeNotice, contains('conversou e correu'));
+    });
+
+    test('trio não corre quando ceder os pontos encerra a partida', () {
+      final game = DouradinhaGame(random: Random(37));
+      game.scores[0] = 8;
+      game.handValue = 4;
+      game.lastChallengeTeam = 1;
+      for (final player in game.players.where((player) => player.team == 1)) {
+        player.hand
+          ..clear()
+          ..addAll(const [
+            PlayingCard('4', 'o'),
+            PlayingCard('4', 'e'),
+            PlayingCard('5', 'o'),
+          ]);
+      }
+
+      game.requestHumanChallenge();
+      expect(game.pendingChallenge?.requestedValue, 6);
+      game.resolveBotChallenge();
+
+      expect(game.phase, MatchPhase.playing);
+      expect(game.handValue, 6);
+      expect(game.pendingChallenge, isNull);
+      expect(game.challengeNoticeAccepted, isTrue);
+      expect(game.challengeNotice, contains('aceitou'));
     });
 
     test('limita pedidos e aumentos dos robôs sem remover o blefe', () {

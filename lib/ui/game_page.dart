@@ -183,7 +183,7 @@ class _GamePageState extends State<GamePage> {
       body: SafeArea(
         child: Column(
           children: [
-            _ScoreBoard(game: game, onRestart: _confirmRestart),
+            _ScoreBoard(game: game),
             Expanded(child: _buildTable()),
             _HumanControls(
               game: game,
@@ -295,34 +295,12 @@ class _GamePageState extends State<GamePage> {
       },
     );
   }
-
-  Future<void> _confirmRestart() async {
-    final restart = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Reiniciar partida?'),
-        content: const Text('O placar atual será zerado.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Reiniciar'),
-          ),
-        ],
-      ),
-    );
-    if (restart == true) game.restart();
-  }
 }
 
 class _ScoreBoard extends StatelessWidget {
-  const _ScoreBoard({required this.game, required this.onRestart});
+  const _ScoreBoard({required this.game});
 
   final DouradinhaGame game;
-  final VoidCallback onRestart;
 
   @override
   Widget build(BuildContext context) {
@@ -386,12 +364,6 @@ class _ScoreBoard extends StatelessWidget {
                 ),
               ],
             ),
-          ),
-          IconButton(
-            tooltip: 'Reiniciar partida',
-            onPressed: onRestart,
-            color: Colors.white70,
-            icon: const Icon(Icons.refresh),
           ),
         ],
       ),
@@ -1141,7 +1113,7 @@ class _TenHandOverlay extends StatelessWidget {
                   children: [
                     OutlinedButton(
                       onPressed: game.foldHumanTenHand,
-                      child: const Text('CORRER (CEDE 1)'),
+                      child: const Text('CORRER (CEDE 2)'),
                     ),
                     const SizedBox(width: 10),
                     FilledButton(

@@ -35,7 +35,7 @@ class PlayingCard {
   String? get nickname => switch (code) {
         'Qo' => 'Douradinha',
         'Jp' => 'Valetinho',
-        '2p' => 'Dunginha',
+        '2p' => 'Dunguinha',
         'Ap' => 'Azinho',
         '5p' => 'Cinquinho',
         '4p' => 'Zap',
@@ -676,6 +676,8 @@ class DouradinhaGame extends ChangeNotifier {
     final challenge = pendingChallenge;
     if (challenge == null || challenge.targetTeam == 0) return;
     _botChallengeConsideredThisTrick[1] = true;
+    final foldingLosesMatch =
+        scores[challenge.challengerTeam] + handValue >= 12;
     final votes = _consultBotTeam(1, challenge.requestedValue);
     final folds = votes.where((vote) => vote == ChallengeDecision.fold).length;
     final raises =
@@ -685,7 +687,7 @@ class DouradinhaGame extends ChangeNotifier {
 
     // O trio decide pelos sinais: um parceiro muito confiante evita uma fuga
     // precipitada, mas o aumento exige apoio de pelo menos dois robôs.
-    if (folds >= 2 && raises == 0) {
+    if (!foldingLosesMatch && folds >= 2 && raises == 0) {
       challengeNotice = 'O Trio Dourado conversou e correu do desafio.';
       challengeNoticeAccepted = false;
       _finishHand(
