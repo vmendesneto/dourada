@@ -259,6 +259,36 @@ void main() {
       expect(game.pendingChallenge, isNull);
     });
 
+    test('dez a dez obriga jogar sem escolha e sem ver os parceiros', () {
+      final game = DouradinhaGame(random: Random(16));
+      game.scores
+        ..clear()
+        ..addAll([10, 10]);
+      game.phase = MatchPhase.handFinished;
+
+      game.startNextHand();
+
+      expect(game.isTenToTen, isTrue);
+      expect(game.isTenHand, isTrue);
+      expect(game.humanTenDecisionPending, isFalse);
+      expect(game.botTenDecisionPending, isFalse);
+      expect(game.canHumanSeePartnerCardsInTenHand, isFalse);
+      expect(game.canCurrentPlayerPlayCard, isTrue);
+      expect(game.handValue, 2);
+      expect(game.statusMessage, contains('jogo obrigatório'));
+
+      game.foldHumanTenHand();
+      expect(game.phase, MatchPhase.playing);
+      expect(game.scores, [10, 10]);
+
+      if (game.currentPlayerIndex == 0) {
+        expect(game.canHumanChallenge, isFalse);
+      } else {
+        game.takeBotTurn();
+        expect(game.pendingChallenge, isNull);
+      }
+    });
+
     test('alterna o direito de aumentar entre os trios', () {
       expect(
         DouradinhaGame.isChallengeTurnForTeam(

@@ -491,7 +491,7 @@ class _BotSeat extends StatelessWidget {
         !game.awaitingNextTrick;
     final teamColor =
         player.team == 0 ? const Color(0xFF5CB6FF) : const Color(0xFFFFC857);
-    final reveal = game.humanTenDecisionPending && player.team == 0;
+    final reveal = game.canHumanSeePartnerCardsInTenHand && player.team == 0;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 250),
       padding: EdgeInsets.symmetric(horizontal: 8, vertical: compact ? 3 : 6),

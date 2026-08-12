@@ -189,11 +189,22 @@ class DouradinhaGame extends ChangeNotifier {
 
   bool get isTenHand => scores[0] == 10 || scores[1] == 10;
 
+  bool get isTenToTen => scores[0] == 10 && scores[1] == 10;
+
   bool get humanTenDecisionPending =>
-      phase == MatchPhase.playing && scores[0] == 10 && !_tenDecisionMade[0];
+      phase == MatchPhase.playing &&
+      !isTenToTen &&
+      scores[0] == 10 &&
+      !_tenDecisionMade[0];
 
   bool get botTenDecisionPending =>
-      phase == MatchPhase.playing && scores[1] == 10 && !_tenDecisionMade[1];
+      phase == MatchPhase.playing &&
+      !isTenToTen &&
+      scores[1] == 10 &&
+      !_tenDecisionMade[1];
+
+  bool get canHumanSeePartnerCardsInTenHand =>
+      humanTenDecisionPending && !isTenToTen;
 
   bool get humanMustAnswerChallenge => pendingChallenge?.targetTeam == 0;
 
@@ -384,11 +395,13 @@ class DouradinhaGame extends ChangeNotifier {
     trickLeaderIndex = (dealerIndex + 1) % players.length;
     currentPlayerIndex = trickLeaderIndex;
     handValue = isTenHand ? 2 : 1;
-    _tenDecisionMade[0] = scores[0] != 10;
-    _tenDecisionMade[1] = scores[1] != 10;
-    statusMessage = isTenHand
-        ? 'Mão de dez: sem desafios, valendo 4.'
-        : 'Nova disputa: ${players[currentPlayerIndex].name} começa.';
+    _tenDecisionMade[0] = isTenToTen || scores[0] != 10;
+    _tenDecisionMade[1] = isTenToTen || scores[1] != 10;
+    statusMessage = isTenToTen
+        ? 'Dez a dez: jogo obrigatório, cartas fechadas e valendo 4.'
+        : isTenHand
+            ? 'Mão de dez: sem desafios, valendo 4.'
+            : 'Nova disputa: ${players[currentPlayerIndex].name} começa.';
     _addHistory(statusMessage);
     notifyListeners();
   }

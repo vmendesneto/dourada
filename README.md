@@ -26,6 +26,8 @@ O GitHub Pages é atualizado automaticamente a cada envio para a branch `main`.
 - mão de dez aos 10 pontos (cinco pedrinhas), com escolha de jogar valendo 4
   ou correr cedendo 2 pontos; Truco e aumentos são proibidos para ambos os
   trios nessa mão;
+- em 10 a 10, jogo obrigatório valendo 4, sem diálogo de escolha e sem revelar
+  as cartas dos parceiros;
 - robôs adversários que desafiam, aceitam, aumentam e blefam;
 - decisão estatística e coletiva dos robôs: cada parceiro sinaliza se corre,
   aceita ou aumenta usando apenas a própria mão e as cartas já abertas, sem
