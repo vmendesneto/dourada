@@ -44,6 +44,7 @@ class _LobbyPageState extends State<LobbyPage> {
     if (_loading) return;
     _loading = true;
     try {
+      await _service.flushPendingDecline();
       final values = await Future.wait<Object?>([
         _service.fetchTables(),
         _service.savedSession(),
@@ -103,7 +104,7 @@ class _LobbyPageState extends State<LobbyPage> {
       if (resume) {
         await _enter(table);
       } else {
-        await _service.clearSavedSession();
+        await _service.declineResume(savedSession);
         if (mounted) setState(() {});
       }
     } finally {

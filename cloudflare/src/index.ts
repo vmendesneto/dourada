@@ -75,7 +75,7 @@ export default {
     }
 
     const action = url.pathname.match(
-      /^\/api\/tables\/(10|[1-9])\/(join|fill-bots|can-resume|connect)$/,
+      /^\/api\/tables\/(10|[1-9])\/(join|fill-bots|can-resume|decline-resume|connect)$/,
     );
     if (action) {
       const tableNumber = Number(action[1]);
@@ -96,7 +96,9 @@ export default {
         error: "Não foi possível acessar a mesa.",
       }))) as Record<string, unknown>;
       if (!internal.ok) return json(request, body, internal.status);
-      if (operation === "can-resume") return json(request, body, internal.status);
+      if (operation === "can-resume" || operation === "decline-resume") {
+        return json(request, body, internal.status);
+      }
       return json(
         request,
         {
@@ -138,6 +140,9 @@ export class GameTable extends DurableObject<Env> {
     }
     if (url.pathname === "/can-resume" && request.method === "POST") {
       return this.canResume(request, requestedTableNumber);
+    }
+    if (url.pathname === "/decline-resume" && request.method === "POST") {
+      return this.declineResume(request, requestedTableNumber);
     }
     if (url.pathname.match(/^\/api\/tables\/(10|[1-9])\/connect$/)) {
       return this.connectSocket(request);
@@ -356,6 +361,54 @@ export class GameTable extends DurableObject<Env> {
       canResume: seatIndex >= 0 && table.phase !== "empty",
       phase: table.phase,
     });
+  }
+
+  private async declineResume(request: Request, tableNumber?: number): Promise<Response> {
+    const payload = (await request.json().catch(() => ({}))) as {
+      playerToken?: string;
+    };
+    const table = await this.load(tableNumber);
+    const seatIndex = table.seats.findIndex(
+      (seat) => seat?.kind === "human" && seat.token === payload.playerToken,
+    );
+    if (seatIndex < 0) {
+      return Response.json({ declined: false, tableClosed: table.phase === "empty" });
+    }
+
+    for (const socket of this.ctx.getWebSockets(`seat:${seatIndex}`)) {
+      socket.close(4001, "Jogador decidiu nÃ£o voltar");
+    }
+    const now = Date.now();
+    if (table.phase === "playing") {
+      table.seats[seatIndex] = {
+        kind: "bot",
+        name: `RobÃ´ substituto ${seatIndex + 1}`,
+        token: null,
+        joinedAt: now,
+        disconnectedAt: null,
+      };
+    } else {
+      table.seats[seatIndex] = null;
+    }
+
+    const hasHuman = table.seats.some((seat) => seat?.kind === "human");
+    if (!hasHuman) {
+      for (const socket of this.ctx.getWebSockets()) {
+        socket.close(4002, "Mesa encerrada");
+      }
+      await this.ctx.storage.deleteAlarm();
+      await this.ctx.storage.deleteAll();
+      return Response.json({ declined: true, tableClosed: true });
+    }
+
+    table.updatedAt = now;
+    table.nextActionAt =
+      table.phase === "playing"
+        ? this.nextActionAt(table, this.activeHumanSeats())
+        : null;
+    await this.saveAndSchedule(table);
+    this.broadcast(table);
+    return Response.json({ declined: true, tableClosed: false });
   }
 
   private async connectSocket(request: Request): Promise<Response> {

@@ -130,6 +130,8 @@ class LobbyService {
   static const tableNumberKey = 'douradinha_numero_mesa_v2';
   static const playerTokenKey = 'douradinha_token_jogador_v2';
   static const seatIndexKey = 'douradinha_cadeira_jogador_v2';
+  static const _pendingDeclineTableKey = 'douradinha_recusa_mesa_v1';
+  static const _pendingDeclineTokenKey = 'douradinha_recusa_token_v1';
 
   final http.Client _client;
   final String serverUrl;
@@ -223,6 +225,38 @@ class LobbyService {
     if (response.statusCode != 200) return false;
     final payload = jsonDecode(response.body) as Map<String, dynamic>;
     return payload['canResume'] == true;
+  }
+
+  Future<void> declineResume(SavedTableSession session) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(_pendingDeclineTableKey, session.tableNumber);
+    await preferences.setString(_pendingDeclineTokenKey, session.playerToken);
+    await clearSavedSession();
+    await flushPendingDecline();
+  }
+
+  Future<void> flushPendingDecline() async {
+    if (!enabled) return;
+    final preferences = await SharedPreferences.getInstance();
+    final tableNumber = preferences.getString(_pendingDeclineTableKey);
+    final playerToken = preferences.getString(_pendingDeclineTokenKey);
+    if (tableNumber == null || playerToken == null) return;
+    try {
+      final response = await _client
+          .post(
+            Uri.parse('$serverUrl/api/tables/$tableNumber/decline-resume'),
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({'playerToken': playerToken}),
+          )
+          .timeout(const Duration(seconds: 12));
+      if (response.statusCode != 200) return;
+      await Future.wait([
+        preferences.remove(_pendingDeclineTableKey),
+        preferences.remove(_pendingDeclineTokenKey),
+      ]);
+    } on Object {
+      // A recusa permanece salva e serÃ¡ reenviada na prÃ³xima atualizaÃ§Ã£o.
+    }
   }
 
   Future<void> clearSavedSession() async {
