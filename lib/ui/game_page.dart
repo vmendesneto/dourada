@@ -15,7 +15,7 @@ class GamePage extends StatefulWidget {
   State<GamePage> createState() => _GamePageState();
 }
 
-class _GamePageState extends State<GamePage> {
+class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   static const _savedGameKey = 'douradinha_partida_em_andamento_v1';
 
   late final DouradinhaGame game;
@@ -37,6 +37,7 @@ class _GamePageState extends State<GamePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     SystemChrome.setPreferredOrientations(const [
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
@@ -49,6 +50,7 @@ class _GamePageState extends State<GamePage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _automationTimer?.cancel();
     _turnTicker?.cancel();
     _challengeNoticeTimer?.cancel();
@@ -60,6 +62,20 @@ class _GamePageState extends State<GamePage> {
       ..dispose();
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.resumed:
+        unawaited(tableSession.resumePresence());
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+        unawaited(tableSession.pausePresence());
+      case AppLifecycleState.inactive:
+        break;
+    }
   }
 
   void _onGameChanged() {

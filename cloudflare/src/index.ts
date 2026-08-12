@@ -11,7 +11,16 @@ interface TableMetadata {
   botActive: boolean;
   updatedAt: number;
   expiresAt: number | null;
+  activeConnectionId: string | null;
 }
+
+interface SocketAttachment {
+  playerToken?: string;
+  connectionId?: string;
+  connectedAt?: number;
+}
+
+const disconnectGraceMs = 5000;
 
 const corsHeaders = (request: Request): Record<string, string> => ({
   "Access-Control-Allow-Origin": request.headers.get("Origin") ?? "*",
@@ -81,6 +90,7 @@ export default {
 export class GameTable extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -95,16 +105,20 @@ export class GameTable extends DurableObject<Env> {
 
   async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): Promise<void> {
     if (typeof message !== "string") return;
-    const attachment = socket.deserializeAttachment() as { playerToken?: string } | null;
+    const attachment = socket.deserializeAttachment() as SocketAttachment | null;
     const metadata = await this.ctx.storage.get<TableMetadata>("metadata");
-    if (!metadata || attachment?.playerToken !== metadata.playerToken) {
+    if (
+      !metadata ||
+      attachment?.playerToken !== metadata.playerToken ||
+      attachment.connectionId !== metadata.activeConnectionId
+    ) {
       socket.close(4003, "Sessão inválida");
       return;
     }
     const payload = JSON.parse(message) as Record<string, unknown>;
     if (payload.type === "state" && isGameState(payload.gameState)) {
-      metadata.updatedAt = Date.now();
       metadata.botActive = false;
+      metadata.updatedAt = Date.now();
       await this.ctx.storage.put({ gameState: payload.gameState, metadata });
       socket.send(JSON.stringify({ type: "saved", updatedAt: metadata.updatedAt }));
     }
@@ -116,13 +130,13 @@ export class GameTable extends DurableObject<Env> {
     reason: string,
     wasClean: boolean,
   ): Promise<void> {
+    await this.scheduleReplacementBot(socket);
     socket.close(code, reason);
-    await this.startReplacementBot();
   }
 
   async webSocketError(socket: WebSocket): Promise<void> {
+    await this.scheduleReplacementBot(socket);
     socket.close(1011, "Erro de conexão");
-    await this.startReplacementBot();
   }
 
   async alarm(): Promise<void> {
@@ -132,10 +146,23 @@ export class GameTable extends DurableObject<Env> {
       await this.ctx.storage.deleteAll();
       return;
     }
-    if (this.ctx.getWebSockets().length > 0) {
-      metadata.botActive = false;
-      await this.ctx.storage.put("metadata", metadata);
-      return;
+    if (metadata.activeConnectionId !== null) {
+      for (const socket of this.ctx.getWebSockets()) {
+        const attachment = socket.deserializeAttachment() as SocketAttachment | null;
+        if (attachment?.connectionId === metadata.activeConnectionId) {
+          const lastHeartbeat =
+            this.ctx.getWebSocketAutoResponseTimestamp(socket)?.getTime() ??
+            attachment.connectedAt ??
+            metadata.updatedAt;
+          const heartbeatDeadline = lastHeartbeat + disconnectGraceMs;
+          if (Date.now() < heartbeatDeadline) {
+            await this.ctx.storage.setAlarm(heartbeatDeadline);
+            return;
+          }
+          socket.close(4001, "Jogador ausente");
+        }
+      }
+      metadata.activeConnectionId = null;
     }
     const gameState = await this.ctx.storage.get<GameState>("gameState");
     if (!gameState) return;
@@ -168,6 +195,7 @@ export class GameTable extends DurableObject<Env> {
       botActive: false,
       updatedAt: Date.now(),
       expiresAt: null,
+      activeConnectionId: null,
     };
     await this.ctx.storage.put({ metadata, gameState: payload.gameState });
     return Response.json({
@@ -190,15 +218,10 @@ export class GameTable extends DurableObject<Env> {
       await this.ctx.storage.deleteAll();
       return new Response("Partida encerrada", { status: 410 });
     }
-    metadata.botActive = false;
-    metadata.updatedAt = Date.now();
-    metadata.expiresAt = null;
-    await this.ctx.storage.put("metadata", metadata);
-    await this.ctx.storage.deleteAlarm();
     return Response.json({
       tableNumber: metadata.tableNumber,
       playerToken: metadata.playerToken,
-      botActive: false,
+      botActive: metadata.botActive,
       gameState,
     });
   }
@@ -217,20 +240,31 @@ export class GameTable extends DurableObject<Env> {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.ctx.acceptWebSocket(server);
-    server.serializeAttachment({ playerToken: token });
+    const connectionId = crypto.randomUUID();
+    const connectedAt = Date.now();
+    server.serializeAttachment({ playerToken: token, connectionId, connectedAt });
+    const previousSockets = this.ctx.getWebSockets().filter((socket) => socket !== server);
+    metadata.activeConnectionId = connectionId;
     metadata.botActive = false;
-    metadata.updatedAt = Date.now();
+    metadata.updatedAt = connectedAt;
+    metadata.expiresAt = null;
     await this.ctx.storage.put("metadata", metadata);
-    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.setAlarm(Date.now() + disconnectGraceMs);
+    for (const previousSocket of previousSockets) {
+      previousSocket.close(4000, "Conexão substituída");
+    }
     server.send(JSON.stringify({ type: "state", gameState, tableNumber: metadata.tableNumber }));
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  private async startReplacementBot(): Promise<void> {
+  private async scheduleReplacementBot(socket: WebSocket): Promise<void> {
     const metadata = await this.ctx.storage.get<TableMetadata>("metadata");
     const gameState = await this.ctx.storage.get<GameState>("gameState");
     if (!metadata || !gameState) return;
-    metadata.botActive = true;
+    const attachment = socket.deserializeAttachment() as SocketAttachment | null;
+    if (attachment?.connectionId !== metadata.activeConnectionId) return;
+    metadata.activeConnectionId = null;
+    metadata.botActive = false;
     metadata.updatedAt = Date.now();
     if (gameState.phase === "gameOver") {
       metadata.expiresAt = Date.now() + 60 * 60 * 1000;
@@ -239,7 +273,7 @@ export class GameTable extends DurableObject<Env> {
       return;
     }
     await this.ctx.storage.put("metadata", metadata);
-    await this.ctx.storage.setAlarm(Date.now() + 1000);
+    await this.ctx.storage.setAlarm(Date.now() + disconnectGraceMs);
   }
 }
 

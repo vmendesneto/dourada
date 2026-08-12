@@ -28,7 +28,9 @@ class TableSession extends ChangeNotifier {
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _subscription;
   Timer? _reconnectTimer;
+  Timer? _heartbeatTimer;
   bool _disposed = false;
+  bool _presencePaused = false;
   bool _applyingRemoteState = false;
   bool _startingNewMatch = false;
   bool _ignoreNextSocketState = false;
@@ -82,6 +84,22 @@ class TableSession extends ChangeNotifier {
     if (enabled && !_disposed) await _openSession(isReconnect: false);
   }
 
+  Future<void> pausePresence() async {
+    if (!enabled || _disposed || _presencePaused) return;
+    _presencePaused = true;
+    _reconnectTimer?.cancel();
+    _heartbeatTimer?.cancel();
+    connected = false;
+    if (!_disposed) notifyListeners();
+    await _closeChannel();
+  }
+
+  Future<void> resumePresence() async {
+    if (!enabled || _disposed || !_presencePaused) return;
+    _presencePaused = false;
+    await _openSession(isReconnect: true);
+  }
+
   void syncGame(DouradinhaGame game) {
     if (_applyingRemoteState || !connected || _channel == null) return;
     _channel!.sink.add(
@@ -93,7 +111,7 @@ class TableSession extends ChangeNotifier {
   }
 
   Future<void> _openSession({required bool isReconnect}) async {
-    if (_disposed || connecting || _startingNewMatch) return;
+    if (_disposed || _presencePaused || connecting || _startingNewMatch) return;
     connecting = true;
     errorMessage = null;
     notifyListeners();
@@ -161,10 +179,12 @@ class TableSession extends ChangeNotifier {
       onError: (_) => _handleSocketClosed(),
       cancelOnError: true,
     );
+    _startHeartbeat();
   }
 
   void _handleSocketMessage(dynamic rawMessage) {
     if (rawMessage is! String) return;
+    if (rawMessage == 'pong') return;
     final message = jsonDecode(rawMessage) as Map<String, dynamic>;
     if (message['type'] == 'state') {
       if (_ignoreNextSocketState) {
@@ -186,15 +206,19 @@ class TableSession extends ChangeNotifier {
   }
 
   void _handleSocketClosed() {
+    _heartbeatTimer?.cancel();
     if (_disposed || _startingNewMatch) return;
     connected = false;
     replacementBotActive = tableNumber != null;
     notifyListeners();
-    _scheduleReconnect();
+    if (!_presencePaused) _scheduleReconnect();
   }
 
   void _scheduleReconnect() {
-    if (_disposed || _startingNewMatch || _reconnectTimer?.isActive == true) {
+    if (_disposed ||
+        _presencePaused ||
+        _startingNewMatch ||
+        _reconnectTimer?.isActive == true) {
       return;
     }
     _reconnectTimer = Timer(
@@ -223,6 +247,8 @@ class TableSession extends ChangeNotifier {
   }
 
   Future<void> _closeChannel() async {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
     await _subscription?.cancel();
     _subscription = null;
     final channel = _channel;
@@ -230,10 +256,25 @@ class TableSession extends ChangeNotifier {
     if (channel != null) await channel.sink.close();
   }
 
+  void _startHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _sendHeartbeat();
+    _heartbeatTimer = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => _sendHeartbeat(),
+    );
+  }
+
+  void _sendHeartbeat() {
+    if (!connected || _presencePaused || _channel == null) return;
+    _channel!.sink.add('ping');
+  }
+
   @override
   void dispose() {
     _disposed = true;
     _reconnectTimer?.cancel();
+    _heartbeatTimer?.cancel();
     unawaited(_closeChannel());
     _client.close();
     super.dispose();
