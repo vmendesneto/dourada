@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:dourada/game/douradinha_game.dart';
+import 'package:dourada/online/table_session.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -18,6 +19,7 @@ class _GamePageState extends State<GamePage> {
   static const _savedGameKey = 'douradinha_partida_em_andamento_v1';
 
   late final DouradinhaGame game;
+  late final TableSession tableSession;
   late final Future<SharedPreferences> _preferences;
   Future<void> _saveQueue = Future.value();
   Timer? _automationTimer;
@@ -40,6 +42,7 @@ class _GamePageState extends State<GamePage> {
       DeviceOrientation.landscapeRight,
     ]);
     game = DouradinhaGame()..addListener(_onGameChanged);
+    tableSession = TableSession()..addListener(_onTableSessionChanged);
     _preferences = SharedPreferences.getInstance();
     unawaited(_restoreSavedGame());
   }
@@ -49,6 +52,9 @@ class _GamePageState extends State<GamePage> {
     _automationTimer?.cancel();
     _turnTicker?.cancel();
     _challengeNoticeTimer?.cancel();
+    tableSession
+      ..removeListener(_onTableSessionChanged)
+      ..dispose();
     game
       ..removeListener(_onGameChanged)
       ..dispose();
@@ -66,7 +72,21 @@ class _GamePageState extends State<GamePage> {
     _syncTurnClock();
     setState(() {});
     _persistGame();
+    tableSession.syncGame(game);
     _scheduleAutomation();
+  }
+
+  void _onTableSessionChanged() {
+    if (!mounted) return;
+    if (!tableSession.canPlayHere) {
+      _automationTimer?.cancel();
+      _automationScheduled = false;
+      _stopTurnClock();
+    } else if (!_restoringGame) {
+      _syncTurnClock();
+      _scheduleAutomation();
+    }
+    setState(() {});
   }
 
   Future<void> _restoreSavedGame() async {
@@ -79,6 +99,7 @@ class _GamePageState extends State<GamePage> {
           game.restoreState(Map<String, dynamic>.from(decoded));
         }
       }
+      await tableSession.initialize(game, preferences);
     } on Object {
       // Um salvamento antigo ou danificado não pode impedir o jogo de abrir.
     } finally {
@@ -130,7 +151,9 @@ class _GamePageState extends State<GamePage> {
   }
 
   void _syncTurnClock() {
-    if (!mounted || !game.canCurrentPlayerPlayCard) {
+    if (!mounted ||
+        !tableSession.canPlayHere ||
+        !game.canCurrentPlayerPlayCard) {
       _stopTurnClock();
       return;
     }
@@ -187,7 +210,12 @@ class _GamePageState extends State<GamePage> {
   }
 
   void _scheduleAutomation() {
-    if (!mounted || _restoringGame || _automationScheduled) return;
+    if (!mounted ||
+        _restoringGame ||
+        !tableSession.canPlayHere ||
+        _automationScheduled) {
+      return;
+    }
     if (game.phase == MatchPhase.gameOver ||
         game.challengeNotice != null ||
         game.humanTenDecisionPending ||
@@ -231,7 +259,7 @@ class _GamePageState extends State<GamePage> {
       body: SafeArea(
         child: Column(
           children: [
-            _ScoreBoard(game: game),
+            _ScoreBoard(game: game, tableSession: tableSession),
             Expanded(child: _buildTable()),
             _HumanControls(
               game: game,
@@ -337,7 +365,18 @@ class _GamePageState extends State<GamePage> {
             if (game.challengeNotice != null)
               Positioned.fill(child: _ChallengeNoticeOverlay(game: game)),
             if (game.phase == MatchPhase.gameOver)
-              Positioned.fill(child: _WinnerOverlay(game: game)),
+              Positioned.fill(
+                child: _WinnerOverlay(
+                  game: game,
+                  onPlayAgain: () => unawaited(
+                    tableSession.startNewMatch(game),
+                  ),
+                ),
+              ),
+            if (!tableSession.canPlayHere)
+              Positioned.fill(
+                child: _ReconnectingOverlay(tableSession: tableSession),
+              ),
           ],
         );
       },
@@ -346,9 +385,10 @@ class _GamePageState extends State<GamePage> {
 }
 
 class _ScoreBoard extends StatelessWidget {
-  const _ScoreBoard({required this.game});
+  const _ScoreBoard({required this.game, required this.tableSession});
 
   final DouradinhaGame game;
+  final TableSession tableSession;
 
   @override
   Widget build(BuildContext context) {
@@ -409,6 +449,27 @@ class _ScoreBoard extends StatelessWidget {
                     color: Colors.white,
                     fontWeight: FontWeight.w600,
                   ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Tooltip(
+            message: tableSession.errorMessage ?? tableSession.connectionLabel,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  tableSession.connected ? Icons.cloud_done : Icons.cloud_off,
+                  size: 16,
+                  color: tableSession.connected
+                      ? const Color(0xFF7CE0A3)
+                      : Colors.white54,
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  tableSession.connectionLabel,
+                  style: const TextStyle(color: Colors.white70, fontSize: 11),
                 ),
               ],
             ),
@@ -1422,9 +1483,10 @@ class _HandResultProgressState extends State<HandResultProgress>
 }
 
 class _WinnerOverlay extends StatelessWidget {
-  const _WinnerOverlay({required this.game});
+  const _WinnerOverlay({required this.game, required this.onPlayAgain});
 
   final DouradinhaGame game;
+  final VoidCallback onPlayAgain;
 
   @override
   Widget build(BuildContext context) {
@@ -1451,11 +1513,51 @@ class _WinnerOverlay extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             FilledButton.icon(
-              onPressed: game.restart,
+              onPressed: onPlayAgain,
               icon: const Icon(Icons.replay),
               label: const Text('JOGAR NOVAMENTE'),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReconnectingOverlay extends StatelessWidget {
+  const _ReconnectingOverlay({required this.tableSession});
+
+  final TableSession tableSession;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: Colors.black.withValues(alpha: .72),
+      child: Center(
+        child: Card(
+          color: const Color(0xFF123C30),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 14),
+                Text(
+                  'RECONECTANDO À MESA ${tableSession.tableNumber ?? ''}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Um robô está jogando no seu lugar.',
+                  style: TextStyle(color: Colors.white70),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

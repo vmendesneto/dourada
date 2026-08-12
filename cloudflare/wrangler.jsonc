@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dourada-mesas",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "GAME_TABLES",
+        "class_name": "GameTable"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["GameTable"]
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

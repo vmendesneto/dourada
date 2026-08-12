@@ -40,13 +40,36 @@ O GitHub Pages é atualizado automaticamente a cada envio para a branch `main`.
 - relógio individual de 15 segundos, reduzido para 12 e depois 8 segundos após
   estouros, com escolha automática de carta para a partida nunca travar;
 - interface responsiva em modo paisagem, consulta à ordem das manilhas e
-  destaque animado da carta vencedora.
+  destaque animado da carta vencedora;
+- mesa online persistente com número de seis dígitos e token privado salvo no
+  navegador;
+- reconexão automática à mesa enquanto a partida estiver em andamento;
+- robô substituto executado no servidor quando o jogador fecha ou deixa a
+  página, permitindo que a partida continue sem o navegador aberto;
+- criação automática de uma nova mesa quando a partida anterior já terminou.
 
 ## Executar
 
 ```sh
 flutter pub get
 flutter run
+```
+
+Para conectar o jogo local ao servidor de mesas:
+
+```sh
+flutter run --dart-define=DOURADA_SERVER_URL=https://SEU-WORKER.workers.dev
+```
+
+## Servidor Cloudflare
+
+O backend está em `cloudflare/` e usa um Durable Object SQLite para cada mesa.
+
+```sh
+cd cloudflare
+npm install
+npm run check
+npm run deploy
 ```
 
 ## Verificar

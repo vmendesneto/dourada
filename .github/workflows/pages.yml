@@ -38,7 +38,10 @@ jobs:
         uses: actions/configure-pages@v5
 
       - name: Compilar o jogo para Web
-        run: flutter build web --release --base-href /dourada/ --pwa-strategy=none
+        run: >-
+          flutter build web --release --base-href /dourada/
+          --pwa-strategy=none
+          --dart-define=DOURADA_SERVER_URL=${{ vars.DOURADA_SERVER_URL }}
 
       - name: Evitar versões antigas no cache do navegador
         run: |

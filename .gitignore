@@ -30,6 +30,8 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 /build/
+/cloudflare/node_modules/
+/cloudflare/.wrangler/
 
 # Symbolication related
 app.*.symbols
