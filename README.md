@@ -23,8 +23,9 @@ O GitHub Pages é atualizado automaticamente a cada envio para a branch `main`.
   corresponda a quatro pedrinhas;
 - aumentos alternados obrigatoriamente entre os trios;
 - diálogo informando quando o trio adversário aceita o desafio ou corre;
-- mão de dez aos 10 pontos (cinco pedrinhas), consulta às cartas do trio e
-  desistência cedendo 2 pontos;
+- mão de dez aos 10 pontos (cinco pedrinhas), com escolha de jogar valendo 4
+  ou correr cedendo 2 pontos; Truco e aumentos são proibidos para ambos os
+  trios nessa mão;
 - robôs adversários que desafiam, aceitam, aumentam e blefam;
 - decisão estatística e coletiva dos robôs: cada parceiro sinaliza se corre,
   aceita ou aumenta usando apenas a própria mão e as cartas já abertas, sem

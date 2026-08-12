@@ -383,11 +383,11 @@ class DouradinhaGame extends ChangeNotifier {
 
     trickLeaderIndex = (dealerIndex + 1) % players.length;
     currentPlayerIndex = trickLeaderIndex;
-    handValue = isTenHand ? 3 : 1;
+    handValue = isTenHand ? 2 : 1;
     _tenDecisionMade[0] = scores[0] != 10;
     _tenDecisionMade[1] = scores[1] != 10;
     statusMessage = isTenHand
-        ? 'Mão de dez: sem desafios, valendo 6.'
+        ? 'Mão de dez: sem desafios, valendo 4.'
         : 'Nova disputa: ${players[currentPlayerIndex].name} começa.';
     _addHistory(statusMessage);
     notifyListeners();

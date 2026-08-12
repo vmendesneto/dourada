@@ -1103,7 +1103,7 @@ class _TenHandOverlay extends StatelessWidget {
                         fontWeight: FontWeight.w900)),
                 const SizedBox(height: 6),
                 const Text(
-                  'As cartas dos parceiros estão abertas para consulta.\nSem desafios; jogando, a mão vale 6.',
+                  'As cartas dos parceiros estão abertas para consulta.\nSem Truco ou aumentos; jogando, a mão vale 4.',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.white70),
                 ),

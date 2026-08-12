@@ -196,7 +196,67 @@ void main() {
 
       expect(game.isTenHand, isTrue);
       expect(game.humanTenDecisionPending, isTrue);
-      expect(game.handValue, 3);
+      expect(game.handValue, 2);
+      expect(DouradinhaGame.scorePointsForHandValue(game.handValue), 4);
+    });
+
+    test('correr na mão de dez entrega dois pontos ao rival', () {
+      final game = DouradinhaGame(random: Random(14));
+      game.scores[0] = 10;
+      game.phase = MatchPhase.handFinished;
+      game.startNextHand();
+
+      game.foldHumanTenHand();
+
+      expect(game.phase, MatchPhase.handFinished);
+      expect(game.scores[1], 2);
+      expect(game.lastHandPoints, 2);
+      expect(game.lastHandWinner, 1);
+    });
+
+    test('jogar e perder a mão de dez entrega quatro sem permitir truco', () {
+      final game = DouradinhaGame(random: Random(15));
+      game.scores[0] = 10;
+      game.phase = MatchPhase.handFinished;
+      game.startNextHand();
+
+      for (final player in game.players) {
+        player.hand
+          ..clear()
+          ..addAll(
+            player.team == 0
+                ? const [
+                    PlayingCard('4', 'o'),
+                    PlayingCard('5', 'o'),
+                    PlayingCard('6', 'o'),
+                  ]
+                : const [
+                    PlayingCard('Q', 'o'),
+                    PlayingCard('J', 'p'),
+                    PlayingCard('2', 'p'),
+                  ],
+          );
+      }
+
+      game.chooseToPlayTenHand();
+      var safety = 0;
+      while (game.phase == MatchPhase.playing && safety++ < 30) {
+        expect(game.pendingChallenge, isNull);
+        if (game.awaitingNextTrick) {
+          game.beginNextTrick();
+        } else if (game.isHumanTurn) {
+          expect(game.canHumanChallenge, isFalse);
+          game.playHumanCard(game.players[0].hand.first);
+        } else {
+          game.takeBotTurn();
+        }
+      }
+
+      expect(game.phase, MatchPhase.handFinished);
+      expect(game.lastHandWinner, 1);
+      expect(game.lastHandPoints, 4);
+      expect(game.scores[1], 4);
+      expect(game.pendingChallenge, isNull);
     });
 
     test('alterna o direito de aumentar entre os trios', () {
