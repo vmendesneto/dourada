@@ -87,6 +87,7 @@ class TableEntry {
     required this.seatIndex,
     required this.phase,
     required this.seats,
+    this.waitingStartAt,
     this.gameState,
   });
 
@@ -97,6 +98,7 @@ class TableEntry {
   final int seatIndex;
   final LobbyTablePhase phase;
   final List<LobbySeat?> seats;
+  final DateTime? waitingStartAt;
   final Object? gameState;
 
   bool get online => serverUrl.isNotEmpty;
@@ -116,9 +118,13 @@ class TableEntry {
                   : LobbySeat.fromJson(Map<String, dynamic>.from(seat as Map)),
             )
             .toList(growable: false),
+        waitingStartAt: _dateTimeFromMilliseconds(json['waitingStartAt']),
         gameState: json['gameState'],
       );
 }
+
+DateTime? _dateTimeFromMilliseconds(Object? value) =>
+    value is num ? DateTime.fromMillisecondsSinceEpoch(value.toInt()) : null;
 
 class LobbyService {
   LobbyService({http.Client? client, String? serverUrl})

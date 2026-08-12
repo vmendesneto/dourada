@@ -427,14 +427,43 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   }
 }
 
-class _WaitingRoom extends StatelessWidget {
+class _WaitingRoom extends StatefulWidget {
   const _WaitingRoom({required this.session, required this.onBack});
 
   final TableSession session;
   final VoidCallback onBack;
 
   @override
+  State<_WaitingRoom> createState() => _WaitingRoomState();
+}
+
+class _WaitingRoomState extends State<_WaitingRoom> {
+  Timer? _countdownTicker;
+
+  TableSession get session => widget.session;
+
+  @override
+  void initState() {
+    super.initState();
+    _countdownTicker = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      if (mounted && session.waitingStartAt != null) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _countdownTicker?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final countdownEnd = session.waitingStartAt;
+    final remainingMilliseconds = countdownEnd == null
+        ? 0
+        : countdownEnd.difference(DateTime.now()).inMilliseconds.clamp(0, 5000);
+    final countdownSeconds = (remainingMilliseconds / 1000).ceil();
+    final countdownProgress = remainingMilliseconds / 5000;
     return Scaffold(
       backgroundColor: const Color(0xFF032C21),
       body: SafeArea(
@@ -457,7 +486,7 @@ class _WaitingRoom extends StatelessWidget {
                       children: [
                         IconButton(
                           tooltip: 'Voltar ao lobby',
-                          onPressed: onBack,
+                          onPressed: widget.onBack,
                           color: Colors.white,
                           icon: const Icon(Icons.arrow_back_rounded),
                         ),
@@ -538,18 +567,68 @@ class _WaitingRoom extends StatelessWidget {
                       }),
                     ),
                     const SizedBox(height: 24),
+                    if (countdownEnd != null) ...[
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFC857).withValues(alpha: .12),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: const Color(0xFFFFC857)),
+                        ),
+                        child: Column(
+                          children: [
+                            Text(
+                              '6 HUMANOS CONECTADOS',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(
+                                    color: const Color(0xFFFFC857),
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                            ),
+                            const SizedBox(height: 5),
+                            Text(
+                              'A partida começa em $countdownSeconds ${countdownSeconds == 1 ? 'segundo' : 'segundos'}.',
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                            const SizedBox(height: 10),
+                            LinearProgressIndicator(
+                              key: const ValueKey('contagem-seis-humanos'),
+                              value: countdownProgress,
+                              minHeight: 7,
+                              borderRadius: BorderRadius.circular(4),
+                              color: const Color(0xFFFFC857),
+                              backgroundColor: Colors.white12,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ] else if (session.missingPlayers == 0) ...[
+                      const Text(
+                        'Aguardando os 6 jogadores estarem conectados para iniciar a contagem.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Color(0xFFFFC857)),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                     SizedBox(
                       width: double.infinity,
                       height: 52,
                       child: FilledButton.icon(
                         key: const ValueKey('colocar-robos'),
-                        onPressed: session.connecting
-                            ? null
-                            : session.fillRemainingWithBots,
+                        onPressed:
+                            session.connecting || session.missingPlayers == 0
+                                ? null
+                                : session.fillRemainingWithBots,
                         icon: const Icon(Icons.smart_toy_rounded),
                         label: Text(
                           session.missingPlayers == 0
-                              ? 'INICIAR NOVA PARTIDA'
+                              ? countdownEnd == null
+                                  ? 'AGUARDANDO CONEXÃO DOS JOGADORES'
+                                  : 'INÍCIO AUTOMÁTICO EM $countdownSeconds'
                               : session.missingPlayers == 1
                                   ? 'COLOCAR 1 ROBÔ E INICIAR'
                                   : 'COLOCAR ${session.missingPlayers} ROBÔS E INICIAR',

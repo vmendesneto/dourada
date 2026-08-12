@@ -29,6 +29,7 @@ interface SharedTableState {
   seats: Array<TableSeat | null>;
   gameState: GameState | null;
   nextActionAt: number | null;
+  waitingStartAt: number | null;
   updatedAt: number;
 }
 
@@ -225,6 +226,7 @@ export class GameTable extends DurableObject<Env> {
         await this.ctx.storage.deleteAll();
         return;
       }
+      this.syncWaitingCountdown(table, now, activeHumans);
       table.updatedAt = now;
       await this.saveAndSchedule(table);
       this.broadcast(table);
@@ -314,7 +316,6 @@ export class GameTable extends DurableObject<Env> {
     };
     table.updatedAt = now;
 
-    if (table.seats.every((seat) => seat !== null)) this.startGame(table);
     await this.saveAndSchedule(table);
     this.broadcast(table);
     return Response.json(this.entry(table, seatIndex), { status: 201 });
@@ -391,6 +392,7 @@ export class GameTable extends DurableObject<Env> {
       };
     } else {
       table.seats[seatIndex] = null;
+      table.waitingStartAt = null;
     }
 
     const hasHuman = table.seats.some((seat) => seat?.kind === "human");
@@ -437,6 +439,8 @@ export class GameTable extends DurableObject<Env> {
     table.updatedAt = Date.now();
     if (table.phase === "playing") {
       table.nextActionAt = this.nextActionAt(table, this.activeHumanSeats());
+    } else if (table.phase === "waiting") {
+      this.syncWaitingCountdown(table, table.updatedAt, this.activeHumanSeats());
     }
     await this.saveAndSchedule(table);
     server.send(JSON.stringify(this.roomMessage(table, seatIndex)));
@@ -449,7 +453,9 @@ export class GameTable extends DurableObject<Env> {
     if (!attachment) return;
     const table = await this.load();
     if (!this.validHuman(table, attachment.seatIndex, attachment.token)) return;
+    if (this.activeHumanSeats().has(attachment.seatIndex)) return;
     table.seats[attachment.seatIndex]!.disconnectedAt = Date.now();
+    if (table.phase === "waiting") table.waitingStartAt = null;
     table.updatedAt = Date.now();
     await this.saveAndSchedule(table);
     this.broadcast(table, socket);
@@ -458,6 +464,7 @@ export class GameTable extends DurableObject<Env> {
   private startGame(table: SharedTableState): void {
     table.phase = "playing";
     table.gameState = createInitialGame();
+    table.waitingStartAt = null;
     table.updatedAt = Date.now();
     table.nextActionAt = this.nextActionAt(table, this.activeHumanSeats());
   }
@@ -466,6 +473,7 @@ export class GameTable extends DurableObject<Env> {
     table.phase = "waiting";
     table.gameState = null;
     table.nextActionAt = null;
+    table.waitingStartAt = null;
     table.seats = table.seats.map((seat) =>
       seat?.kind === "human" ? seat : null,
     );
@@ -480,6 +488,7 @@ export class GameTable extends DurableObject<Env> {
       phase: table.phase,
       seats: publicSeats(table),
       gameState: table.gameState,
+      waitingStartAt: table.waitingStartAt,
       status: this.status(table),
     };
   }
@@ -495,6 +504,7 @@ export class GameTable extends DurableObject<Env> {
       botCount,
       capacity: seatCount,
       seats: publicSeats(table),
+      waitingStartAt: table.waitingStartAt,
     };
   }
 
@@ -506,6 +516,7 @@ export class GameTable extends DurableObject<Env> {
       seatIndex,
       seats: publicSeats(table),
       gameState: table.gameState,
+      waitingStartAt: table.waitingStartAt,
     };
   }
 
@@ -617,6 +628,22 @@ export class GameTable extends DurableObject<Env> {
     );
   }
 
+  private syncWaitingCountdown(
+    table: SharedTableState,
+    now: number,
+    activeHumans: Set<number>,
+  ): void {
+    const sixConnectedHumans =
+      activeHumans.size === seatCount &&
+      table.seats.every((seat) => seat?.kind === "human");
+    if (!sixConnectedHumans) {
+      table.waitingStartAt = null;
+      return;
+    }
+    table.waitingStartAt ??= now + 5000;
+    if (now >= table.waitingStartAt) this.startGame(table);
+  }
+
   private validHuman(table: SharedTableState, seatIndex: number, token: string): boolean {
     const seat = table.seats[seatIndex];
     return seat?.kind === "human" && seat.token === token;
@@ -624,7 +651,10 @@ export class GameTable extends DurableObject<Env> {
 
   private async load(requestedTableNumber?: number): Promise<SharedTableState> {
     const stored = await this.ctx.storage.get<SharedTableState>("table");
-    if (stored?.version === 2) return stored;
+    if (stored?.version === 2) {
+      stored.waitingStartAt ??= null;
+      return stored;
+    }
     const tableNumber = requestedTableNumber ?? 1;
     return {
       version: 2,
@@ -633,6 +663,7 @@ export class GameTable extends DurableObject<Env> {
       seats: Array.from({ length: seatCount }, () => null),
       gameState: null,
       nextActionAt: null,
+      waitingStartAt: null,
       updatedAt: Date.now(),
     };
   }
@@ -642,6 +673,9 @@ export class GameTable extends DurableObject<Env> {
     const now = Date.now();
     let alarmAt = now + connectionCheckMs;
     if (table.nextActionAt !== null) alarmAt = Math.min(alarmAt, table.nextActionAt);
+    if (table.waitingStartAt !== null) {
+      alarmAt = Math.min(alarmAt, table.waitingStartAt);
+    }
     await this.ctx.storage.setAlarm(alarmAt);
   }
 }

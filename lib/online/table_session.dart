@@ -25,6 +25,7 @@ class TableSession extends ChangeNotifier {
       seatIndex = entry!.seatIndex;
       phase = entry!.phase;
       seats = entry!.seats;
+      waitingStartAt = entry!.waitingStartAt;
     }
   }
 
@@ -50,6 +51,7 @@ class TableSession extends ChangeNotifier {
   int seatIndex = 0;
   LobbyTablePhase phase = LobbyTablePhase.playing;
   List<LobbySeat?> seats = List<LobbySeat?>.filled(6, null);
+  DateTime? waitingStartAt;
   String? errorMessage;
   bool connecting = false;
   bool connected = false;
@@ -157,6 +159,7 @@ class TableSession extends ChangeNotifier {
     seatIndex = value.seatIndex;
     phase = value.phase;
     seats = value.seats;
+    waitingStartAt = value.waitingStartAt;
     _configureSeats();
     _restoreRemoteState(value.gameState);
   }
@@ -169,6 +172,10 @@ class TableSession extends ChangeNotifier {
             ? null
             : LobbySeat.fromJson(Map<String, dynamic>.from(value as Map)))
         .toList(growable: false);
+    final countdownValue = payload['waitingStartAt'];
+    waitingStartAt = countdownValue is num
+        ? DateTime.fromMillisecondsSinceEpoch(countdownValue.toInt())
+        : null;
     _configureSeats();
     _restoreRemoteState(payload['gameState']);
   }
