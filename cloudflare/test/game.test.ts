@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   advanceBot,
   cardStrength,
+  createInitialGame,
   resolveDisputeWinner,
   resolveTrickWinner,
   scorePoints,
@@ -40,6 +41,16 @@ const fixture = (): GameState => ({
 });
 
 describe("motor do robô substituto", () => {
+  it("permite que qualquer cadeira sorteada abra a primeira mão", () => {
+    for (let firstPlayerIndex = 0; firstPlayerIndex < 6; firstPlayerIndex += 1) {
+      const game = createInitialGame(firstPlayerIndex);
+
+      expect(game.currentPlayerIndex).toBe(firstPlayerIndex);
+      expect(game.trickLeaderIndex).toBe(firstPlayerIndex);
+      expect(game.dealerIndex).toBe((firstPlayerIndex + 5) % 6);
+    }
+  });
+
   it("usa a mesma hierarquia e pontuação do Flutter", () => {
     expect(cardStrength("Qo")).toBe(19);
     expect(cardStrength("7o")).toBe(11);

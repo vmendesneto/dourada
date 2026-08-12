@@ -69,8 +69,19 @@ void main() {
   });
 
   group('partida', () {
+    test('sorteia entre as seis cadeiras quem abre a primeira mão', () {
+      final starters = {
+        for (var seed = 0; seed < 100; seed++)
+          DouradinhaGame(random: Random(seed)).currentPlayerIndex,
+      };
+
+      expect(starters, unorderedEquals({0, 1, 2, 3, 4, 5}));
+    });
+
     test('restaura a mesma partida depois de recarregar a página', () {
       final original = DouradinhaGame(random: Random(41));
+      original.currentPlayerIndex = original.humanPlayerIndex;
+      original.trickLeaderIndex = original.humanPlayerIndex;
       original.playHumanCard(original.players[0].hand.first);
       original.autoPlayCurrentPlayerOnTimeout();
       final snapshot = jsonEncode(original.toJson());
@@ -172,8 +183,13 @@ void main() {
 
     test('o pé acompanha quem será o último a jogar em cada mão', () {
       final game = DouradinhaGame(random: Random(17));
-      expect(game.trickLeaderIndex, 0);
-      expect(game.footIndex, 5);
+      expect(
+        game.footIndex,
+        DouradinhaGame.lastPlayerForLeader(
+          leaderIndex: game.trickLeaderIndex,
+          playerCount: game.players.length,
+        ),
+      );
 
       game.trickLeaderIndex = 4;
       expect(game.footIndex, 3);
@@ -354,6 +370,8 @@ void main() {
       DouradinhaGame? gameWithNotice;
       for (var seed = 0; seed < 100; seed++) {
         final candidate = DouradinhaGame(random: Random(seed));
+        candidate.currentPlayerIndex = candidate.humanPlayerIndex;
+        candidate.trickLeaderIndex = candidate.humanPlayerIndex;
         candidate.requestHumanChallenge();
         candidate.resolveBotChallenge();
         if (candidate.challengeNotice != null) {
@@ -400,6 +418,8 @@ void main() {
 
     test('trio de robôs conversa e corre quando todos estão fracos', () {
       final game = DouradinhaGame(random: Random(29));
+      game.currentPlayerIndex = game.humanPlayerIndex;
+      game.trickLeaderIndex = game.humanPlayerIndex;
       for (final player in game.players.where((player) => player.team == 1)) {
         player.hand
           ..clear()
@@ -422,6 +442,8 @@ void main() {
 
     test('trio não corre quando ceder os pontos encerra a partida', () {
       final game = DouradinhaGame(random: Random(37));
+      game.currentPlayerIndex = game.humanPlayerIndex;
+      game.trickLeaderIndex = game.humanPlayerIndex;
       game.scores[0] = 4;
       game.handValue = 4;
       game.lastChallengeTeam = 1;
@@ -485,6 +507,8 @@ void main() {
       var raises = 0;
       for (var seed = 0; seed < 100; seed++) {
         final game = DouradinhaGame(random: Random(seed));
+        game.currentPlayerIndex = game.humanPlayerIndex;
+        game.trickLeaderIndex = game.humanPlayerIndex;
         final strongCards = <int, List<PlayingCard>>{
           1: const [PlayingCard('Q', 'o')],
           3: const [PlayingCard('J', 'p')],
@@ -509,6 +533,8 @@ void main() {
       DouradinhaGame? gameWithoutFirstRequest;
       for (var seed = 0; seed < 100; seed++) {
         final game = DouradinhaGame(random: Random(seed));
+        game.currentPlayerIndex = game.humanPlayerIndex;
+        game.trickLeaderIndex = game.humanPlayerIndex;
         game.playHumanCard(game.players[0].hand.first);
         game.takeBotTurn();
         if (game.pendingChallenge == null) {
@@ -533,14 +559,14 @@ void main() {
       expect(DouradinhaGame.timeLimitAfterTimeouts(5), 8);
 
       final game = DouradinhaGame(random: Random(19));
-      expect(game.currentPlayerIndex, 0);
-      expect(game.players[0].hand, hasLength(3));
+      final timedOutPlayer = game.currentPlayerIndex;
+      expect(game.players[timedOutPlayer].hand, hasLength(3));
 
       game.autoPlayCurrentPlayerOnTimeout();
 
-      expect(game.players[0].hand, hasLength(2));
-      expect(game.timeoutCountFor(0), 1);
-      expect(game.timeLimitSecondsFor(0), 12);
+      expect(game.players[timedOutPlayer].hand, hasLength(2));
+      expect(game.timeoutCountFor(timedOutPlayer), 1);
+      expect(game.timeLimitSecondsFor(timedOutPlayer), 12);
       expect(
         game.history.any((entry) => entry.contains('automaticamente')),
         isTrue,

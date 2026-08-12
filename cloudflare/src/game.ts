@@ -54,7 +54,9 @@ const suits = ["o", "e", "c", "p"];
 export const fullDeck = (): string[] =>
   ranks.flatMap((rank) => suits.map((suit) => `${rank}${suit}`));
 
-export function createInitialGame(): GameState {
+export function createInitialGame(
+  firstPlayerIndex = randomPlayerIndex(),
+): GameState {
   const game: GameState = {
     version: 1,
     scores: [0, 0],
@@ -66,11 +68,11 @@ export function createInitialGame(): GameState {
     tenDecisionMade: [true, true],
     botChallengeConsideredThisTrick: [false, false],
     automaticTimeouts: [0, 0, 0, 0, 0, 0],
-    // dealHand gira o carteador antes de distribuir. Começando em 4, a
-    // primeira partida mantém a cadeira 5 como carteador e a cadeira 0 abre.
-    dealerIndex: 4,
-    trickLeaderIndex: 0,
-    currentPlayerIndex: 0,
+    // dealHand gira o carteador antes de distribuir. Esta posição faz com que
+    // a cadeira sorteada seja a primeira a jogar após esse giro.
+    dealerIndex: (firstPlayerIndex + 4) % 6,
+    trickLeaderIndex: firstPlayerIndex,
+    currentPlayerIndex: firstPlayerIndex,
     handValue: 1,
     nextTrickLeader: null,
     matchWinner: null,
@@ -89,6 +91,12 @@ export function createInitialGame(): GameState {
   };
   dealHand(game);
   return game;
+}
+
+function randomPlayerIndex(): number {
+  const random = new Uint32Array(1);
+  crypto.getRandomValues(random);
+  return random[0] % 6;
 }
 
 export function cardStrength(code: string): number {

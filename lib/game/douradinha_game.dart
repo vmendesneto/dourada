@@ -541,7 +541,8 @@ class DouradinhaGame extends ChangeNotifier {
       ..addAll([0, 0]);
     history.clear();
     _automaticTimeouts.fillRange(0, _automaticTimeouts.length, 0);
-    dealerIndex = 5;
+    final firstPlayerIndex = _random.nextInt(players.length);
+    dealerIndex = (firstPlayerIndex + players.length - 1) % players.length;
     matchWinner = null;
     _dealHand(rotateDealer: false);
   }

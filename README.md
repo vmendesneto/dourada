@@ -16,6 +16,7 @@ O GitHub Pages é atualizado automaticamente a cada envio para a branch `main`.
   mão para indicar quem será o último a jogar;
 - até três mãos por disputa, incluindo as regras de empate;
 - primeira mão como desempate e disputa sem tentos quando as três mãos empatam;
+- sorteio entre as seis cadeiras para definir quem abre a primeira mão da partida;
 - vencedor da mão abrindo a seguinte; em empate, permanece quem abriu a mão;
 - placar visual até 12 pontos, representando as seis pedrinhas reais;
 - mão normal, Truco, Vale 6, Vale 9 e Vale 12 somando respectivamente
