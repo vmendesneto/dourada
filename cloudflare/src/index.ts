@@ -42,6 +42,7 @@ export default {
       const payload = (await request.json().catch(() => ({}))) as Record<string, unknown>;
       const requestedTable = typeof payload.tableNumber === "string" ? payload.tableNumber : null;
       const requestedToken = typeof payload.playerToken === "string" ? payload.playerToken : null;
+      let previousSessionEnded = false;
       if (requestedTable && requestedToken && /^\d{6}$/.test(requestedTable)) {
         const resumed = await tableStub(env, requestedTable).fetch(
           new Request("https://table.internal/session", {
@@ -53,6 +54,7 @@ export default {
           const result = (await resumed.json()) as Record<string, unknown>;
           return json(request, withConnectionUrl(url, requestedTable, result));
         }
+        previousSessionEnded = resumed.status === 410;
       }
 
       if (!isGameState(payload.gameState)) {
@@ -70,7 +72,14 @@ export default {
         if (created.status === 409) continue;
         if (!created.ok) return json(request, { error: "Não foi possível criar a mesa." }, 503);
         const result = (await created.json()) as Record<string, unknown>;
-        return json(request, withConnectionUrl(url, tableNumber, result), 201);
+        return json(
+          request,
+          {
+            ...withConnectionUrl(url, tableNumber, result),
+            previousSessionEnded,
+          },
+          201,
+        );
       }
       return json(request, { error: "Não foi possível reservar um número de mesa." }, 503);
     }

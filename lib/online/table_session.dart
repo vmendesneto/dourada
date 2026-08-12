@@ -139,9 +139,10 @@ class TableSession extends ChangeNotifier {
       websocketUrl = payload['websocketUrl'] as String;
       await _saveCredentials();
 
-      final createdAfterOldTable =
-          response.statusCode == 201 && previousTable != null;
-      if (createdAfterOldTable) {
+      final createdAfterEndedTable = response.statusCode == 201 &&
+          previousTable != null &&
+          payload['previousSessionEnded'] == true;
+      if (createdAfterEndedTable) {
         // A mesa anterior terminou enquanto o usuário estava fora. A nova mesa
         // começa zerada, como uma nova partida de verdade.
         _game!.restart();
@@ -150,7 +151,7 @@ class TableSession extends ChangeNotifier {
         _restoreRemoteState(payload['gameState']);
       }
       await _connectSocket();
-      if (createdAfterOldTable) syncGame(_game!);
+      if (createdAfterEndedTable) syncGame(_game!);
     } on Object {
       connected = false;
       replacementBotActive = previousTable != null;
