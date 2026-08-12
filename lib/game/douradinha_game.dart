@@ -205,6 +205,17 @@ class DouradinhaGame extends ChangeNotifier {
     return min(trickWinners.length + 1, 3);
   }
 
+  int get footIndex => lastPlayerForLeader(
+        leaderIndex: trickLeaderIndex,
+        playerCount: players.length,
+      );
+
+  static int lastPlayerForLeader({
+    required int leaderIndex,
+    required int playerCount,
+  }) =>
+      (leaderIndex + playerCount - 1) % playerCount;
+
   bool get canHumanChallenge =>
       isHumanTurn &&
       !isTenHand &&

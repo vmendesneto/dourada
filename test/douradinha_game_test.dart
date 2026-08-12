@@ -142,6 +142,22 @@ void main() {
         ),
         3,
       );
+      expect(
+        DouradinhaGame.lastPlayerForLeader(
+          leaderIndex: 4,
+          playerCount: 6,
+        ),
+        3,
+      );
+    });
+
+    test('o pé acompanha quem será o último a jogar em cada mão', () {
+      final game = DouradinhaGame(random: Random(17));
+      expect(game.trickLeaderIndex, 0);
+      expect(game.footIndex, 5);
+
+      game.trickLeaderIndex = 4;
+      expect(game.footIndex, 3);
     });
 
     test('aplica os desempates da disputa', () {

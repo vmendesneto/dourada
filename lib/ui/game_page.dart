@@ -273,7 +273,7 @@ class _GamePageState extends State<GamePage> {
             Positioned(
               left: 18,
               bottom: 8,
-              child: _DealerLegend(game: game),
+              child: _FootLegend(game: game),
             ),
             const Positioned(
               right: 18,
@@ -522,7 +522,7 @@ class _BotSeat extends StatelessWidget {
                     fontWeight: FontWeight.bold,
                     fontSize: 12),
               ),
-              if (game.dealerIndex == playerIndex)
+              if (game.footIndex == playerIndex)
                 const Padding(
                   padding: EdgeInsets.only(left: 5),
                   child: Text('PÉ',
@@ -755,7 +755,7 @@ class _HumanControls extends StatelessWidget {
                   width: 105,
                 ),
               ],
-              if (game.dealerIndex == 0)
+              if (game.footIndex == 0)
                 const Text('PÉ',
                     style: TextStyle(color: Colors.white38, fontSize: 10)),
             ],
@@ -1413,15 +1413,15 @@ class _WinnerOverlay extends StatelessWidget {
   }
 }
 
-class _DealerLegend extends StatelessWidget {
-  const _DealerLegend({required this.game});
+class _FootLegend extends StatelessWidget {
+  const _FootLegend({required this.game});
 
   final DouradinhaGame game;
 
   @override
   Widget build(BuildContext context) {
     return Text(
-      'Pé: ${game.players[game.dealerIndex].name}',
+      'Pé da mão: ${game.players[game.footIndex].name}',
       style: const TextStyle(color: Colors.white54, fontSize: 10),
     );
   }

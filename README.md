@@ -12,7 +12,8 @@ O GitHub Pages é atualizado automaticamente a cada envio para a branch `main`.
 
 - baralho de 40 cartas (sem 8, 9 e 10);
 - nove manilhas fixas, do 7 de Ouros até a Dama de Ouros;
-- distribuição de três cartas para cada participante e rodízio do pé;
+- distribuição de três cartas para cada participante e pé atualizado em cada
+  mão para indicar quem será o último a jogar;
 - até três mãos por disputa, incluindo as regras de empate;
 - primeira mão como desempate e disputa sem tentos quando as três mãos empatam;
 - vencedor da mão abrindo a seguinte; em empate, permanece quem abriu a mão;
