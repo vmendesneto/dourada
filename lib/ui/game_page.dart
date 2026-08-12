@@ -1316,15 +1316,11 @@ class _HandResultOverlay extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 5),
-                      TweenAnimationBuilder<double>(
-                        tween: Tween(begin: 1, end: 0),
-                        duration: DouradinhaGame.handResultDisplayDuration,
-                        builder: (context, value, _) => LinearProgressIndicator(
-                          value: value,
-                          minHeight: 4,
-                          color: teamColor,
-                          backgroundColor: Colors.white12,
+                      HandResultProgress(
+                        key: ValueKey(
+                          'resultado-${game.playedCards.length}-$completedHand-${game.phase.name}',
                         ),
+                        color: teamColor,
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -1343,6 +1339,62 @@ class _HandResultOverlay extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class HandResultProgress extends StatefulWidget {
+  const HandResultProgress({
+    super.key,
+    required this.color,
+    this.duration = DouradinhaGame.handResultDisplayDuration,
+  });
+
+  final Color color;
+  final Duration duration;
+
+  @override
+  State<HandResultProgress> createState() => _HandResultProgressState();
+}
+
+class _HandResultProgressState extends State<HandResultProgress>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: widget.duration)
+      ..forward(from: 0);
+  }
+
+  @override
+  void didUpdateWidget(covariant HandResultProgress oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.duration != widget.duration) {
+      _controller.duration = widget.duration;
+      _controller.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) => LinearProgressIndicator(
+        key: const ValueKey('barra-resultado-mao'),
+        value: 1 - _controller.value,
+        minHeight: 7,
+        borderRadius: BorderRadius.circular(4),
+        color: widget.color,
+        backgroundColor: Colors.white12,
       ),
     );
   }
