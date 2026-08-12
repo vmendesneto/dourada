@@ -551,6 +551,8 @@ void main() {
   testWidgets('abre a mesa com um humano e os cinco robôs', (tester) async {
     await tester.pumpWidget(const DouradinhaApp());
     await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
+    await tester.pumpAndSettle();
 
     expect(find.text('VOCÊ'), findsOneWidget);
     for (var index = 1; index <= 5; index++) {

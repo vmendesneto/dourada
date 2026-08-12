@@ -1,4 +1,4 @@
-import 'package:dourada/ui/game_page.dart';
+import 'package:dourada/ui/lobby_page.dart';
 import 'package:flutter/material.dart';
 
 void main() {
@@ -21,7 +21,7 @@ class DouradinhaApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const GamePage(),
+      home: const LobbyPage(),
     );
   }
 }

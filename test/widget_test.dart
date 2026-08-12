@@ -4,11 +4,31 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('inicia a mesa da Douradinha', (tester) async {
+  testWidgets('lobby se adapta a uma tela estreita', (tester) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     await tester.pumpWidget(const DouradinhaApp());
     await tester.pump();
 
-    expect(find.text('VOCÊ'), findsOneWidget);
+    expect(find.text('ENTRAR EM UMA MESA'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('abre o lobby e só entra na mesa depois do clique',
+      (tester) async {
+    await tester.pumpWidget(const DouradinhaApp());
+    await tester.pump();
+
+    expect(find.text('ENTRAR EM UMA MESA'), findsOneWidget);
+    expect(find.text('TRUCO!'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('VOCÊ'), findsWidgets);
     expect(find.text('TRUCO!'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
