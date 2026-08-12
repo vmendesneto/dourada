@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 enum LobbyTablePhase { empty, waiting, playing }
 
@@ -141,6 +143,7 @@ class LobbyService {
 
   final http.Client _client;
   final String serverUrl;
+  WebSocketChannel? _lobbyChannel;
 
   bool get enabled => serverUrl.isNotEmpty;
 
@@ -152,7 +155,38 @@ class LobbyService {
     if (response.statusCode != 200) {
       throw StateError('Servidor respondeu ${response.statusCode}.');
     }
-    final payload = jsonDecode(response.body) as Map<String, dynamic>;
+    return decodeTables(response.body);
+  }
+
+  Stream<List<LobbyTable>> watchTables() async* {
+    if (!enabled) {
+      yield _localTables();
+      return;
+    }
+    final serverUri = Uri.parse(serverUrl);
+    final websocketUri = serverUri.replace(
+      scheme: serverUri.scheme == 'https' ? 'wss' : 'ws',
+      path: '${serverUri.path}/api/lobby/connect',
+    );
+    final channel = WebSocketChannel.connect(websocketUri);
+    _lobbyChannel = channel;
+    try {
+      await channel.ready.timeout(const Duration(seconds: 12));
+      await for (final rawMessage in channel.stream) {
+        if (rawMessage is! String) continue;
+        yield decodeTables(rawMessage);
+      }
+    } finally {
+      if (identical(_lobbyChannel, channel)) _lobbyChannel = null;
+      await channel.sink.close();
+    }
+  }
+
+  static List<LobbyTable> decodeTables(String rawMessage) {
+    final payload = jsonDecode(rawMessage) as Map<String, dynamic>;
+    if (payload['tables'] is! List<Object?>) {
+      throw const FormatException('Atualização do lobby inválida.');
+    }
     return (payload['tables'] as List<Object?>)
         .map((value) =>
             LobbyTable.fromJson(Map<String, dynamic>.from(value as Map)))
@@ -274,7 +308,12 @@ class LobbyService {
     ]);
   }
 
-  void dispose() => _client.close();
+  void dispose() {
+    final channel = _lobbyChannel;
+    _lobbyChannel = null;
+    if (channel != null) unawaited(channel.sink.close());
+    _client.close();
+  }
 
   static List<LobbyTable> _localTables() => List.generate(
         10,

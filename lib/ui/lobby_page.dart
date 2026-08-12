@@ -13,7 +13,8 @@ class LobbyPage extends StatefulWidget {
 
 class _LobbyPageState extends State<LobbyPage> {
   late final LobbyService _service;
-  Timer? _refreshTimer;
+  StreamSubscription<List<LobbyTable>>? _lobbySubscription;
+  Timer? _reconnectTimer;
   List<LobbyTable> _tables = List.generate(
     10,
     (index) => LobbyTable(
@@ -31,41 +32,58 @@ class _LobbyPageState extends State<LobbyPage> {
   bool _loading = false;
   bool _resumeOfferHandled = false;
   bool _resumeDialogOpen = false;
+  SavedTableSession? _savedSession;
 
   @override
   void initState() {
     super.initState();
     _service = LobbyService();
-    unawaited(_load());
-    _refreshTimer = Timer.periodic(const Duration(seconds: 2), (_) => _load());
+    unawaited(_connectLobby());
   }
 
-  Future<void> _load() async {
+  Future<void> _connectLobby() async {
     if (_loading) return;
+    _reconnectTimer?.cancel();
     _loading = true;
     try {
       await _service.flushPendingDecline();
-      final values = await Future.wait<Object?>([
-        _service.fetchTables(),
-        _service.savedSession(),
-      ]);
+      _savedSession ??= await _service.savedSession();
+      await _lobbySubscription?.cancel();
       if (!mounted) return;
-      final tables = values[0] as List<LobbyTable>;
-      final savedSession = values[1] as SavedTableSession?;
-      setState(() {
-        _tables = tables;
-        _error = null;
-      });
-      if (!_resumeOfferHandled && !_resumeDialogOpen && savedSession != null) {
-        await _offerResume(savedSession, tables);
-      }
+      _lobbySubscription = _service.watchTables().listen(
+            (tables) => unawaited(_receiveTables(tables)),
+            onError: (_, __) => _handleLobbyDisconnected(),
+            onDone: _handleLobbyDisconnected,
+            cancelOnError: true,
+          );
     } on Object {
-      if (mounted) {
-        setState(() => _error = 'Não foi possível atualizar as mesas.');
-      }
+      _handleLobbyDisconnected();
     } finally {
       _loading = false;
     }
+  }
+
+  Future<void> _receiveTables(List<LobbyTable> tables) async {
+    if (!mounted) return;
+    setState(() {
+      _tables = tables;
+      _error = null;
+    });
+    final savedSession = _savedSession;
+    if (!_resumeOfferHandled && !_resumeDialogOpen && savedSession != null) {
+      await _offerResume(savedSession, tables);
+    }
+  }
+
+  void _handleLobbyDisconnected() {
+    if (!mounted || !_service.enabled) return;
+    setState(
+        () => _error = 'Conexão com o lobby interrompida. Reconectando...');
+    if (_reconnectTimer?.isActive == true) return;
+    _reconnectTimer = Timer(
+      const Duration(seconds: 3),
+      () => unawaited(_connectLobby()),
+    );
   }
 
   Future<void> _offerResume(
@@ -84,6 +102,7 @@ class _LobbyPageState extends State<LobbyPage> {
       if (!mounted) return;
       if (!valid) {
         _resumeOfferHandled = true;
+        _savedSession = null;
         await _service.clearSavedSession();
         return;
       }
@@ -105,6 +124,7 @@ class _LobbyPageState extends State<LobbyPage> {
         await _enter(table);
       } else {
         await _service.declineResume(savedSession);
+        _savedSession = null;
         if (mounted) setState(() {});
       }
     } finally {
@@ -115,27 +135,32 @@ class _LobbyPageState extends State<LobbyPage> {
   Future<void> _enter(LobbyTable table) async {
     if (_openingTable != null) return;
     setState(() => _openingTable = table.tableNumber);
+    await _lobbySubscription?.cancel();
+    _lobbySubscription = null;
     try {
       final entry = await _service.joinTable(table.tableNumber);
       if (!mounted) return;
+      _resumeOfferHandled = true;
       await Navigator.of(context).push(
         MaterialPageRoute<void>(builder: (_) => GamePage(entry: entry)),
       );
-      await _load();
     } on Object catch (error) {
       if (!mounted) return;
       final message = error.toString().replaceFirst('Bad state: ', '');
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(message)));
-      await _load();
     } finally {
-      if (mounted) setState(() => _openingTable = null);
+      if (mounted) {
+        setState(() => _openingTable = null);
+        unawaited(_connectLobby());
+      }
     }
   }
 
   @override
   void dispose() {
-    _refreshTimer?.cancel();
+    _reconnectTimer?.cancel();
+    unawaited(_lobbySubscription?.cancel());
     _service.dispose();
     super.dispose();
   }
@@ -178,7 +203,7 @@ class _LobbyPageState extends State<LobbyPage> {
                   ),
                   IconButton(
                     tooltip: 'Atualizar mesas',
-                    onPressed: _load,
+                    onPressed: _connectLobby,
                     color: Colors.white,
                     icon: const Icon(Icons.refresh_rounded),
                   ),

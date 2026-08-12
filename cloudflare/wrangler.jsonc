@@ -8,6 +8,10 @@
       {
         "name": "GAME_TABLES",
         "class_name": "GameTable"
+      },
+      {
+        "name": "LOBBY",
+        "class_name": "GameLobby"
       }
     ]
   },
@@ -15,6 +19,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["GameTable"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["GameLobby"]
     }
   ],
   "observability": {

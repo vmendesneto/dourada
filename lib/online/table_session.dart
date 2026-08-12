@@ -40,7 +40,6 @@ class TableSession extends ChangeNotifier {
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _subscription;
   Timer? _reconnectTimer;
-  Timer? _heartbeatTimer;
   bool _disposed = false;
   bool _presencePaused = false;
   bool _applyingRemoteState = false;
@@ -132,7 +131,6 @@ class TableSession extends ChangeNotifier {
     if (!enabled || _disposed || _presencePaused) return;
     _presencePaused = true;
     _reconnectTimer?.cancel();
-    _heartbeatTimer?.cancel();
     connected = false;
     notifyListeners();
     await _closeChannel();
@@ -208,7 +206,6 @@ class TableSession extends ChangeNotifier {
         onError: (_) => _handleSocketClosed(),
         cancelOnError: true,
       );
-      _startHeartbeat();
     } on Object {
       connected = false;
       replacementBotActive = phase == LobbyTablePhase.playing;
@@ -264,7 +261,6 @@ class TableSession extends ChangeNotifier {
   }
 
   void _handleSocketClosed() {
-    _heartbeatTimer?.cancel();
     if (_disposed) return;
     connected = false;
     replacementBotActive = phase == LobbyTablePhase.playing;
@@ -279,19 +275,7 @@ class TableSession extends ChangeNotifier {
     _reconnectTimer = Timer(const Duration(seconds: 3), _rejoinAndConnect);
   }
 
-  void _startHeartbeat() {
-    _heartbeatTimer?.cancel();
-    _sendHeartbeat();
-    _heartbeatTimer =
-        Timer.periodic(const Duration(seconds: 2), (_) => _sendHeartbeat());
-  }
-
-  void _sendHeartbeat() {
-    if (connected && !_presencePaused) _channel?.sink.add('ping');
-  }
-
   Future<void> _closeChannel() async {
-    _heartbeatTimer?.cancel();
     await _subscription?.cancel();
     _subscription = null;
     final channel = _channel;
@@ -303,7 +287,6 @@ class TableSession extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _reconnectTimer?.cancel();
-    _heartbeatTimer?.cancel();
     unawaited(_closeChannel());
     _client.close();
     super.dispose();

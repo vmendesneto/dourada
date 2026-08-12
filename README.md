@@ -43,7 +43,8 @@ O GitHub Pages é atualizado automaticamente a cada envio para a branch `main`.
 - interface responsiva em modo paisagem, consulta à ordem das manilhas e
   destaque animado da carta vencedora;
 - lobby com limite fixo de 10 mesas e status em tempo real: vazia, aguardando
-  jogadores ou jogando;
+  jogadores ou jogando, atualizado por WebSocket somente quando uma mesa muda,
+  sem consultas periódicas às dez mesas;
 - seis cadeiras visíveis por mesa, com entrada permitida somente em mesas
   vazias ou aguardando;
 - sala de espera compartilhada: seis humanos iniciam automaticamente, ou um

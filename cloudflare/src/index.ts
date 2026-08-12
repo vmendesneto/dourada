@@ -6,12 +6,13 @@ import {
   type GameState,
 } from "./game";
 import { DurableObject } from "cloudflare:workers";
+import {
+  isLobbyTableStatus,
+  type LobbyTablePhase,
+  type LobbyTableStatus,
+} from "./lobby";
 
-export interface Env {
-  GAME_TABLES: DurableObjectNamespace<GameTable>;
-}
-
-type TablePhase = "empty" | "waiting" | "playing";
+type TablePhase = LobbyTablePhase;
 type SeatKind = "human" | "bot";
 
 interface TableSeat {
@@ -39,10 +40,14 @@ interface SocketAttachment {
   connectedAt: number;
 }
 
+interface LobbyState {
+  version: 1;
+  tables: LobbyTableStatus[];
+}
+
 const tableCount = 10;
 const seatCount = 6;
 const disconnectGraceMs = 5000;
-const connectionCheckMs = 5000;
 const humanTurnMs = 15000;
 
 const corsHeaders = (request: Request): Record<string, string> => ({
@@ -62,17 +67,12 @@ export default {
     }
 
     const url = new URL(request.url);
+    if (url.pathname === "/api/lobby/connect" && request.method === "GET") {
+      return lobbyStub(env).fetch(request);
+    }
     if (url.pathname === "/api/lobby" && request.method === "GET") {
-      const tables = await Promise.all(
-        Array.from({ length: tableCount }, async (_, index) => {
-          const tableNumber = index + 1;
-          const response = await tableStub(env, tableNumber).fetch(
-            `https://table.internal/status?tableNumber=${tableNumber}`,
-          );
-          return response.json();
-        }),
-      );
-      return json(request, { tables });
+      const response = await lobbyStub(env).fetch("https://lobby.internal/snapshot");
+      return json(request, await response.json(), response.status);
     }
 
     const action = url.pathname.match(
@@ -120,6 +120,75 @@ export default {
     return json(request, { error: "Rota não encontrada." }, 404);
   },
 } satisfies ExportedHandler<Env>;
+
+export class GameLobby extends DurableObject<Env> {
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    if (url.pathname === "/api/lobby/connect") {
+      if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
+        return new Response("WebSocket obrigatório", { status: 426 });
+      }
+      const state = await this.load();
+      const pair = new WebSocketPair();
+      const [client, server] = Object.values(pair);
+      this.ctx.acceptWebSocket(server);
+      server.send(JSON.stringify({ type: "lobby", tables: state.tables }));
+      return new Response(null, { status: 101, webSocket: client });
+    }
+    if (url.pathname === "/snapshot") {
+      return Response.json(await this.load());
+    }
+    if (url.pathname === "/update" && request.method === "POST") {
+      const value = await request.json().catch(() => null);
+      if (!isLobbyTableStatus(value)) {
+        return Response.json({ error: "Estado de mesa inválido." }, { status: 400 });
+      }
+      const state = await this.load();
+      const current = state.tables[value.tableNumber - 1];
+      if (JSON.stringify(current) === JSON.stringify(value)) {
+        return Response.json({ updated: false });
+      }
+      state.tables[value.tableNumber - 1] = value;
+      await this.ctx.storage.put("lobby", state);
+      this.broadcast(state.tables);
+      return Response.json({ updated: true });
+    }
+    return Response.json({ error: "Rota interna inexistente." }, { status: 404 });
+  }
+
+  webSocketClose(socket: WebSocket, code: number, reason: string): void {
+    socket.close(code, reason);
+  }
+
+  webSocketError(socket: WebSocket): void {
+    socket.close(1011, "Erro de conexão");
+  }
+
+  private async load(): Promise<LobbyState> {
+    const stored = await this.ctx.storage.get<LobbyState>("lobby");
+    if (stored?.version === 1 && stored.tables.length === tableCount) return stored;
+
+    const tables = await Promise.all(
+      Array.from({ length: tableCount }, async (_, index) => {
+        const tableNumber = index + 1;
+        const response = await tableStub(this.env, tableNumber).fetch(
+          `https://table.internal/status?tableNumber=${tableNumber}`,
+        );
+        return (await response.json()) as LobbyTableStatus;
+      }),
+    );
+    const state: LobbyState = { version: 1, tables };
+    await this.ctx.storage.put("lobby", state);
+    return state;
+  }
+
+  private broadcast(tables: LobbyTableStatus[]): void {
+    const message = JSON.stringify({ type: "lobby", tables });
+    for (const socket of this.ctx.getWebSockets()) {
+      if (socket.readyState === WebSocket.OPEN) socket.send(message);
+    }
+  }
+}
 
 export class GameTable extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
@@ -182,7 +251,7 @@ export class GameTable extends DurableObject<Env> {
 
     if (payload.type === "restart" && table.gameState?.phase === "gameOver") {
       this.returnToWaitingRoom(table, Date.now());
-      await this.saveAndSchedule(table);
+      await this.saveAndSchedule(table, true);
       this.broadcast(table);
     }
   }
@@ -223,33 +292,34 @@ export class GameTable extends DurableObject<Env> {
         }
       }
       if (!table.seats.some((seat) => seat?.kind === "human")) {
-        await this.ctx.storage.deleteAll();
+        await this.clearTable(table.tableNumber);
         return;
       }
       this.syncWaitingCountdown(table, now, activeHumans);
       table.updatedAt = now;
-      await this.saveAndSchedule(table);
+      await this.saveAndSchedule(table, true);
       this.broadcast(table);
       return;
     }
 
     const game = table.gameState;
     if (!game) {
-      await this.ctx.storage.deleteAll();
+      await this.clearTable(table.tableNumber);
       return;
     }
 
     if (game.phase === "gameOver") {
       if (activeHumans.size === 0 && this.allHumansPastGrace(table, now)) {
-        await this.ctx.storage.deleteAll();
+        await this.clearTable(table.tableNumber);
         return;
       }
       if (activeHumans.size > 0) {
         this.returnToWaitingRoom(table, now);
-        await this.saveAndSchedule(table);
+        await this.saveAndSchedule(table, true);
         this.broadcast(table);
         return;
       }
+      table.nextActionAt = null;
       await this.saveAndSchedule(table);
       return;
     }
@@ -268,7 +338,7 @@ export class GameTable extends DurableObject<Env> {
       table.gameState = step.state;
       table.updatedAt = now;
       if (step.state.phase === "gameOver" && activeHumans.size === 0) {
-        await this.ctx.storage.deleteAll();
+        await this.clearTable(table.tableNumber);
         return;
       }
       table.nextActionAt = this.nextActionAt(table, activeHumans, step.nextDelayMs);
@@ -289,9 +359,9 @@ export class GameTable extends DurableObject<Env> {
         (seat) => seat?.kind === "human" && seat.token === payload.playerToken,
       );
       if (existingSeat >= 0) {
-        table.seats[existingSeat]!.disconnectedAt = null;
+        table.seats[existingSeat]!.disconnectedAt = Date.now();
         table.updatedAt = Date.now();
-        await this.saveAndSchedule(table);
+        await this.saveAndSchedule(table, true);
         return Response.json(this.entry(table, existingSeat), { status: 200 });
       }
     }
@@ -316,7 +386,7 @@ export class GameTable extends DurableObject<Env> {
     };
     table.updatedAt = now;
 
-    await this.saveAndSchedule(table);
+    await this.saveAndSchedule(table, true);
     this.broadcast(table);
     return Response.json(this.entry(table, seatIndex), { status: 201 });
   }
@@ -347,7 +417,7 @@ export class GameTable extends DurableObject<Env> {
       }
     }
     this.startGame(table);
-    await this.saveAndSchedule(table);
+    await this.saveAndSchedule(table, true);
     this.broadcast(table);
     return Response.json(this.entry(table, seatIndex));
   }
@@ -402,6 +472,7 @@ export class GameTable extends DurableObject<Env> {
       }
       await this.ctx.storage.deleteAlarm();
       await this.ctx.storage.deleteAll();
+      await this.publishLobby(emptyTableState(table.tableNumber));
       return Response.json({ declined: true, tableClosed: true });
     }
 
@@ -410,7 +481,7 @@ export class GameTable extends DurableObject<Env> {
       table.phase === "playing"
         ? this.nextActionAt(table, this.activeHumanSeats())
         : null;
-    await this.saveAndSchedule(table);
+    await this.saveAndSchedule(table, true);
     this.broadcast(table);
     return Response.json({ declined: true, tableClosed: false });
   }
@@ -442,7 +513,7 @@ export class GameTable extends DurableObject<Env> {
     } else if (table.phase === "waiting") {
       this.syncWaitingCountdown(table, table.updatedAt, this.activeHumanSeats());
     }
-    await this.saveAndSchedule(table);
+    await this.saveAndSchedule(table, true);
     server.send(JSON.stringify(this.roomMessage(table, seatIndex)));
     this.broadcast(table, server);
     return new Response(null, { status: 101, webSocket: client });
@@ -456,8 +527,19 @@ export class GameTable extends DurableObject<Env> {
     if (this.activeHumanSeats().has(attachment.seatIndex)) return;
     table.seats[attachment.seatIndex]!.disconnectedAt = Date.now();
     if (table.phase === "waiting") table.waitingStartAt = null;
+    if (
+      table.phase === "playing" &&
+      (table.gameState?.phase === "gameOver" ||
+        this.expectedHumanSeat(table) === attachment.seatIndex)
+    ) {
+      const disconnectedDeadline = Date.now() + disconnectGraceMs;
+      table.nextActionAt = Math.min(
+        table.nextActionAt ?? disconnectedDeadline,
+        disconnectedDeadline,
+      );
+    }
     table.updatedAt = Date.now();
-    await this.saveAndSchedule(table);
+    await this.saveAndSchedule(table, true);
     this.broadcast(table, socket);
   }
 
@@ -493,7 +575,7 @@ export class GameTable extends DurableObject<Env> {
     };
   }
 
-  private status(table: SharedTableState): Record<string, unknown> {
+  private status(table: SharedTableState): LobbyTableStatus {
     const humanCount = table.seats.filter((seat) => seat?.kind === "human").length;
     const botCount = table.seats.filter((seat) => seat?.kind === "bot").length;
     return {
@@ -530,16 +612,12 @@ export class GameTable extends DurableObject<Env> {
   }
 
   private activeHumanSeats(): Set<number> {
-    const now = Date.now();
     const active = new Set<number>();
     for (const socket of this.ctx.getWebSockets()) {
       if (socket.readyState !== WebSocket.OPEN) continue;
       const attachment = socket.deserializeAttachment() as SocketAttachment | null;
       if (!attachment) continue;
-      const heartbeat =
-        this.ctx.getWebSocketAutoResponseTimestamp(socket)?.getTime() ??
-        attachment.connectedAt;
-      if (now - heartbeat <= disconnectGraceMs) active.add(attachment.seatIndex);
+      active.add(attachment.seatIndex);
     }
     return active;
   }
@@ -594,8 +672,9 @@ export class GameTable extends DurableObject<Env> {
     engineDelayMs?: number | null,
   ): number | null {
     const game = table.gameState;
-    if (!game || game.phase === "gameOver") return null;
+    if (!game) return null;
     const now = Date.now();
+    if (game.phase === "gameOver") return now + 5000;
     if (engineDelayMs !== undefined && engineDelayMs !== null) {
       const expectedHuman = this.expectedHumanSeat(table);
       if (expectedHuman === null || !activeHumans.has(expectedHuman)) {
@@ -656,32 +735,75 @@ export class GameTable extends DurableObject<Env> {
       return stored;
     }
     const tableNumber = requestedTableNumber ?? 1;
-    return {
-      version: 2,
-      tableNumber,
-      phase: "empty",
-      seats: Array.from({ length: seatCount }, () => null),
-      gameState: null,
-      nextActionAt: null,
-      waitingStartAt: null,
-      updatedAt: Date.now(),
-    };
+    return emptyTableState(tableNumber);
   }
 
-  private async saveAndSchedule(table: SharedTableState): Promise<void> {
+  private async saveAndSchedule(
+    table: SharedTableState,
+    notifyLobby = false,
+  ): Promise<void> {
     await this.ctx.storage.put("table", table);
     const now = Date.now();
-    let alarmAt = now + connectionCheckMs;
-    if (table.nextActionAt !== null) alarmAt = Math.min(alarmAt, table.nextActionAt);
-    if (table.waitingStartAt !== null) {
-      alarmAt = Math.min(alarmAt, table.waitingStartAt);
+    const deadlines = [table.nextActionAt, table.waitingStartAt].filter(
+      (value): value is number => value !== null,
+    );
+    const needsDisconnectedDeadlines =
+      table.phase === "waiting" || table.gameState?.phase === "gameOver";
+    if (needsDisconnectedDeadlines) {
+      for (const seat of table.seats) {
+        if (seat?.kind === "human" && seat.disconnectedAt !== null) {
+          deadlines.push(seat.disconnectedAt + disconnectGraceMs);
+        }
+      }
     }
-    await this.ctx.storage.setAlarm(alarmAt);
+    if (deadlines.length === 0) {
+      await this.ctx.storage.deleteAlarm();
+    } else {
+      await this.ctx.storage.setAlarm(Math.max(now, Math.min(...deadlines)));
+    }
+    if (notifyLobby) await this.publishLobby(table);
+  }
+
+  private async publishLobby(table: SharedTableState): Promise<void> {
+    try {
+      await lobbyStub(this.env).fetch(
+        new Request("https://lobby.internal/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(this.status(table)),
+        }),
+      );
+    } catch (error) {
+      console.error("Não foi possível atualizar o lobby.", error);
+    }
+  }
+
+  private async clearTable(tableNumber: number): Promise<void> {
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.deleteAll();
+    await this.publishLobby(emptyTableState(tableNumber));
   }
 }
 
 function tableStub(env: Env, tableNumber: number): DurableObjectStub<GameTable> {
   return env.GAME_TABLES.getByName(`fixed-table-${tableNumber}`);
+}
+
+function lobbyStub(env: Env): DurableObjectStub<GameLobby> {
+  return env.LOBBY.getByName("fixed-lobby");
+}
+
+function emptyTableState(tableNumber: number): SharedTableState {
+  return {
+    version: 2,
+    tableNumber,
+    phase: "empty",
+    seats: Array.from({ length: seatCount }, () => null),
+    gameState: null,
+    nextActionAt: null,
+    waitingStartAt: null,
+    updatedAt: Date.now(),
+  };
 }
 
 function publicSeats(table: SharedTableState): Array<Record<string, unknown> | null> {
