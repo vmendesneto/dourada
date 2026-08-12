@@ -3,13 +3,16 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:dourada/game/douradinha_game.dart';
+import 'package:dourada/online/lobby_service.dart';
 import 'package:dourada/online/table_session.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class GamePage extends StatefulWidget {
-  const GamePage({super.key});
+  const GamePage({super.key, required this.entry});
+
+  final TableEntry entry;
 
   @override
   State<GamePage> createState() => _GamePageState();
@@ -42,8 +45,10 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
-    game = DouradinhaGame()..addListener(_onGameChanged);
-    tableSession = TableSession()..addListener(_onTableSessionChanged);
+    game = DouradinhaGame(humanPlayerIndex: widget.entry.seatIndex)
+      ..addListener(_onGameChanged);
+    tableSession = TableSession(entry: widget.entry)
+      ..addListener(_onTableSessionChanged);
     _preferences = SharedPreferences.getInstance();
     unawaited(_restoreSavedGame());
   }
@@ -109,7 +114,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     try {
       final preferences = await _preferences;
       final savedGame = preferences.getString(_savedGameKey);
-      if (savedGame != null) {
+      if (!widget.entry.online && savedGame != null) {
         final decoded = jsonDecode(savedGame);
         if (decoded is Map) {
           game.restoreState(Map<String, dynamic>.from(decoded));
@@ -131,6 +136,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   }
 
   void _persistGame() {
+    if (widget.entry.online) return;
     final snapshot = jsonEncode(game.toJson());
     _saveQueue = _saveQueue.then((_) => _writeSavedGame(snapshot));
   }
@@ -169,7 +175,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   void _syncTurnClock() {
     if (!mounted ||
         !tableSession.canPlayHere ||
-        !game.canCurrentPlayerPlayCard) {
+        !game.canCurrentPlayerPlayCard ||
+        (tableSession.serverControlsAutomation &&
+            game.currentPlayerIndex != game.humanPlayerIndex)) {
       _stopTurnClock();
       return;
     }
@@ -228,6 +236,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   void _scheduleAutomation() {
     if (!mounted ||
         _restoringGame ||
+        tableSession.serverControlsAutomation ||
         !tableSession.canPlayHere ||
         _automationScheduled) {
       return;
@@ -270,6 +279,13 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    if (tableSession.waiting ||
+        (tableSession.enabled && tableSession.phase == LobbyTablePhase.empty)) {
+      return _WaitingRoom(
+        session: tableSession,
+        onBack: () => Navigator.of(context).pop(),
+      );
+    }
     return Scaffold(
       backgroundColor: const Color(0xFF073B2A),
       body: SafeArea(
@@ -279,7 +295,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             Expanded(child: _buildTable()),
             _HumanControls(
               game: game,
-              clockActive: _clockPlayerIndex == 0,
+              clockActive: _clockPlayerIndex == game.humanPlayerIndex,
               turnProgress: _turnProgress,
               secondsLeft: _turnSecondsLeft,
             ),
@@ -347,17 +363,27 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                         ),
                       ),
                     ),
-                    botSeat(2, const Alignment(-.88, -.48)),
-                    botSeat(3, const Alignment(0, -.88)),
-                    botSeat(4, const Alignment(.88, -.48)),
-                    botSeat(1, const Alignment(-.88, .48)),
-                    botSeat(5, const Alignment(.88, .48)),
-                    playedCard(2, const Alignment(-.48, -.26)),
-                    playedCard(3, const Alignment(0, -.38)),
-                    playedCard(4, const Alignment(.48, -.26)),
-                    playedCard(1, const Alignment(-.48, .26)),
-                    playedCard(5, const Alignment(.48, .26)),
-                    playedCard(0, const Alignment(0, .58)),
+                    botSeat((game.humanPlayerIndex + 2) % 6,
+                        const Alignment(-.88, -.48)),
+                    botSeat((game.humanPlayerIndex + 3) % 6,
+                        const Alignment(0, -.88)),
+                    botSeat((game.humanPlayerIndex + 4) % 6,
+                        const Alignment(.88, -.48)),
+                    botSeat((game.humanPlayerIndex + 1) % 6,
+                        const Alignment(-.88, .48)),
+                    botSeat((game.humanPlayerIndex + 5) % 6,
+                        const Alignment(.88, .48)),
+                    playedCard((game.humanPlayerIndex + 2) % 6,
+                        const Alignment(-.48, -.26)),
+                    playedCard((game.humanPlayerIndex + 3) % 6,
+                        const Alignment(0, -.38)),
+                    playedCard((game.humanPlayerIndex + 4) % 6,
+                        const Alignment(.48, -.26)),
+                    playedCard((game.humanPlayerIndex + 1) % 6,
+                        const Alignment(-.48, .26)),
+                    playedCard((game.humanPlayerIndex + 5) % 6,
+                        const Alignment(.48, .26)),
+                    playedCard(game.humanPlayerIndex, const Alignment(0, .58)),
                   ],
                 ),
               ),
@@ -396,6 +422,163 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
           ],
         );
       },
+    );
+  }
+}
+
+class _WaitingRoom extends StatelessWidget {
+  const _WaitingRoom({required this.session, required this.onBack});
+
+  final TableSession session;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF032C21),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 680),
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF074333),
+                  borderRadius: BorderRadius.circular(26),
+                  border: Border.all(color: const Color(0xFFD7A84C), width: 2),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        IconButton(
+                          tooltip: 'Voltar ao lobby',
+                          onPressed: onBack,
+                          color: Colors.white,
+                          icon: const Icon(Icons.arrow_back_rounded),
+                        ),
+                        Expanded(
+                          child: Text(
+                            'MESA ${session.tableNumber}',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Color(0xFFFFD46B),
+                              fontSize: 24,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 48),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'AGUARDANDO JOGADORES • ${session.playerCount}/6',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: .75),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 16,
+                      runSpacing: 18,
+                      children: List.generate(6, (index) {
+                        final seat = session.seats[index];
+                        final color = index.isEven
+                            ? const Color(0xFF5CB6FF)
+                            : const Color(0xFFFFC857);
+                        return SizedBox(
+                          width: 78,
+                          child: Column(
+                            children: [
+                              Container(
+                                width: 54,
+                                height: 54,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: seat == null
+                                      ? Colors.white.withValues(alpha: .05)
+                                      : color.withValues(alpha: .16),
+                                  border: Border.all(
+                                    color:
+                                        seat == null ? Colors.white24 : color,
+                                    width: 2,
+                                  ),
+                                ),
+                                child: Icon(
+                                  seat == null
+                                      ? Icons.chair_outlined
+                                      : seat.isBot
+                                          ? Icons.smart_toy_rounded
+                                          : Icons.person_rounded,
+                                  color: seat == null ? Colors.white38 : color,
+                                  size: 29,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                seat == null
+                                    ? 'Vazia'
+                                    : index == session.seatIndex
+                                        ? 'Você'
+                                        : seat.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(color: color, fontSize: 11),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                    ),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: FilledButton.icon(
+                        key: const ValueKey('colocar-robos'),
+                        onPressed:
+                            session.connecting || session.missingPlayers == 0
+                                ? null
+                                : session.fillRemainingWithBots,
+                        icon: const Icon(Icons.smart_toy_rounded),
+                        label: Text(
+                          session.missingPlayers == 1
+                              ? 'COLOCAR 1 ROBÔ E INICIAR'
+                              : 'COLOCAR ${session.missingPlayers} ROBÔS E INICIAR',
+                        ),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFFE7A93E),
+                          foregroundColor: const Color(0xFF173326),
+                          textStyle:
+                              const TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                    ),
+                    if (session.errorMessage != null) ...[
+                      const SizedBox(height: 12),
+                      Text(session.errorMessage!,
+                          style: const TextStyle(color: Color(0xFFFF9E80))),
+                    ],
+                    const SizedBox(height: 10),
+                    Text(
+                      'Seis humanos iniciam automaticamente. Você também pode preencher todas as cadeiras vazias com robôs.',
+                      textAlign: TextAlign.center,
+                      style:
+                          TextStyle(color: Colors.white.withValues(alpha: .55)),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -616,7 +799,8 @@ class _BotSeat extends StatelessWidget {
         !game.awaitingNextTrick;
     final teamColor =
         player.team == 0 ? const Color(0xFF5CB6FF) : const Color(0xFFFFC857);
-    final reveal = game.canHumanSeePartnerCardsInTenHand && player.team == 0;
+    final reveal =
+        game.canHumanSeePartnerCardsInTenHand && player.team == game.humanTeam;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 250),
       padding: EdgeInsets.symmetric(horizontal: 8, vertical: compact ? 3 : 6),
@@ -636,8 +820,13 @@ class _BotSeat extends StatelessWidget {
               CircleAvatar(
                 radius: compact ? 10 : 13,
                 backgroundColor: teamColor,
-                child: const Icon(Icons.smart_toy_outlined,
-                    color: Color(0xFF052D22), size: 16),
+                child: Icon(
+                  player.isHuman
+                      ? Icons.person_rounded
+                      : Icons.smart_toy_outlined,
+                  color: const Color(0xFF052D22),
+                  size: 16,
+                ),
               ),
               const SizedBox(width: 6),
               Text(
@@ -841,8 +1030,10 @@ class _HumanControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final human = game.players[0];
+    final human = game.players[game.humanPlayerIndex];
     final active = game.isHumanTurn;
+    final teamColor =
+        human.team == 0 ? const Color(0xFF5CB6FF) : const Color(0xFFFFC857);
     return Container(
       height: 126,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
@@ -856,7 +1047,7 @@ class _HumanControls extends StatelessWidget {
             width: 5,
             height: 70,
             decoration: BoxDecoration(
-              color: active ? const Color(0xFF5CB6FF) : Colors.white24,
+              color: active ? teamColor : Colors.white24,
               borderRadius: BorderRadius.circular(4),
             ),
           ),
@@ -865,9 +1056,9 @@ class _HumanControls extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('VOCÊ',
-                  style: TextStyle(
-                      color: Color(0xFF5CB6FF), fontWeight: FontWeight.bold)),
+              Text('VOCÊ',
+                  style:
+                      TextStyle(color: teamColor, fontWeight: FontWeight.bold)),
               Text(
                 active ? 'Sua vez' : 'Aguarde',
                 style: const TextStyle(color: Colors.white60, fontSize: 12),
@@ -880,7 +1071,7 @@ class _HumanControls extends StatelessWidget {
                   width: 105,
                 ),
               ],
-              if (game.footIndex == 0)
+              if (game.footIndex == game.humanPlayerIndex)
                 const Text('PÉ',
                     style: TextStyle(color: Colors.white38, fontSize: 10)),
             ],
@@ -1506,7 +1697,7 @@ class _WinnerOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final humanWon = game.matchWinner == 0;
+    final humanWon = game.matchWinner == game.humanTeam;
     return ColoredBox(
       color: Colors.black.withValues(alpha: .72),
       child: Center(
@@ -1517,7 +1708,7 @@ class _WinnerOverlay extends StatelessWidget {
                 color: const Color(0xFFFFC857), size: 62),
             const SizedBox(height: 8),
             Text(
-              humanWon ? 'SEU TRIO VENCEU!' : 'O TRIO DOURADO VENCEU',
+              humanWon ? 'SEU TRIO VENCEU!' : 'O TRIO ADVERSÁRIO VENCEU',
               style: const TextStyle(
                   color: Colors.white,
                   fontSize: 28,

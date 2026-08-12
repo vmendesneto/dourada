@@ -54,6 +54,43 @@ const suits = ["o", "e", "c", "p"];
 export const fullDeck = (): string[] =>
   ranks.flatMap((rank) => suits.map((suit) => `${rank}${suit}`));
 
+export function createInitialGame(): GameState {
+  const game: GameState = {
+    version: 1,
+    scores: [0, 0],
+    playerHands: Array.from({ length: 6 }, () => [] as string[]),
+    currentTrick: [],
+    playedCards: [],
+    trickWinners: [],
+    history: [],
+    tenDecisionMade: [true, true],
+    botChallengeConsideredThisTrick: [false, false],
+    automaticTimeouts: [0, 0, 0, 0, 0, 0],
+    // dealHand gira o carteador antes de distribuir. Começando em 4, a
+    // primeira partida mantém a cadeira 5 como carteador e a cadeira 0 abre.
+    dealerIndex: 4,
+    trickLeaderIndex: 0,
+    currentPlayerIndex: 0,
+    handValue: 1,
+    nextTrickLeader: null,
+    matchWinner: null,
+    lastChallengeTeam: null,
+    lastHandWinner: null,
+    lastHandPoints: 0,
+    lastCompletedHandNumber: 0,
+    lastCompletedHandWinnerTeam: null,
+    awaitingNextTrick: false,
+    challengeAttemptedThisTurn: false,
+    phase: "playing",
+    pendingChallenge: null,
+    challengeNotice: null,
+    challengeNoticeAccepted: false,
+    statusMessage: "",
+  };
+  dealHand(game);
+  return game;
+}
+
 export function cardStrength(code: string): number {
   const manilha: Record<string, number> = {
     Qo: 19,
@@ -153,7 +190,7 @@ export function advanceBot(state: GameState): BotStep {
   return { state: game, nextDelayMs: delay };
 }
 
-function pendingTenTeam(game: GameState): number | null {
+export function pendingTenTeam(game: GameState): number | null {
   if (game.scores[0] === 10 && game.scores[1] === 10) return null;
   if (game.scores[0] === 10 && !game.tenDecisionMade[0]) return 0;
   if (game.scores[1] === 10 && !game.tenDecisionMade[1]) return 1;

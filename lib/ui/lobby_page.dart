@@ -1,7 +1,8 @@
-import 'package:dourada/online/table_session.dart';
+import 'dart:async';
+
+import 'package:dourada/online/lobby_service.dart';
 import 'package:dourada/ui/game_page.dart';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class LobbyPage extends StatefulWidget {
   const LobbyPage({super.key});
@@ -11,235 +12,293 @@ class LobbyPage extends StatefulWidget {
 }
 
 class _LobbyPageState extends State<LobbyPage> {
-  late final Future<String?> _savedTableNumber = _readSavedTableNumber();
-  bool _openingTable = false;
+  late final LobbyService _service;
+  Timer? _refreshTimer;
+  List<LobbyTable> _tables = List.generate(
+    10,
+    (index) => LobbyTable(
+      tableNumber: index + 1,
+      phase: LobbyTablePhase.empty,
+      playerCount: 0,
+      humanCount: 0,
+      botCount: 0,
+      capacity: 6,
+      seats: List<LobbySeat?>.filled(6, null),
+    ),
+  );
+  String? _savedTable;
+  int? _openingTable;
+  String? _error;
 
-  Future<String?> _readSavedTableNumber() async {
-    final preferences = await SharedPreferences.getInstance();
-    return preferences.getString(TableSession.tableNumberKey);
+  @override
+  void initState() {
+    super.initState();
+    _service = LobbyService();
+    unawaited(_load());
+    _refreshTimer = Timer.periodic(const Duration(seconds: 2), (_) => _load());
   }
 
-  Future<void> _enterTable() async {
-    if (_openingTable) return;
-    setState(() => _openingTable = true);
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const GamePage()),
-    );
-    if (mounted) setState(() => _openingTable = false);
+  Future<void> _load() async {
+    try {
+      final values = await Future.wait<Object?>([
+        _service.fetchTables(),
+        _service.savedTableNumber(),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _tables = values[0] as List<LobbyTable>;
+        _savedTable = values[1] as String?;
+        _error = null;
+      });
+    } on Object {
+      if (mounted) {
+        setState(() => _error = 'Não foi possível atualizar as mesas.');
+      }
+    }
+  }
+
+  Future<void> _enter(LobbyTable table) async {
+    if (_openingTable != null) return;
+    setState(() => _openingTable = table.tableNumber);
+    try {
+      final entry = await _service.joinTable(table.tableNumber);
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => GamePage(entry: entry)),
+      );
+      await _load();
+    } on Object catch (error) {
+      if (!mounted) return;
+      final message = error.toString().replaceFirst('Bad state: ', '');
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+      await _load();
+    } finally {
+      if (mounted) setState(() => _openingTable = null);
+    }
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    _service.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: RadialGradient(
-            center: Alignment.topCenter,
-            radius: 1.25,
-            colors: [Color(0xFF12623F), Color(0xFF033929), Color(0xFF01251C)],
-          ),
-        ),
-        child: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              return SingleChildScrollView(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-                child: ConstrainedBox(
-                  constraints:
-                      BoxConstraints(minHeight: constraints.maxHeight - 40),
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 720),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const _LobbyMark(),
-                          const SizedBox(height: 22),
-                          Text(
-                            'DOURADINHA',
-                            textAlign: TextAlign.center,
+      backgroundColor: const Color(0xFF032C21),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 14, 18, 10),
+              child: Row(
+                children: [
+                  const CircleAvatar(
+                    backgroundColor: Color(0xFFE7A93E),
+                    foregroundColor: Color(0xFF173326),
+                    child: Icon(Icons.style_rounded),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('LOBBY DOURADINHA',
                             style: Theme.of(context)
                                 .textTheme
-                                .displaySmall
+                                .titleLarge
                                 ?.copyWith(
                                   color: const Color(0xFFFFD46B),
                                   fontWeight: FontWeight.w900,
-                                  letterSpacing: 3,
-                                ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Um humano, cinco robôs e dois trios na mesa.',
-                            textAlign: TextAlign.center,
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
-                                ?.copyWith(
-                                  color: Colors.white.withValues(alpha: .86),
-                                ),
-                          ),
-                          const SizedBox(height: 26),
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(22),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF062F25)
-                                  .withValues(alpha: .92),
-                              borderRadius: BorderRadius.circular(24),
-                              border: Border.all(
-                                color: const Color(0xFFD8A84E)
-                                    .withValues(alpha: .7),
-                              ),
-                              boxShadow: const [
-                                BoxShadow(
-                                  color: Color(0x55000000),
-                                  blurRadius: 24,
-                                  offset: Offset(0, 12),
-                                ),
-                              ],
-                            ),
-                            child: Column(
-                              children: [
-                                const _PlayersPreview(),
-                                const SizedBox(height: 20),
-                                FutureBuilder<String?>(
-                                  future: _savedTableNumber,
-                                  builder: (context, snapshot) {
-                                    final tableNumber = snapshot.data;
-                                    return Text(
-                                      tableNumber == null
-                                          ? 'Uma nova mesa será criada somente depois que você entrar.'
-                                          : 'Sua mesa $tableNumber será retomada se a partida ainda estiver acontecendo.',
-                                      textAlign: TextAlign.center,
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodyMedium
-                                          ?.copyWith(
-                                            color: Colors.white
-                                                .withValues(alpha: .72),
-                                          ),
-                                    );
-                                  },
-                                ),
-                                const SizedBox(height: 18),
-                                SizedBox(
-                                  width: double.infinity,
-                                  height: 56,
-                                  child: FilledButton.icon(
-                                    key: const ValueKey('entrar-em-uma-mesa'),
-                                    onPressed:
-                                        _openingTable ? null : _enterTable,
-                                    icon: _openingTable
-                                        ? const SizedBox.square(
-                                            dimension: 20,
-                                            child: CircularProgressIndicator(
-                                                strokeWidth: 2.5),
-                                          )
-                                        : const Icon(Icons.login_rounded),
-                                    label: const Text('ENTRAR EM UMA MESA'),
-                                    style: FilledButton.styleFrom(
-                                      backgroundColor: const Color(0xFFE7A93E),
-                                      foregroundColor: const Color(0xFF1E291F),
-                                      textStyle: const TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w900,
-                                        letterSpacing: .8,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 18),
-                          Text(
-                            'Se você sair durante a partida, um robô assume até você voltar.',
-                            textAlign: TextAlign.center,
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodySmall
-                                ?.copyWith(
-                                  color: Colors.white.withValues(alpha: .56),
-                                ),
-                          ),
-                        ],
-                      ),
+                                )),
+                        Text(
+                            'Escolha uma das 10 mesas. Cada mesa tem 6 cadeiras.',
+                            style: TextStyle(
+                                color: Colors.white.withValues(alpha: .7))),
+                      ],
                     ),
                   ),
-                ),
-              );
-            },
-          ),
+                  IconButton(
+                    tooltip: 'Atualizar mesas',
+                    onPressed: _load,
+                    color: Colors.white,
+                    icon: const Icon(Icons.refresh_rounded),
+                  ),
+                ],
+              ),
+            ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(_error!,
+                    style: const TextStyle(color: Color(0xFFFF9E80))),
+              ),
+            Expanded(
+              child: _tables.isEmpty
+                  ? const Center(child: CircularProgressIndicator())
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
+                        final columns = constraints.maxWidth >= 1050
+                            ? 5
+                            : constraints.maxWidth >= 650
+                                ? 3
+                                : constraints.maxWidth >= 390
+                                    ? 2
+                                    : 1;
+                        return GridView.builder(
+                          padding: const EdgeInsets.fromLTRB(14, 4, 14, 18),
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: columns,
+                            crossAxisSpacing: 12,
+                            mainAxisSpacing: 12,
+                            mainAxisExtent: 212,
+                          ),
+                          itemCount: _tables.length,
+                          itemBuilder: (context, index) {
+                            final table = _tables[index];
+                            final resume =
+                                _savedTable == '${table.tableNumber}';
+                            return _TableCard(
+                              table: table,
+                              resume: resume,
+                              opening: _openingTable == table.tableNumber,
+                              onEnter: (table.canJoin || resume)
+                                  ? () => _enter(table)
+                                  : null,
+                              firstButtonKey: index == 0
+                                  ? const ValueKey('entrar-em-uma-mesa')
+                                  : null,
+                            );
+                          },
+                        );
+                      },
+                    ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _LobbyMark extends StatelessWidget {
-  const _LobbyMark();
+class _TableCard extends StatelessWidget {
+  const _TableCard({
+    required this.table,
+    required this.resume,
+    required this.opening,
+    required this.onEnter,
+    this.firstButtonKey,
+  });
+
+  final LobbyTable table;
+  final bool resume;
+  final bool opening;
+  final VoidCallback? onEnter;
+  final Key? firstButtonKey;
 
   @override
   Widget build(BuildContext context) {
+    final (status, color) = switch (table.phase) {
+      LobbyTablePhase.empty => ('VAZIA', const Color(0xFF8FC7A4)),
+      LobbyTablePhase.waiting => ('AGUARDANDO', const Color(0xFFFFC857)),
+      LobbyTablePhase.playing => ('JOGANDO', const Color(0xFF69BFFF)),
+    };
     return Container(
-      width: 76,
-      height: 76,
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: const Color(0xFFE7A93E),
-        border: Border.all(color: const Color(0xFFFFDF87), width: 3),
-        boxShadow: const [BoxShadow(color: Color(0x779A681B), blurRadius: 24)],
+        color: const Color(0xFF074333),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: .72), width: 1.5),
+        boxShadow: const [BoxShadow(color: Color(0x33000000), blurRadius: 10)],
       ),
-      child:
-          const Icon(Icons.style_rounded, size: 40, color: Color(0xFF173326)),
-    );
-  }
-}
-
-class _PlayersPreview extends StatelessWidget {
-  const _PlayersPreview();
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      alignment: WrapAlignment.center,
-      spacing: 10,
-      runSpacing: 10,
-      children: List.generate(6, (index) {
-        final human = index == 0;
-        final blueTeam = index.isEven;
-        final color =
-            blueTeam ? const Color(0xFF49B6FF) : const Color(0xFFFFC94F);
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: color.withValues(alpha: .16),
-                border: Border.all(color: color, width: 2),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Text('MESA ${table.tableNumber}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 17,
+                  )),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: .14),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(status,
+                    style: TextStyle(
+                        color: color,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900)),
               ),
-              child: Icon(
-                human ? Icons.person_rounded : Icons.smart_toy_rounded,
-                color: color,
-                size: 25,
+            ],
+          ),
+          const SizedBox(height: 9),
+          Text('${table.playerCount}/6 jogadores',
+              style: TextStyle(color: Colors.white.withValues(alpha: .72))),
+          const SizedBox(height: 9),
+          Wrap(
+            spacing: 8,
+            children: List.generate(6, (index) {
+              final seat = table.seats[index];
+              final teamColor = index.isEven
+                  ? const Color(0xFF5CB6FF)
+                  : const Color(0xFFFFC857);
+              return Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: seat == null
+                      ? Colors.white.withValues(alpha: .05)
+                      : teamColor.withValues(alpha: .15),
+                  border: Border.all(
+                    color: seat == null ? Colors.white24 : teamColor,
+                  ),
+                ),
+                child: Icon(
+                  seat == null
+                      ? Icons.chair_outlined
+                      : seat.isBot
+                          ? Icons.smart_toy_rounded
+                          : Icons.person_rounded,
+                  color: seat == null ? Colors.white38 : teamColor,
+                  size: 18,
+                ),
+              );
+            }),
+          ),
+          const Spacer(),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              key: firstButtonKey,
+              onPressed: opening ? null : onEnter,
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFE7A93E),
+                foregroundColor: const Color(0xFF173326),
               ),
+              child: opening
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Text(resume
+                      ? 'RETOMAR'
+                      : table.phase == LobbyTablePhase.playing
+                          ? 'SEM VAGA'
+                          : 'ENTRAR EM UMA MESA'),
             ),
-            const SizedBox(height: 5),
-            Text(
-              human ? 'VOCÊ' : 'ROBÔ',
-              style: TextStyle(
-                color: color,
-                fontSize: 9,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ],
-        );
-      }),
+          ),
+        ],
+      ),
     );
   }
 }

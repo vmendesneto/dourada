@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:dourada/game/douradinha_game.dart';
+import 'package:dourada/online/lobby_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,22 +10,32 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 class TableSession extends ChangeNotifier {
   TableSession({
+    this.entry,
     http.Client? client,
     String? serverUrl,
   })  : _client = client ?? http.Client(),
-        _serverUrl = (serverUrl ??
-                const String.fromEnvironment(
-                  'DOURADA_SERVER_URL',
-                ))
-            .replaceFirst(RegExp(r'/$'), '');
+        _serverUrl = (entry?.serverUrl ??
+                serverUrl ??
+                const String.fromEnvironment('DOURADA_SERVER_URL'))
+            .replaceFirst(RegExp(r'/$'), '') {
+    if (entry != null) {
+      tableNumber = entry!.tableNumber;
+      playerToken = entry!.playerToken;
+      websocketUrl = entry!.websocketUrl;
+      seatIndex = entry!.seatIndex;
+      phase = entry!.phase;
+      seats = entry!.seats;
+    }
+  }
 
-  static const tableNumberKey = 'douradinha_numero_mesa_v1';
-  static const playerTokenKey = 'douradinha_token_jogador_v1';
+  static const tableNumberKey = LobbyService.tableNumberKey;
+  static const playerTokenKey = LobbyService.playerTokenKey;
 
+  final TableEntry? entry;
   final http.Client _client;
   final String _serverUrl;
-  SharedPreferences? _preferences;
   DouradinhaGame? _game;
+  SharedPreferences? _preferences;
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _subscription;
   Timer? _reconnectTimer;
@@ -32,29 +43,34 @@ class TableSession extends ChangeNotifier {
   bool _disposed = false;
   bool _presencePaused = false;
   bool _applyingRemoteState = false;
-  bool _startingNewMatch = false;
-  bool _ignoreNextSocketState = false;
 
   String? tableNumber;
   String? playerToken;
   String? websocketUrl;
+  int seatIndex = 0;
+  LobbyTablePhase phase = LobbyTablePhase.playing;
+  List<LobbySeat?> seats = List<LobbySeat?>.filled(6, null);
   String? errorMessage;
   bool connecting = false;
   bool connected = false;
   bool replacementBotActive = false;
 
-  bool get enabled => _serverUrl.isNotEmpty;
+  bool get enabled => _serverUrl.isNotEmpty && entry?.online != false;
   bool get applyingRemoteState => _applyingRemoteState;
-  bool get canPlayHere => !enabled || tableNumber == null || connected;
+  bool get serverControlsAutomation => enabled;
+  bool get waiting => enabled && phase == LobbyTablePhase.waiting;
+  bool get canPlayHere =>
+      !enabled || (connected && phase == LobbyTablePhase.playing);
+  int get playerCount => seats.where((seat) => seat != null).length;
+  int get missingPlayers => 6 - playerCount;
 
   String get connectionLabel {
     if (!enabled) return 'Mesa local';
     if (connecting) return 'Conectando...';
+    if (waiting) return 'Mesa $tableNumber • aguardando';
     if (connected) return 'Mesa $tableNumber';
     if (replacementBotActive) return 'Mesa $tableNumber • robô assumiu';
-    return tableNumber == null
-        ? 'Criando mesa...'
-        : 'Mesa $tableNumber • offline';
+    return 'Mesa $tableNumber • offline';
   }
 
   Future<void> initialize(
@@ -64,24 +80,50 @@ class TableSession extends ChangeNotifier {
     _game = game;
     _preferences = preferences;
     if (!enabled || _disposed) return;
+    _applyEntry(entry!);
+    await _connectSocket();
+  }
 
-    tableNumber = preferences.getString(tableNumberKey);
-    playerToken = preferences.getString(playerTokenKey);
-    if (game.phase == MatchPhase.gameOver) game.restart();
-    await _openSession(isReconnect: false);
+  Future<void> fillRemainingWithBots() async {
+    if (!enabled || !waiting || playerToken == null || tableNumber == null) {
+      return;
+    }
+    connecting = true;
+    errorMessage = null;
+    notifyListeners();
+    try {
+      final response = await _client
+          .post(
+            Uri.parse('$_serverUrl/api/tables/$tableNumber/fill-bots'),
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({'playerToken': playerToken}),
+          )
+          .timeout(const Duration(seconds: 12));
+      final payload = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode != 200) {
+        throw StateError(
+            payload['error'] as String? ?? 'Não foi possível iniciar.');
+      }
+      _applyRoomPayload(payload);
+    } on Object catch (error) {
+      errorMessage = error.toString().replaceFirst('Bad state: ', '');
+    } finally {
+      connecting = false;
+      if (!_disposed) notifyListeners();
+    }
   }
 
   Future<void> startNewMatch(DouradinhaGame game) async {
-    if (_startingNewMatch) return;
-    _startingNewMatch = true;
-    _reconnectTimer?.cancel();
-    connected = false;
-    replacementBotActive = false;
-    await _closeChannel();
-    await _clearCredentials();
-    game.restart();
-    _startingNewMatch = false;
-    if (enabled && !_disposed) await _openSession(isReconnect: false);
+    if (!enabled) {
+      final preferences = _preferences;
+      if (preferences != null) {
+        await preferences.remove(tableNumberKey);
+        await preferences.remove(playerTokenKey);
+      }
+      game.restart();
+      return;
+    }
+    _channel?.sink.add(jsonEncode({'type': 'restart'}));
   }
 
   Future<void> pausePresence() async {
@@ -90,112 +132,98 @@ class TableSession extends ChangeNotifier {
     _reconnectTimer?.cancel();
     _heartbeatTimer?.cancel();
     connected = false;
-    if (!_disposed) notifyListeners();
+    notifyListeners();
     await _closeChannel();
   }
 
   Future<void> resumePresence() async {
     if (!enabled || _disposed || !_presencePaused) return;
     _presencePaused = false;
-    await _openSession(isReconnect: true);
+    await _rejoinAndConnect();
   }
 
   void syncGame(DouradinhaGame game) {
-    if (_applyingRemoteState || !connected || _channel == null) return;
-    _channel!.sink.add(
-      jsonEncode({
-        'type': 'state',
-        'gameState': game.toJson(),
-      }),
-    );
+    if (_applyingRemoteState || !canPlayHere || _channel == null) {
+      return;
+    }
+    _channel!.sink
+        .add(jsonEncode({'type': 'state', 'gameState': game.toJson()}));
   }
 
-  Future<void> _openSession({required bool isReconnect}) async {
-    if (_disposed || _presencePaused || connecting || _startingNewMatch) return;
+  void _applyEntry(TableEntry value) {
+    tableNumber = value.tableNumber;
+    playerToken = value.playerToken;
+    websocketUrl = value.websocketUrl;
+    seatIndex = value.seatIndex;
+    phase = value.phase;
+    seats = value.seats;
+    _configureSeats();
+    _restoreRemoteState(value.gameState);
+  }
+
+  void _applyRoomPayload(Map<String, dynamic> payload) {
+    phase = LobbyTablePhase.values.byName(payload['phase'] as String);
+    seatIndex = payload['seatIndex'] as int? ?? seatIndex;
+    seats = (payload['seats'] as List<Object?>)
+        .map((value) => value == null
+            ? null
+            : LobbySeat.fromJson(Map<String, dynamic>.from(value as Map)))
+        .toList(growable: false);
+    _configureSeats();
+    _restoreRemoteState(payload['gameState']);
+  }
+
+  void _configureSeats() {
+    _game?.configureSeats([
+      for (final seat in seats)
+        seat == null ? null : (name: seat.name, isHuman: !seat.isBot),
+    ]);
+  }
+
+  Future<void> _connectSocket() async {
+    if (_disposed || _presencePaused || connecting || websocketUrl == null) {
+      return;
+    }
     connecting = true;
     errorMessage = null;
     notifyListeners();
-
-    final previousTable = tableNumber;
-    final previousToken = playerToken;
     try {
-      if (_game!.phase == MatchPhase.gameOver && isReconnect) {
-        _game!.restart();
-      }
-      final response = await _client
-          .post(
-            Uri.parse('$_serverUrl/api/session'),
-            headers: const {'Content-Type': 'application/json'},
-            body: jsonEncode({
-              if (previousTable != null) 'tableNumber': previousTable,
-              if (previousToken != null) 'playerToken': previousToken,
-              'gameState': _game!.toJson(),
-            }),
-          )
-          .timeout(const Duration(seconds: 12));
-      if (response.statusCode != 200 && response.statusCode != 201) {
-        throw StateError('Servidor respondeu ${response.statusCode}.');
-      }
-      final payload = jsonDecode(response.body) as Map<String, dynamic>;
-      tableNumber = payload['tableNumber'] as String;
-      playerToken = payload['playerToken'] as String;
-      websocketUrl = payload['websocketUrl'] as String;
-      await _saveCredentials();
-
-      final createdAfterEndedTable = response.statusCode == 201 &&
-          previousTable != null &&
-          payload['previousSessionEnded'] == true;
-      if (createdAfterEndedTable) {
-        // A mesa anterior terminou enquanto o usuário estava fora. A nova mesa
-        // começa zerada, como uma nova partida de verdade.
-        _game!.restart();
-        _ignoreNextSocketState = true;
-      } else {
-        _restoreRemoteState(payload['gameState']);
-      }
-      await _connectSocket();
-      if (createdAfterEndedTable) syncGame(_game!);
+      await _closeChannel();
+      final channel = WebSocketChannel.connect(Uri.parse(websocketUrl!));
+      _channel = channel;
+      await channel.ready.timeout(const Duration(seconds: 12));
+      if (_disposed || channel != _channel) return;
+      connected = true;
+      replacementBotActive = false;
+      _subscription = channel.stream.listen(
+        _handleSocketMessage,
+        onDone: _handleSocketClosed,
+        onError: (_) => _handleSocketClosed(),
+        cancelOnError: true,
+      );
+      _startHeartbeat();
     } on Object {
       connected = false;
-      replacementBotActive = previousTable != null;
-      errorMessage = 'Não foi possível conectar à mesa. O jogo local continua.';
-      if (isReconnect) _scheduleReconnect();
+      replacementBotActive = phase == LobbyTablePhase.playing;
+      errorMessage = 'Não foi possível conectar à mesa.';
+      _scheduleReconnect();
     } finally {
       connecting = false;
       if (!_disposed) notifyListeners();
     }
   }
 
-  Future<void> _connectSocket() async {
-    await _closeChannel();
-    final channel = WebSocketChannel.connect(Uri.parse(websocketUrl!));
-    _channel = channel;
-    await channel.ready.timeout(const Duration(seconds: 12));
-    if (_disposed || channel != _channel) {
-      await channel.sink.close();
-      return;
-    }
-    connected = true;
-    replacementBotActive = false;
-    _subscription = channel.stream.listen(
-      _handleSocketMessage,
-      onDone: _handleSocketClosed,
-      onError: (_) => _handleSocketClosed(),
-      cancelOnError: true,
-    );
-    _startHeartbeat();
-  }
-
   void _handleSocketMessage(dynamic rawMessage) {
-    if (rawMessage is! String) return;
-    if (rawMessage == 'pong') return;
-    final message = jsonDecode(rawMessage) as Map<String, dynamic>;
-    if (message['type'] == 'state') {
-      if (_ignoreNextSocketState) {
-        _ignoreNextSocketState = false;
-        return;
+    if (rawMessage is! String || rawMessage == 'pong') return;
+    try {
+      final message = jsonDecode(rawMessage) as Map<String, dynamic>;
+      if (message['type'] == 'room') {
+        _applyRoomPayload(message);
+        notifyListeners();
       }
-      _restoreRemoteState(message['gameState']);
+    } on Object {
+      errorMessage = 'A mesa enviou uma atualização inválida.';
+      notifyListeners();
     }
   }
 
@@ -209,69 +237,59 @@ class TableSession extends ChangeNotifier {
     }
   }
 
+  Future<void> _rejoinAndConnect() async {
+    if (playerToken == null || tableNumber == null) return;
+    try {
+      final response = await _client.post(
+        Uri.parse('$_serverUrl/api/tables/$tableNumber/join'),
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode({'playerToken': playerToken}),
+      );
+      if (response.statusCode != 200) throw StateError('Sessão encerrada.');
+      final payload = jsonDecode(response.body) as Map<String, dynamic>;
+      websocketUrl = payload['websocketUrl'] as String;
+      _applyRoomPayload(payload);
+      await _connectSocket();
+    } on Object {
+      errorMessage = 'Sua cadeira não está mais disponível.';
+      notifyListeners();
+    }
+  }
+
   void _handleSocketClosed() {
     _heartbeatTimer?.cancel();
-    if (_disposed || _startingNewMatch) return;
+    if (_disposed) return;
     connected = false;
-    replacementBotActive = tableNumber != null;
+    replacementBotActive = phase == LobbyTablePhase.playing;
     notifyListeners();
     if (!_presencePaused) _scheduleReconnect();
   }
 
   void _scheduleReconnect() {
-    if (_disposed ||
-        _presencePaused ||
-        _startingNewMatch ||
-        _reconnectTimer?.isActive == true) {
+    if (_disposed || _presencePaused || _reconnectTimer?.isActive == true) {
       return;
     }
-    _reconnectTimer = Timer(
-      const Duration(seconds: 3),
-      () => _openSession(isReconnect: true),
-    );
-  }
-
-  Future<void> _saveCredentials() async {
-    final preferences = _preferences;
-    if (preferences == null) return;
-    await preferences.setString(tableNumberKey, tableNumber!);
-    await preferences.setString(playerTokenKey, playerToken!);
-  }
-
-  Future<void> _clearCredentials() async {
-    tableNumber = null;
-    playerToken = null;
-    websocketUrl = null;
-    final preferences = _preferences;
-    if (preferences != null) {
-      await preferences.remove(tableNumberKey);
-      await preferences.remove(playerTokenKey);
-    }
-    if (!_disposed) notifyListeners();
-  }
-
-  Future<void> _closeChannel() async {
-    _heartbeatTimer?.cancel();
-    _heartbeatTimer = null;
-    await _subscription?.cancel();
-    _subscription = null;
-    final channel = _channel;
-    _channel = null;
-    if (channel != null) await channel.sink.close();
+    _reconnectTimer = Timer(const Duration(seconds: 3), _rejoinAndConnect);
   }
 
   void _startHeartbeat() {
     _heartbeatTimer?.cancel();
     _sendHeartbeat();
-    _heartbeatTimer = Timer.periodic(
-      const Duration(seconds: 2),
-      (_) => _sendHeartbeat(),
-    );
+    _heartbeatTimer =
+        Timer.periodic(const Duration(seconds: 2), (_) => _sendHeartbeat());
   }
 
   void _sendHeartbeat() {
-    if (!connected || _presencePaused || _channel == null) return;
-    _channel!.sink.add('ping');
+    if (connected && !_presencePaused) _channel?.sink.add('ping');
+  }
+
+  Future<void> _closeChannel() async {
+    _heartbeatTimer?.cancel();
+    await _subscription?.cancel();
+    _subscription = null;
+    final channel = _channel;
+    _channel = null;
+    if (channel != null) await channel.sink.close();
   }
 
   @override

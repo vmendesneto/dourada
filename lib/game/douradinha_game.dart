@@ -107,9 +107,9 @@ class PlayerSeat {
   });
 
   final int id;
-  final String name;
+  String name;
   final int team;
-  final bool isHuman;
+  bool isHuman;
   final List<PlayingCard> hand = [];
 }
 
@@ -140,20 +140,22 @@ class DouradinhaGame extends ChangeNotifier {
   static const handResultDisplayDuration = Duration(seconds: 5);
   static const challengeNoticeDuration = Duration(seconds: 2);
 
-  DouradinhaGame({Random? random}) : _random = random ?? Random() {
+  DouradinhaGame({Random? random, this.humanPlayerIndex = 0})
+      : _random = random ?? Random() {
     players = List.generate(
       6,
       (index) => PlayerSeat(
         id: index,
-        name: index == 0 ? 'Você' : 'Robô $index',
+        name: index == humanPlayerIndex ? 'Você' : 'Robô $index',
         team: index.isEven ? 0 : 1,
-        isHuman: index == 0,
+        isHuman: index == humanPlayerIndex,
       ),
     );
     restart();
   }
 
   final Random _random;
+  final int humanPlayerIndex;
   late final List<PlayerSeat> players;
   final List<int> scores = [0, 0];
   final List<PlayedCard> currentTrick = [];
@@ -183,9 +185,22 @@ class DouradinhaGame extends ChangeNotifier {
   bool challengeNoticeAccepted = false;
   String statusMessage = '';
 
+  int get humanTeam => players[humanPlayerIndex].team;
+
+  void configureSeats(List<({String name, bool isHuman})?> seats) {
+    if (seats.length != players.length) return;
+    for (var index = 0; index < players.length; index++) {
+      final seat = seats[index];
+      if (seat == null) continue;
+      players[index]
+        ..name = index == humanPlayerIndex ? 'Você' : seat.name
+        ..isHuman = seat.isHuman;
+    }
+  }
+
   bool get isHumanTurn =>
       canCurrentPlayerPlayCard &&
-      currentPlayerIndex == 0 &&
+      currentPlayerIndex == humanPlayerIndex &&
       !humanTenDecisionPending;
 
   bool get canCurrentPlayerPlayCard =>
@@ -204,19 +219,20 @@ class DouradinhaGame extends ChangeNotifier {
   bool get humanTenDecisionPending =>
       phase == MatchPhase.playing &&
       !isTenToTen &&
-      scores[0] == 10 &&
-      !_tenDecisionMade[0];
+      scores[humanTeam] == 10 &&
+      !_tenDecisionMade[humanTeam];
 
   bool get botTenDecisionPending =>
       phase == MatchPhase.playing &&
       !isTenToTen &&
-      scores[1] == 10 &&
-      !_tenDecisionMade[1];
+      scores[1 - humanTeam] == 10 &&
+      !_tenDecisionMade[1 - humanTeam];
 
   bool get canHumanSeePartnerCardsInTenHand =>
       humanTenDecisionPending && !isTenToTen;
 
-  bool get humanMustAnswerChallenge => pendingChallenge?.targetTeam == 0;
+  bool get humanMustAnswerChallenge =>
+      pendingChallenge?.targetTeam == humanTeam;
 
   int get displayedHandNumber {
     if ((awaitingNextTrick || phase == MatchPhase.handFinished) &&
@@ -241,7 +257,7 @@ class DouradinhaGame extends ChangeNotifier {
       isHumanTurn &&
       !isTenHand &&
       !challengeAttemptedThisTurn &&
-      canTeamRequestChallenge(0) &&
+      canTeamRequestChallenge(humanTeam) &&
       handValue < 6;
 
   int? get nextChallengeValue => nextChallengeAfter(handValue);
@@ -590,7 +606,7 @@ class DouradinhaGame extends ChangeNotifier {
 
   void chooseToPlayTenHand() {
     if (!humanTenDecisionPending) return;
-    _tenDecisionMade[0] = true;
+    _tenDecisionMade[humanTeam] = true;
     statusMessage = 'Seu trio decidiu jogar a mão de dez.';
     _addHistory(statusMessage);
     notifyListeners();
@@ -598,32 +614,41 @@ class DouradinhaGame extends ChangeNotifier {
 
   void foldHumanTenHand() {
     if (!humanTenDecisionPending) return;
-    _tenDecisionMade[0] = true;
-    _finishHand(1, points: 1, reason: 'Seu trio correu na mão de dez.');
+    _tenDecisionMade[humanTeam] = true;
+    _finishHand(
+      1 - humanTeam,
+      points: 1,
+      reason: 'Seu trio correu na mão de dez.',
+    );
   }
 
   void resolveBotTenHand() {
     if (!botTenDecisionPending) return;
-    _tenDecisionMade[1] = true;
+    final botTeam = 1 - humanTeam;
+    _tenDecisionMade[botTeam] = true;
     final cards = players
-        .where((player) => player.team == 1)
+        .where((player) => player.team == botTeam)
         .expand((player) => player.hand)
         .map((card) => card.strength)
         .toList();
     cards.sort();
     final confidence = cards.reversed.take(3).fold<int>(0, (a, b) => a + b);
     if (confidence < 19 && _random.nextDouble() < .65) {
-      _finishHand(0, points: 1, reason: 'O Trio Dourado correu na mão de dez.');
+      _finishHand(
+        humanTeam,
+        points: 1,
+        reason: 'O trio adversário correu na mão de dez.',
+      );
       return;
     }
-    statusMessage = 'O Trio Dourado decidiu jogar a mão de dez.';
+    statusMessage = 'O trio adversário decidiu jogar a mão de dez.';
     _addHistory(statusMessage);
     notifyListeners();
   }
 
   void playHumanCard(PlayingCard card) {
-    if (!isHumanTurn || !players[0].hand.contains(card)) return;
-    _playCard(0, card);
+    if (!isHumanTurn || !players[humanPlayerIndex].hand.contains(card)) return;
+    _playCard(humanPlayerIndex, card);
   }
 
   void autoPlayCurrentPlayerOnTimeout() {
@@ -642,7 +667,7 @@ class DouradinhaGame extends ChangeNotifier {
     if (phase != MatchPhase.playing ||
         awaitingNextTrick ||
         pendingChallenge != null ||
-        currentPlayerIndex == 0 ||
+        currentPlayerIndex == humanPlayerIndex ||
         humanTenDecisionPending ||
         botTenDecisionPending) {
       return;
@@ -836,7 +861,7 @@ class DouradinhaGame extends ChangeNotifier {
 
   void requestHumanChallenge() {
     if (!canHumanChallenge) return;
-    _requestChallenge(0, 0);
+    _requestChallenge(humanTeam, humanPlayerIndex);
   }
 
   void _requestChallenge(int team, int playerIndex) {
@@ -851,7 +876,7 @@ class DouradinhaGame extends ChangeNotifier {
       responderPlayer: _nextPlayerOnTeam(playerIndex, 1 - team),
     );
     final call = challengeLabelForPoints(requested);
-    statusMessage = playerIndex == 0
+    statusMessage = playerIndex == humanPlayerIndex
         ? '${players[playerIndex].name} pediu $call'
         : '${players[playerIndex].name} consultou os parceiros e pediu $call';
     _addHistory(statusMessage);
@@ -887,17 +912,18 @@ class DouradinhaGame extends ChangeNotifier {
     if (!humanMustAnswerChallenge || pendingChallenge!.requestedValue >= 6) {
       return;
     }
-    _raiseChallenge(0, 0);
+    _raiseChallenge(humanTeam, humanPlayerIndex);
   }
 
   void resolveBotChallenge() {
     final challenge = pendingChallenge;
-    if (challenge == null || challenge.targetTeam == 0) return;
-    _botChallengeConsideredThisTrick[1] = true;
+    if (challenge == null || challenge.targetTeam == humanTeam) return;
+    final botTeam = 1 - humanTeam;
+    _botChallengeConsideredThisTrick[botTeam] = true;
     final foldingLosesMatch =
         scores[challenge.challengerTeam] + scorePointsForHandValue(handValue) >=
             12;
-    final votes = _consultBotTeam(1, challenge.requestedValue);
+    final votes = _consultBotTeam(botTeam, challenge.requestedValue);
     final folds = votes.where((vote) => vote == ChallengeDecision.fold).length;
     final raises =
         votes.where((vote) => vote == ChallengeDecision.raise).length;
@@ -907,12 +933,12 @@ class DouradinhaGame extends ChangeNotifier {
     // O trio decide pelos sinais: um parceiro muito confiante evita uma fuga
     // precipitada, mas o aumento exige apoio de pelo menos dois robôs.
     if (!foldingLosesMatch && folds >= 2 && raises == 0) {
-      challengeNotice = 'O Trio Dourado conversou e correu do desafio.';
+      challengeNotice = 'O trio adversário conversou e correu do desafio.';
       challengeNoticeAccepted = false;
       _finishHand(
         challenge.challengerTeam,
         points: handValue,
-        reason: 'O Trio Dourado conversou e correu do desafio.',
+        reason: 'O trio adversário conversou e correu do desafio.',
       );
     } else if (_random.nextDouble() <
         botRaiseResponseProbability(
@@ -920,10 +946,10 @@ class DouradinhaGame extends ChangeNotifier {
           acceptVotes: accepts,
           requestedValue: challenge.requestedValue,
         )) {
-      _raiseChallenge(1, challenge.responderPlayer);
+      _raiseChallenge(botTeam, challenge.responderPlayer);
     } else {
       _acceptChallenge(
-        'O Trio Dourado conversou e aceitou: vale ${spokenValueForPoints(challenge.requestedValue)}.',
+        'O trio adversário conversou e aceitou: vale ${spokenValueForPoints(challenge.requestedValue)}.',
         showNotice: true,
       );
     }
@@ -960,7 +986,7 @@ class DouradinhaGame extends ChangeNotifier {
       requestedValue: requested,
       responderPlayer: _nextPlayerOnTeam(playerIndex, 1 - raisingTeam),
     );
-    statusMessage = playerIndex == 0
+    statusMessage = playerIndex == humanPlayerIndex
         ? '${players[playerIndex].name} pediu ${challengeLabelForPoints(requested)}'
         : '${players[playerIndex].name} consultou os parceiros e pediu ${challengeLabelForPoints(requested)}';
     _addHistory(statusMessage);

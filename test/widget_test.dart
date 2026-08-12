@@ -13,7 +13,7 @@ void main() {
     await tester.pumpWidget(const DouradinhaApp());
     await tester.pump();
 
-    expect(find.text('ENTRAR EM UMA MESA'), findsOneWidget);
+    expect(find.byKey(const ValueKey('entrar-em-uma-mesa')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -22,7 +22,7 @@ void main() {
     await tester.pumpWidget(const DouradinhaApp());
     await tester.pump();
 
-    expect(find.text('ENTRAR EM UMA MESA'), findsOneWidget);
+    expect(find.byKey(const ValueKey('entrar-em-uma-mesa')), findsOneWidget);
     expect(find.text('TRUCO!'), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));

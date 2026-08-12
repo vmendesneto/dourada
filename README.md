@@ -1,7 +1,7 @@
 # Douradinha
 
-Jogo de Douradinha em Flutter para seis participantes: um jogador humano e
-cinco robôs, divididos em dois trios alternados.
+Jogo de Douradinha em Flutter para seis participantes, humanos ou robôs,
+divididos em dois trios alternados.
 
 ## Jogar pela internet
 
@@ -41,12 +41,18 @@ O GitHub Pages é atualizado automaticamente a cada envio para a branch `main`.
   estouros, com escolha automática de carta para a partida nunca travar;
 - interface responsiva em modo paisagem, consulta à ordem das manilhas e
   destaque animado da carta vencedora;
-- mesa online persistente com número de seis dígitos e token privado salvo no
+- lobby com limite fixo de 10 mesas e status em tempo real: vazia, aguardando
+  jogadores ou jogando;
+- seis cadeiras visíveis por mesa, com entrada permitida somente em mesas
+  vazias ou aguardando;
+- sala de espera compartilhada: seis humanos iniciam automaticamente, ou um
+  participante pode preencher todas as cadeiras restantes com robôs;
+- mesa online persistente com número e token privado de cada cadeira salvo no
   navegador;
 - reconexão automática à mesa enquanto a partida estiver em andamento;
 - robô substituto executado no servidor quando o jogador fecha ou deixa a
   página, permitindo que a partida continue sem o navegador aberto;
-- criação automática de uma nova mesa quando a partida anterior já terminou.
+- encerramento da mesa ao fim da partida quando restarem somente robôs.
 
 ## Executar
 
@@ -63,7 +69,8 @@ flutter run --dart-define=DOURADA_SERVER_URL=https://SEU-WORKER.workers.dev
 
 ## Servidor Cloudflare
 
-O backend está em `cloudflare/` e usa um Durable Object SQLite para cada mesa.
+O backend está em `cloudflare/` e usa um Durable Object SQLite para cada uma
+das 10 mesas.
 
 ```sh
 cd cloudflare
@@ -80,5 +87,4 @@ flutter test
 ```
 
 O motor da partida está separado da interface em `lib/game/douradinha_game.dart`,
-o que permite substituir os robôs por jogadores remotos na próxima etapa sem
-duplicar as regras do jogo.
+o que mantém as regras compartilhadas entre partidas locais e mesas remotas.

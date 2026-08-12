@@ -1,0 +1,212 @@
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+
+enum LobbyTablePhase { empty, waiting, playing }
+
+class LobbySeat {
+  const LobbySeat({
+    required this.index,
+    required this.kind,
+    required this.name,
+    required this.team,
+    required this.connected,
+  });
+
+  final int index;
+  final String kind;
+  final String name;
+  final int team;
+  final bool connected;
+
+  bool get isBot => kind == 'bot';
+
+  factory LobbySeat.fromJson(Map<String, dynamic> json) => LobbySeat(
+        index: json['index'] as int,
+        kind: json['kind'] as String,
+        name: json['name'] as String,
+        team: json['team'] as int,
+        connected: json['connected'] as bool? ?? true,
+      );
+}
+
+class LobbyTable {
+  const LobbyTable({
+    required this.tableNumber,
+    required this.phase,
+    required this.playerCount,
+    required this.humanCount,
+    required this.botCount,
+    required this.capacity,
+    required this.seats,
+  });
+
+  final int tableNumber;
+  final LobbyTablePhase phase;
+  final int playerCount;
+  final int humanCount;
+  final int botCount;
+  final int capacity;
+  final List<LobbySeat?> seats;
+
+  bool get canJoin =>
+      phase != LobbyTablePhase.playing && playerCount < capacity;
+
+  factory LobbyTable.fromJson(Map<String, dynamic> json) => LobbyTable(
+        tableNumber: json['tableNumber'] as int,
+        phase: LobbyTablePhase.values.byName(json['status'] as String),
+        playerCount: json['playerCount'] as int,
+        humanCount: json['humanCount'] as int,
+        botCount: json['botCount'] as int,
+        capacity: json['capacity'] as int,
+        seats: (json['seats'] as List<Object?>)
+            .map(
+              (seat) => seat == null
+                  ? null
+                  : LobbySeat.fromJson(Map<String, dynamic>.from(seat as Map)),
+            )
+            .toList(growable: false),
+      );
+}
+
+class TableEntry {
+  const TableEntry({
+    required this.serverUrl,
+    required this.tableNumber,
+    required this.playerToken,
+    required this.websocketUrl,
+    required this.seatIndex,
+    required this.phase,
+    required this.seats,
+    this.gameState,
+  });
+
+  final String serverUrl;
+  final String tableNumber;
+  final String playerToken;
+  final String websocketUrl;
+  final int seatIndex;
+  final LobbyTablePhase phase;
+  final List<LobbySeat?> seats;
+  final Object? gameState;
+
+  bool get online => serverUrl.isNotEmpty;
+
+  factory TableEntry.fromJson(String serverUrl, Map<String, dynamic> json) =>
+      TableEntry(
+        serverUrl: serverUrl,
+        tableNumber: json['tableNumber'] as String,
+        playerToken: json['playerToken'] as String,
+        websocketUrl: json['websocketUrl'] as String,
+        seatIndex: json['seatIndex'] as int,
+        phase: LobbyTablePhase.values.byName(json['phase'] as String),
+        seats: (json['seats'] as List<Object?>)
+            .map(
+              (seat) => seat == null
+                  ? null
+                  : LobbySeat.fromJson(Map<String, dynamic>.from(seat as Map)),
+            )
+            .toList(growable: false),
+        gameState: json['gameState'],
+      );
+}
+
+class LobbyService {
+  LobbyService({http.Client? client, String? serverUrl})
+      : _client = client ?? http.Client(),
+        serverUrl =
+            (serverUrl ?? const String.fromEnvironment('DOURADA_SERVER_URL'))
+                .replaceFirst(RegExp(r'/$'), '');
+
+  static const tableNumberKey = 'douradinha_numero_mesa_v2';
+  static const playerTokenKey = 'douradinha_token_jogador_v2';
+  static const seatIndexKey = 'douradinha_cadeira_jogador_v2';
+
+  final http.Client _client;
+  final String serverUrl;
+
+  bool get enabled => serverUrl.isNotEmpty;
+
+  Future<List<LobbyTable>> fetchTables() async {
+    if (!enabled) return _localTables();
+    final response = await _client
+        .get(Uri.parse('$serverUrl/api/lobby'))
+        .timeout(const Duration(seconds: 12));
+    if (response.statusCode != 200) {
+      throw StateError('Servidor respondeu ${response.statusCode}.');
+    }
+    final payload = jsonDecode(response.body) as Map<String, dynamic>;
+    return (payload['tables'] as List<Object?>)
+        .map((value) =>
+            LobbyTable.fromJson(Map<String, dynamic>.from(value as Map)))
+        .toList(growable: false);
+  }
+
+  Future<TableEntry> joinTable(int tableNumber) async {
+    if (!enabled) {
+      return TableEntry(
+        serverUrl: '',
+        tableNumber: '$tableNumber',
+        playerToken: 'local',
+        websocketUrl: '',
+        seatIndex: 0,
+        phase: LobbyTablePhase.playing,
+        seats: List<LobbySeat?>.generate(
+          6,
+          (index) => LobbySeat(
+            index: index,
+            kind: index == 0 ? 'human' : 'bot',
+            name: index == 0 ? 'Você' : 'Robô $index',
+            team: index % 2,
+            connected: true,
+          ),
+        ),
+      );
+    }
+
+    final preferences = await SharedPreferences.getInstance();
+    final savedTable = preferences.getString(tableNumberKey);
+    final savedToken = preferences.getString(playerTokenKey);
+    final response = await _client
+        .post(
+          Uri.parse('$serverUrl/api/tables/$tableNumber/join'),
+          headers: const {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            if (savedTable == '$tableNumber' && savedToken != null)
+              'playerToken': savedToken,
+          }),
+        )
+        .timeout(const Duration(seconds: 12));
+    final payload = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw StateError(
+          payload['error'] as String? ?? 'Não foi possível entrar na mesa.');
+    }
+    final entry = TableEntry.fromJson(serverUrl, payload);
+    await preferences.setString(tableNumberKey, entry.tableNumber);
+    await preferences.setString(playerTokenKey, entry.playerToken);
+    await preferences.setInt(seatIndexKey, entry.seatIndex);
+    return entry;
+  }
+
+  Future<String?> savedTableNumber() async {
+    final preferences = await SharedPreferences.getInstance();
+    return preferences.getString(tableNumberKey);
+  }
+
+  void dispose() => _client.close();
+
+  static List<LobbyTable> _localTables() => List.generate(
+        10,
+        (index) => LobbyTable(
+          tableNumber: index + 1,
+          phase: LobbyTablePhase.empty,
+          playerCount: 0,
+          humanCount: 0,
+          botCount: 0,
+          capacity: 6,
+          seats: List.filled(6, null),
+        ),
+      );
+}
