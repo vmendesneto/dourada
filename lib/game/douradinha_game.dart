@@ -231,6 +231,18 @@ class DouradinhaGame extends ChangeNotifier {
         _ => points * 2,
       };
 
+  /// Pontos exibidos no placar de 12, equivalentes às seis pedrinhas reais.
+  /// O pedido continua sendo chamado de Vale 9, mas corresponde a quatro
+  /// pedrinhas e, portanto, soma oito pontos no placar.
+  static int scorePointsForHandValue(int handValue) => switch (handValue) {
+        1 => 2,
+        2 => 4,
+        3 => 6,
+        4 => 8,
+        6 => 12,
+        _ => handValue * 2,
+      };
+
   static String challengeLabelForPoints(int points) =>
       points == 2 ? 'TRUCO!' : 'VALE ${spokenValueForPoints(points)}!';
 
@@ -677,7 +689,8 @@ class DouradinhaGame extends ChangeNotifier {
     if (challenge == null || challenge.targetTeam == 0) return;
     _botChallengeConsideredThisTrick[1] = true;
     final foldingLosesMatch =
-        scores[challenge.challengerTeam] + handValue >= 12;
+        scores[challenge.challengerTeam] + scorePointsForHandValue(handValue) >=
+            12;
     final votes = _consultBotTeam(1, challenge.requestedValue);
     final folds = votes.where((vote) => vote == ChallengeDecision.fold).length;
     final raises =
@@ -819,11 +832,12 @@ class DouradinhaGame extends ChangeNotifier {
       {required int points, required String reason}) {
     pendingChallenge = null;
     awaitingNextTrick = false;
-    scores[winningTeam] += points;
+    final scorePoints = scorePointsForHandValue(points);
+    scores[winningTeam] += scorePoints;
     lastHandWinner = winningTeam;
-    lastHandPoints = points;
+    lastHandPoints = scorePoints;
     statusMessage =
-        '$reason ${winningTeam == 0 ? teamOneLabel : teamTwoLabel} ganhou $points ${points == 1 ? 'tento' : 'tentos'}.';
+        '$reason ${winningTeam == 0 ? teamOneLabel : teamTwoLabel} ganhou $scorePoints pontos.';
     _addHistory(statusMessage);
     if (scores[winningTeam] >= 12) {
       matchWinner = winningTeam;

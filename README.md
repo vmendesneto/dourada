@@ -16,12 +16,14 @@ O GitHub Pages é atualizado automaticamente a cada envio para a branch `main`.
 - até três mãos por disputa, incluindo as regras de empate;
 - primeira mão como desempate e disputa sem tentos quando as três mãos empatam;
 - vencedor da mão abrindo a seguinte; em empate, permanece quem abriu a mão;
-- placar até 12 tentos;
-- valores falados de 2, 4 (Truco), 6, 9 e 12, marcando respectivamente
-  1, 2, 3, 4 e 6 tentos reais, com aceite, aumento e desistência;
+- placar visual até 12 pontos, representando as seis pedrinhas reais;
+- mão normal, Truco, Vale 6, Vale 9 e Vale 12 somando respectivamente
+  2, 4, 6, 8 e 12 pontos ao placar; o pedido Vale 9 mantém seu nome, embora
+  corresponda a quatro pedrinhas;
 - aumentos alternados obrigatoriamente entre os trios;
 - diálogo informando quando o trio adversário aceita o desafio ou corre;
-- mão de dez, consulta às cartas do trio e desistência por um tento;
+- mão de dez aos 10 pontos (cinco pedrinhas), consulta às cartas do trio e
+  desistência cedendo 2 pontos;
 - robôs adversários que desafiam, aceitam, aumentam e blefam;
 - decisão estatística e coletiva dos robôs: cada parceiro sinaliza se corre,
   aceita ou aumenta usando apenas a própria mão e as cartas já abertas, sem

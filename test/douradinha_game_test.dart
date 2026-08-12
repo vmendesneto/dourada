@@ -153,7 +153,7 @@ void main() {
       expect(DouradinhaGame.resolveDisputeWinner([0, 1]), isNull);
     });
 
-    test('separa os valores falados dos tentos marcados', () {
+    test('separa os nomes dos pedidos dos pontos somados ao placar', () {
       expect(DouradinhaGame.nextChallengeAfter(1), 2);
       expect(DouradinhaGame.nextChallengeAfter(2), 3);
       expect(DouradinhaGame.nextChallengeAfter(3), 4);
@@ -164,6 +164,23 @@ void main() {
       expect(DouradinhaGame.spokenValueForPoints(3), 6);
       expect(DouradinhaGame.spokenValueForPoints(4), 9);
       expect(DouradinhaGame.spokenValueForPoints(6), 12);
+      expect(DouradinhaGame.scorePointsForHandValue(1), 2);
+      expect(DouradinhaGame.scorePointsForHandValue(2), 4);
+      expect(DouradinhaGame.scorePointsForHandValue(3), 6);
+      expect(DouradinhaGame.scorePointsForHandValue(4), 8);
+      expect(DouradinhaGame.scorePointsForHandValue(6), 12);
+    });
+
+    test('dez pontos representam cinco pedrinhas e ativam a mão de dez', () {
+      final game = DouradinhaGame(random: Random(13));
+      game.scores[0] = 10;
+      game.phase = MatchPhase.handFinished;
+
+      game.startNextHand();
+
+      expect(game.isTenHand, isTrue);
+      expect(game.humanTenDecisionPending, isTrue);
+      expect(game.handValue, 3);
     });
 
     test('alterna o direito de aumentar entre os trios', () {
@@ -270,12 +287,14 @@ void main() {
 
       expect(game.phase, MatchPhase.handFinished);
       expect(game.lastHandWinner, 0);
+      expect(game.scores[0], 2);
+      expect(game.lastHandPoints, 2);
       expect(game.challengeNotice, contains('conversou e correu'));
     });
 
     test('trio não corre quando ceder os pontos encerra a partida', () {
       final game = DouradinhaGame(random: Random(37));
-      game.scores[0] = 8;
+      game.scores[0] = 4;
       game.handValue = 4;
       game.lastChallengeTeam = 1;
       for (final player in game.players.where((player) => player.team == 1)) {
