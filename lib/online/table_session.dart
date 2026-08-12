@@ -119,6 +119,9 @@ class TableSession extends ChangeNotifier {
     final previousTable = tableNumber;
     final previousToken = playerToken;
     try {
+      if (_game!.phase == MatchPhase.gameOver && isReconnect) {
+        _game!.restart();
+      }
       final response = await _client
           .post(
             Uri.parse('$_serverUrl/api/session'),

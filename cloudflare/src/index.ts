@@ -12,6 +12,7 @@ interface TableMetadata {
   updatedAt: number;
   expiresAt: number | null;
   activeConnectionId: string | null;
+  humanJoined: boolean;
 }
 
 interface SocketAttachment {
@@ -54,7 +55,7 @@ export default {
           const result = (await resumed.json()) as Record<string, unknown>;
           return json(request, withConnectionUrl(url, requestedTable, result));
         }
-        previousSessionEnded = resumed.status === 410;
+        previousSessionEnded = resumed.status === 404 || resumed.status === 410;
       }
 
       if (!isGameState(payload.gameState)) {
@@ -175,17 +176,20 @@ export class GameTable extends DurableObject<Env> {
     }
     const gameState = await this.ctx.storage.get<GameState>("gameState");
     if (!gameState) return;
+    if (metadata.humanJoined !== true || gameState.phase === "gameOver") {
+      await this.ctx.storage.deleteAll();
+      return;
+    }
     const step = advanceBot(gameState);
+    if (step.state.phase === "gameOver") {
+      await this.ctx.storage.deleteAll();
+      return;
+    }
     metadata.botActive = true;
     metadata.updatedAt = Date.now();
-    if (step.state.phase === "gameOver") {
-      metadata.expiresAt = Date.now() + 60 * 60 * 1000;
-    }
     await this.ctx.storage.put({ gameState: step.state, metadata });
     if (step.nextDelayMs !== null) {
       await this.ctx.storage.setAlarm(Date.now() + step.nextDelayMs);
-    } else if (metadata.expiresAt !== null) {
-      await this.ctx.storage.setAlarm(metadata.expiresAt);
     }
   }
 
@@ -205,8 +209,10 @@ export class GameTable extends DurableObject<Env> {
       updatedAt: Date.now(),
       expiresAt: null,
       activeConnectionId: null,
+      humanJoined: false,
     };
     await this.ctx.storage.put({ metadata, gameState: payload.gameState });
+    await this.ctx.storage.setAlarm(Date.now() + disconnectGraceMs);
     return Response.json({
       tableNumber: metadata.tableNumber,
       playerToken: metadata.playerToken,
@@ -254,6 +260,7 @@ export class GameTable extends DurableObject<Env> {
     server.serializeAttachment({ playerToken: token, connectionId, connectedAt });
     const previousSockets = this.ctx.getWebSockets().filter((socket) => socket !== server);
     metadata.activeConnectionId = connectionId;
+    metadata.humanJoined = true;
     metadata.botActive = false;
     metadata.updatedAt = connectedAt;
     metadata.expiresAt = null;
@@ -276,9 +283,7 @@ export class GameTable extends DurableObject<Env> {
     metadata.botActive = false;
     metadata.updatedAt = Date.now();
     if (gameState.phase === "gameOver") {
-      metadata.expiresAt = Date.now() + 60 * 60 * 1000;
-      await this.ctx.storage.put("metadata", metadata);
-      await this.ctx.storage.setAlarm(metadata.expiresAt);
+      await this.ctx.storage.deleteAll();
       return;
     }
     await this.ctx.storage.put("metadata", metadata);
