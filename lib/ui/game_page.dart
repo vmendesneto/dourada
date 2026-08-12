@@ -1381,8 +1381,13 @@ class _HandResultProgressState extends State<HandResultProgress>
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: widget.duration)
-      ..forward(from: 0);
+    _controller = AnimationController(
+      vsync: this,
+      duration: widget.duration,
+      // Esta barra é um relógio, não um efeito decorativo. Ela precisa
+      // durar cinco segundos mesmo quando o navegador reduz animações.
+      animationBehavior: AnimationBehavior.preserve,
+    )..forward(from: 0);
   }
 
   @override

@@ -16,6 +16,12 @@ void main() {
 
   testWidgets('barra do resultado diminui durante os cinco segundos',
       (tester) async {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(
+      tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+    );
+
     await tester.pumpWidget(
       const MaterialApp(
         home: Scaffold(
