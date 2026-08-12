@@ -38,7 +38,12 @@ jobs:
         uses: actions/configure-pages@v5
 
       - name: Compilar o jogo para Web
-        run: flutter build web --release --base-href /dourada/
+        run: flutter build web --release --base-href /dourada/ --pwa-strategy=none
+
+      - name: Evitar versões antigas no cache do navegador
+        run: |
+          sed -i "s|flutter_bootstrap.js|flutter_bootstrap.js?v=${GITHUB_SHA}|" build/web/index.html
+          sed -i "s|main.dart.js|main.dart.js?v=${GITHUB_SHA}|" build/web/flutter_bootstrap.js
 
       - name: Enviar os arquivos do site
         uses: actions/upload-pages-artifact@v4
