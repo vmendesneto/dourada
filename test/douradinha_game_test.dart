@@ -273,25 +273,84 @@ void main() {
       expect(game.challengeNotice, contains('conversou e correu'));
     });
 
-    test('trio de robôs aumenta quando recebe apoio forte dos parceiros', () {
-      final game = DouradinhaGame(random: Random(31));
-      final strongCards = <int, List<PlayingCard>>{
-        1: const [PlayingCard('Q', 'o')],
-        3: const [PlayingCard('J', 'p')],
-        5: const [PlayingCard('2', 'p')],
-      };
-      for (final entry in strongCards.entries) {
-        game.players[entry.key].hand
-          ..clear()
-          ..addAll(entry.value);
+    test('limita pedidos e aumentos dos robôs sem remover o blefe', () {
+      final strongestOpening = DouradinhaGame.botProactiveChallengeProbability(
+        raiseVotes: 3,
+        acceptVotes: 0,
+        tableIsEmpty: true,
+        completedTricks: 0,
+        handValue: 1,
+      );
+      final weakBluff = DouradinhaGame.botProactiveChallengeProbability(
+        raiseVotes: 0,
+        acceptVotes: 0,
+        tableIsEmpty: true,
+        completedTricks: 0,
+        handValue: 1,
+      );
+      final strongestRaise = DouradinhaGame.botRaiseResponseProbability(
+        raiseVotes: 3,
+        acceptVotes: 0,
+        requestedValue: 2,
+      );
+
+      expect(strongestOpening, lessThanOrEqualTo(.16));
+      expect(weakBluff, greaterThan(0));
+      expect(weakBluff, lessThan(.02));
+      expect(strongestRaise, .26);
+      expect(
+        DouradinhaGame.botRaiseResponseProbability(
+          raiseVotes: 3,
+          acceptVotes: 0,
+          requestedValue: 6,
+        ),
+        0,
+      );
+    });
+
+    test('apoio forte pode aumentar, mas não aumenta automaticamente', () {
+      var raises = 0;
+      for (var seed = 0; seed < 100; seed++) {
+        final game = DouradinhaGame(random: Random(seed));
+        final strongCards = <int, List<PlayingCard>>{
+          1: const [PlayingCard('Q', 'o')],
+          3: const [PlayingCard('J', 'p')],
+          5: const [PlayingCard('2', 'p')],
+        };
+        for (final entry in strongCards.entries) {
+          game.players[entry.key].hand
+            ..clear()
+            ..addAll(entry.value);
+        }
+
+        game.requestHumanChallenge();
+        game.resolveBotChallenge();
+        if (game.humanMustAnswerChallenge) raises++;
       }
 
-      game.requestHumanChallenge();
-      game.resolveBotChallenge();
+      expect(raises, greaterThan(10));
+      expect(raises, lessThan(40));
+    });
 
-      expect(game.humanMustAnswerChallenge, isTrue);
-      expect(game.pendingChallenge?.requestedValue, 3);
-      expect(game.statusMessage, contains('consultou os parceiros'));
+    test('trio considera o pedido somente uma vez em cada mão', () {
+      DouradinhaGame? gameWithoutFirstRequest;
+      for (var seed = 0; seed < 100; seed++) {
+        final game = DouradinhaGame(random: Random(seed));
+        game.playHumanCard(game.players[0].hand.first);
+        game.takeBotTurn();
+        if (game.pendingChallenge == null) {
+          gameWithoutFirstRequest = game;
+          break;
+        }
+      }
+
+      final game = gameWithoutFirstRequest!;
+      while (game.currentTrick.length < 6 && game.pendingChallenge == null) {
+        game.takeBotTurn();
+      }
+
+      expect(game.pendingChallenge, isNull);
+      expect(game.currentTrick, hasLength(6));
     });
 
     test('reduz o relógio individual após jogadas automáticas', () {

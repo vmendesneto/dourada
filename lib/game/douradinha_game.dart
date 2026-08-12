@@ -151,6 +151,7 @@ class DouradinhaGame extends ChangeNotifier {
   final List<int?> trickWinners = [];
   final List<String> history = [];
   final List<bool> _tenDecisionMade = [true, true];
+  final List<bool> _botChallengeConsideredThisTrick = [false, false];
   final List<int> _automaticTimeouts = List.filled(6, 0);
 
   int dealerIndex = 5;
@@ -255,6 +256,45 @@ class DouradinhaGame extends ChangeNotifier {
         _ => 8,
       };
 
+  static double botProactiveChallengeProbability({
+    required int raiseVotes,
+    required int acceptVotes,
+    required bool tableIsEmpty,
+    required int completedTricks,
+    required int handValue,
+  }) {
+    var probability = switch ((raiseVotes, acceptVotes)) {
+      (>= 2, _) => .30,
+      (1, >= 1) => .18,
+      (1, _) => .10,
+      (_, >= 2) => .06,
+      _ => .02,
+    };
+
+    // No escuro, antes de qualquer carta, o trio é mais conservador.
+    if (tableIsEmpty) probability *= .60;
+    if (completedTricks == 0) probability *= .85;
+    if (handValue == 2) probability *= .75;
+    if (handValue >= 3) probability *= .55;
+    return probability.clamp(.01, .30).toDouble();
+  }
+
+  static double botRaiseResponseProbability({
+    required int raiseVotes,
+    required int acceptVotes,
+    required int requestedValue,
+  }) {
+    if (requestedValue >= 6) return 0;
+    var probability = switch ((raiseVotes, acceptVotes)) {
+      (>= 2, _) => .26,
+      (1, >= 2) => .12,
+      _ => 0.0,
+    };
+    if (requestedValue == 3) probability *= .75;
+    if (requestedValue >= 4) probability *= .55;
+    return probability;
+  }
+
   int timeLimitSecondsFor(int playerIndex) =>
       timeLimitAfterTimeouts(_automaticTimeouts[playerIndex]);
 
@@ -305,6 +345,7 @@ class DouradinhaGame extends ChangeNotifier {
     awaitingNextTrick = false;
     nextTrickLeader = null;
     challengeAttemptedThisTurn = false;
+    _botChallengeConsideredThisTrick.fillRange(0, 2, false);
 
     final deck = PlayingCard.fullDeck()..shuffle(_random);
     for (final player in players) {
@@ -428,6 +469,7 @@ class DouradinhaGame extends ChangeNotifier {
         !canTeamRequestChallenge(player.team) ||
         isTenHand ||
         challengeAttemptedThisTurn ||
+        _botChallengeConsideredThisTrick[player.team] ||
         handValue >= 6) {
       return false;
     }
@@ -435,6 +477,7 @@ class DouradinhaGame extends ChangeNotifier {
 
     final requested = nextChallengeValue;
     if (requested == null) return false;
+    _botChallengeConsideredThisTrick[player.team] = true;
     final votes = _consultBotTeam(player.team, requested);
     final raises =
         votes.where((vote) => vote == ChallengeDecision.raise).length;
@@ -444,8 +487,13 @@ class DouradinhaGame extends ChangeNotifier {
     // Cada parceiro informa somente se ajuda, aumenta ou corre. A mão exata
     // nunca é compartilhada. Um pedido forte pode convencer o trio sozinho;
     // sinais de apoio dos demais tornam o desafio mais provável.
-    if (raises == 0) return false;
-    final challengeChance = (.08 + raises * .26 + accepts * .14).clamp(.0, .9);
+    final challengeChance = botProactiveChallengeProbability(
+      raiseVotes: raises,
+      acceptVotes: accepts,
+      tableIsEmpty: currentTrick.isEmpty,
+      completedTricks: trickWinners.length,
+      handValue: handValue,
+    );
     return _random.nextDouble() < challengeChance;
   }
 
@@ -627,6 +675,7 @@ class DouradinhaGame extends ChangeNotifier {
   void resolveBotChallenge() {
     final challenge = pendingChallenge;
     if (challenge == null || challenge.targetTeam == 0) return;
+    _botChallengeConsideredThisTrick[1] = true;
     final votes = _consultBotTeam(1, challenge.requestedValue);
     final folds = votes.where((vote) => vote == ChallengeDecision.fold).length;
     final raises =
@@ -644,8 +693,12 @@ class DouradinhaGame extends ChangeNotifier {
         points: handValue,
         reason: 'O Trio Dourado conversou e correu do desafio.',
       );
-    } else if (challenge.requestedValue < 6 &&
-        (raises >= 2 || (raises == 1 && accepts == 2))) {
+    } else if (_random.nextDouble() <
+        botRaiseResponseProbability(
+          raiseVotes: raises,
+          acceptVotes: accepts,
+          requestedValue: challenge.requestedValue,
+        )) {
       _raiseChallenge(1, challenge.responderPlayer);
     } else {
       _acceptChallenge(
@@ -755,6 +808,7 @@ class DouradinhaGame extends ChangeNotifier {
     trickLeaderIndex = nextTrickLeader!;
     currentPlayerIndex = trickLeaderIndex;
     challengeAttemptedThisTurn = false;
+    _botChallengeConsideredThisTrick.fillRange(0, 2, false);
     statusMessage = '${players[currentPlayerIndex].name} começa a próxima mão.';
     notifyListeners();
   }

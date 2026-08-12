@@ -26,6 +26,9 @@ O GitHub Pages é atualizado automaticamente a cada envio para a branch `main`.
 - decisão estatística e coletiva dos robôs: cada parceiro sinaliza se corre,
   aceita ou aumenta usando apenas a própria mão e as cartas já abertas, sem
   revelar suas cartas aos demais;
+- limite de uma avaliação de desafio do trio por mão, com pedidos e aumentos
+  probabilísticos; mãos fortes ajudam, mas não garantem truco, e blefes raros
+  continuam possíveis;
 - decisões de aposta do Trio Azul exclusivas do jogador humano; os parceiros
   robôs apenas jogam suas próprias cartas;
 - relógio individual de 15 segundos, reduzido para 12 e depois 8 segundos após
