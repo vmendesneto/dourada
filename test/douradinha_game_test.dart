@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:dourada/game/douradinha_game.dart';
@@ -68,6 +69,24 @@ void main() {
   });
 
   group('partida', () {
+    test('restaura a mesma partida depois de recarregar a página', () {
+      final original = DouradinhaGame(random: Random(41));
+      original.playHumanCard(original.players[0].hand.first);
+      original.autoPlayCurrentPlayerOnTimeout();
+      final snapshot = jsonEncode(original.toJson());
+
+      final restored = DouradinhaGame(random: Random(99));
+      final restoredSuccessfully = restored.restoreState(
+        Map<String, dynamic>.from(jsonDecode(snapshot) as Map),
+      );
+
+      expect(restoredSuccessfully, isTrue);
+      expect(jsonEncode(restored.toJson()), snapshot);
+      expect(restored.currentPlayerIndex, original.currentPlayerIndex);
+      expect(restored.players[0].hand, original.players[0].hand);
+      expect(restored.timeoutCountFor(1), 1);
+    });
+
     test('mantém o resultado da mão visível por cinco segundos', () {
       expect(
         DouradinhaGame.handResultDisplayDuration,

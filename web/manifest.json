@@ -1,12 +1,12 @@
 {
-    "name": "dourada",
-    "short_name": "dourada",
+    "name": "Douradinha",
+    "short_name": "Douradinha",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#073B2A",
+    "theme_color": "#073B2A",
+    "description": "Jogo brasileiro de Douradinha para seis participantes.",
+    "orientation": "landscape",
     "prefer_related_applications": false,
     "icons": [
         {

@@ -80,6 +80,16 @@ class PlayingCard {
     ];
   }
 
+  static PlayingCard fromCode(String code) {
+    if (code.length < 2) throw const FormatException('Carta inválida.');
+    final card = PlayingCard(
+        code.substring(0, code.length - 1), code.substring(code.length - 1));
+    if (!fullDeck().contains(card)) {
+      throw const FormatException('Carta inválida.');
+    }
+    return card;
+  }
+
   @override
   bool operator ==(Object other) =>
       other is PlayingCard && other.rank == rank && other.suit == suit;
@@ -344,6 +354,170 @@ class DouradinhaGame extends ChangeNotifier {
 
   String get teamOneLabel => 'Trio Azul';
   String get teamTwoLabel => 'Trio Dourado';
+
+  Map<String, Object?> toJson() => {
+        'version': 1,
+        'scores': scores,
+        'playerHands': [
+          for (final player in players)
+            [for (final card in player.hand) card.code],
+        ],
+        'currentTrick': [
+          for (final play in currentTrick) _playedCardToJson(play)
+        ],
+        'playedCards': [
+          for (final play in playedCards) _playedCardToJson(play)
+        ],
+        'trickWinners': trickWinners,
+        'history': history,
+        'tenDecisionMade': _tenDecisionMade,
+        'botChallengeConsideredThisTrick': _botChallengeConsideredThisTrick,
+        'automaticTimeouts': _automaticTimeouts,
+        'dealerIndex': dealerIndex,
+        'trickLeaderIndex': trickLeaderIndex,
+        'currentPlayerIndex': currentPlayerIndex,
+        'handValue': handValue,
+        'nextTrickLeader': nextTrickLeader,
+        'matchWinner': matchWinner,
+        'lastChallengeTeam': lastChallengeTeam,
+        'lastHandWinner': lastHandWinner,
+        'lastHandPoints': lastHandPoints,
+        'lastCompletedHandNumber': lastCompletedHandNumber,
+        'lastCompletedHandWinnerTeam': lastCompletedHandWinnerTeam,
+        'awaitingNextTrick': awaitingNextTrick,
+        'challengeAttemptedThisTurn': challengeAttemptedThisTurn,
+        'phase': phase.name,
+        'pendingChallenge': pendingChallenge == null
+            ? null
+            : {
+                'challengerTeam': pendingChallenge!.challengerTeam,
+                'targetTeam': pendingChallenge!.targetTeam,
+                'requestedValue': pendingChallenge!.requestedValue,
+                'responderPlayer': pendingChallenge!.responderPlayer,
+              },
+        'challengeNotice': challengeNotice,
+        'challengeNoticeAccepted': challengeNoticeAccepted,
+        'statusMessage': statusMessage,
+      };
+
+  /// Restaura uma partida salva. Se os dados estiverem incompletos ou forem de
+  /// outra versão, mantém a nova partida criada pelo construtor.
+  bool restoreState(Map<String, dynamic> json) {
+    try {
+      if (json['version'] != 1) return false;
+
+      final restoredScores = _intList(json['scores'], length: 2);
+      final restoredHands = (json['playerHands'] as List<Object?>)
+          .map((hand) => (hand as List<Object?>)
+              .map((code) => PlayingCard.fromCode(code as String))
+              .toList())
+          .toList();
+      if (restoredHands.length != players.length) return false;
+
+      final restoredCurrentTrick = _playedCardList(json['currentTrick']);
+      final restoredPlayedCards = _playedCardList(json['playedCards']);
+      final restoredTrickWinners = (json['trickWinners'] as List<Object?>)
+          .map((winner) => winner == null ? null : winner as int)
+          .toList();
+      final restoredHistory = (json['history'] as List<Object?>).cast<String>();
+      final restoredTenDecisionMade =
+          (json['tenDecisionMade'] as List<Object?>).cast<bool>();
+      final restoredBotConsidered =
+          (json['botChallengeConsideredThisTrick'] as List<Object?>)
+              .cast<bool>();
+      final restoredTimeouts =
+          _intList(json['automaticTimeouts'], length: players.length);
+      if (restoredTenDecisionMade.length != 2 ||
+          restoredBotConsidered.length != 2) {
+        return false;
+      }
+
+      final restoredPendingChallenge = json['pendingChallenge'] == null
+          ? null
+          : _challengeFromJson(
+              Map<String, dynamic>.from(json['pendingChallenge'] as Map),
+            );
+      final restoredPhase = MatchPhase.values.byName(json['phase'] as String);
+
+      scores
+        ..clear()
+        ..addAll(restoredScores);
+      for (var index = 0; index < players.length; index++) {
+        players[index].hand
+          ..clear()
+          ..addAll(restoredHands[index]);
+      }
+      currentTrick
+        ..clear()
+        ..addAll(restoredCurrentTrick);
+      playedCards
+        ..clear()
+        ..addAll(restoredPlayedCards);
+      trickWinners
+        ..clear()
+        ..addAll(restoredTrickWinners);
+      history
+        ..clear()
+        ..addAll(restoredHistory);
+      _tenDecisionMade
+        ..clear()
+        ..addAll(restoredTenDecisionMade);
+      _botChallengeConsideredThisTrick
+        ..clear()
+        ..addAll(restoredBotConsidered);
+      _automaticTimeouts.setAll(0, restoredTimeouts);
+
+      dealerIndex = json['dealerIndex'] as int;
+      trickLeaderIndex = json['trickLeaderIndex'] as int;
+      currentPlayerIndex = json['currentPlayerIndex'] as int;
+      handValue = json['handValue'] as int;
+      nextTrickLeader = json['nextTrickLeader'] as int?;
+      matchWinner = json['matchWinner'] as int?;
+      lastChallengeTeam = json['lastChallengeTeam'] as int?;
+      lastHandWinner = json['lastHandWinner'] as int?;
+      lastHandPoints = json['lastHandPoints'] as int;
+      lastCompletedHandNumber = json['lastCompletedHandNumber'] as int;
+      lastCompletedHandWinnerTeam = json['lastCompletedHandWinnerTeam'] as int?;
+      awaitingNextTrick = json['awaitingNextTrick'] as bool;
+      challengeAttemptedThisTurn = json['challengeAttemptedThisTurn'] as bool;
+      phase = restoredPhase;
+      pendingChallenge = restoredPendingChallenge;
+      challengeNotice = json['challengeNotice'] as String?;
+      challengeNoticeAccepted = json['challengeNoticeAccepted'] as bool;
+      statusMessage = json['statusMessage'] as String;
+      notifyListeners();
+      return true;
+    } on Object {
+      return false;
+    }
+  }
+
+  static Map<String, Object> _playedCardToJson(PlayedCard play) => {
+        'playerIndex': play.playerIndex,
+        'card': play.card.code,
+      };
+
+  static List<PlayedCard> _playedCardList(Object? value) =>
+      (value as List<Object?>).map((entry) {
+        final map = Map<String, dynamic>.from(entry as Map);
+        return PlayedCard(
+          playerIndex: map['playerIndex'] as int,
+          card: PlayingCard.fromCode(map['card'] as String),
+        );
+      }).toList();
+
+  static List<int> _intList(Object? value, {required int length}) {
+    final list = (value as List<Object?>).cast<int>();
+    if (list.length != length) throw const FormatException('Lista inválida.');
+    return list;
+  }
+
+  static Challenge _challengeFromJson(Map<String, dynamic> json) => Challenge(
+        challengerTeam: json['challengerTeam'] as int,
+        targetTeam: json['targetTeam'] as int,
+        requestedValue: json['requestedValue'] as int,
+        responderPlayer: json['responderPlayer'] as int,
+      );
 
   void restart() {
     scores

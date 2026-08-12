@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:dourada/game/douradinha_game.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class GamePage extends StatefulWidget {
   const GamePage({super.key});
@@ -13,7 +15,11 @@ class GamePage extends StatefulWidget {
 }
 
 class _GamePageState extends State<GamePage> {
+  static const _savedGameKey = 'douradinha_partida_em_andamento_v1';
+
   late final DouradinhaGame game;
+  late final Future<SharedPreferences> _preferences;
+  Future<void> _saveQueue = Future.value();
   Timer? _automationTimer;
   Timer? _turnTicker;
   Timer? _challengeNoticeTimer;
@@ -24,6 +30,7 @@ class _GamePageState extends State<GamePage> {
   int _turnLimitSeconds = 15;
   int _turnSecondsLeft = 15;
   double _turnProgress = 1;
+  bool _restoringGame = true;
 
   @override
   void initState() {
@@ -33,10 +40,8 @@ class _GamePageState extends State<GamePage> {
       DeviceOrientation.landscapeRight,
     ]);
     game = DouradinhaGame()..addListener(_onGameChanged);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _syncTurnClock();
-      _scheduleAutomation();
-    });
+    _preferences = SharedPreferences.getInstance();
+    unawaited(_restoreSavedGame());
   }
 
   @override
@@ -53,10 +58,53 @@ class _GamePageState extends State<GamePage> {
 
   void _onGameChanged() {
     if (!mounted) return;
+    if (_restoringGame) {
+      setState(() {});
+      return;
+    }
     _syncChallengeNotice();
     _syncTurnClock();
     setState(() {});
+    _persistGame();
     _scheduleAutomation();
+  }
+
+  Future<void> _restoreSavedGame() async {
+    try {
+      final preferences = await _preferences;
+      final savedGame = preferences.getString(_savedGameKey);
+      if (savedGame != null) {
+        final decoded = jsonDecode(savedGame);
+        if (decoded is Map) {
+          game.restoreState(Map<String, dynamic>.from(decoded));
+        }
+      }
+    } on Object {
+      // Um salvamento antigo ou danificado não pode impedir o jogo de abrir.
+    } finally {
+      _restoringGame = false;
+      if (mounted) {
+        _syncChallengeNotice();
+        _syncTurnClock();
+        setState(() {});
+        _persistGame();
+        _scheduleAutomation();
+      }
+    }
+  }
+
+  void _persistGame() {
+    final snapshot = jsonEncode(game.toJson());
+    _saveQueue = _saveQueue.then((_) => _writeSavedGame(snapshot));
+  }
+
+  Future<void> _writeSavedGame(String snapshot) async {
+    try {
+      final preferences = await _preferences;
+      await preferences.setString(_savedGameKey, snapshot);
+    } on Object {
+      // O jogo continua funcionando caso o navegador bloqueie o armazenamento.
+    }
   }
 
   void _syncChallengeNotice() {
@@ -139,7 +187,7 @@ class _GamePageState extends State<GamePage> {
   }
 
   void _scheduleAutomation() {
-    if (!mounted || _automationScheduled) return;
+    if (!mounted || _restoringGame || _automationScheduled) return;
     if (game.phase == MatchPhase.gameOver ||
         game.challengeNotice != null ||
         game.humanTenDecisionPending ||
