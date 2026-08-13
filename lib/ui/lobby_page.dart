@@ -434,35 +434,45 @@ class UserAvatar extends StatelessWidget {
     required this.profile,
     this.radius = 28,
     this.imageBytes,
+    this.assetPath,
   });
 
   final AuthProfile profile;
   final double radius;
   final Uint8List? imageBytes;
+  final String? assetPath;
 
   @override
   Widget build(BuildContext context) {
     final photoUrl = profile.photoUrl.trim();
+    final avatarAsset =
+        assetPath ?? humanAvatarAssetFromPhotoUrl(profile.photoUrl);
     final fallback = _initials(profile.displayName, profile.email);
     return Container(
       width: radius * 2,
       height: radius * 2,
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         shape: BoxShape.circle,
-        color: const Color(0xFFE7A93E),
-        border: Border.all(color: const Color(0xFFFFD46B), width: 2),
+        color: Color(0xFFE7A93E),
       ),
       clipBehavior: Clip.antiAlias,
       child: imageBytes != null
           ? Image.memory(imageBytes!, fit: BoxFit.cover)
-          : photoUrl.isEmpty
-              ? _AvatarInitials(text: fallback, fontSize: radius * .62)
-              : Image.network(
-                  photoUrl,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) =>
-                      _AvatarInitials(text: fallback, fontSize: radius * .62),
-                ),
+          : avatarAsset != null
+              ? Transform.scale(
+                  scale: 1.08,
+                  child: Image.asset(avatarAsset, fit: BoxFit.cover),
+                )
+              : photoUrl.isEmpty
+                  ? _AvatarInitials(text: fallback, fontSize: radius * .62)
+                  : Image.network(
+                      photoUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => _AvatarInitials(
+                        text: fallback,
+                        fontSize: radius * .62,
+                      ),
+                    ),
     );
   }
 
@@ -512,6 +522,7 @@ class ProfileDialog extends StatefulWidget {
 class _ProfileDialogState extends State<ProfileDialog> {
   late final TextEditingController _nameController;
   SelectedProfileImage? _selectedImage;
+  String? _selectedAvatarAsset;
   bool _saving = false;
   bool _selectingImage = false;
 
@@ -534,6 +545,7 @@ class _ProfileDialogState extends State<ProfileDialog> {
       await widget.authService.updateProfile(
         displayName: _nameController.text,
         image: _selectedImage,
+        avatarAsset: _selectedAvatarAsset,
       );
       if (mounted) Navigator.of(context).pop();
     } on Object catch (error) {
@@ -550,7 +562,12 @@ class _ProfileDialogState extends State<ProfileDialog> {
     setState(() => _selectingImage = true);
     try {
       final image = await (widget.imagePicker ?? _pickProfileImage)();
-      if (image != null && mounted) setState(() => _selectedImage = image);
+      if (image != null && mounted) {
+        setState(() {
+          _selectedImage = image;
+          _selectedAvatarAsset = null;
+        });
+      }
     } on Object catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -559,6 +576,14 @@ class _ProfileDialogState extends State<ProfileDialog> {
     } finally {
       if (mounted) setState(() => _selectingImage = false);
     }
+  }
+
+  void _selectAvatar(String assetPath) {
+    if (_saving || _selectingImage) return;
+    setState(() {
+      _selectedAvatarAsset = assetPath;
+      _selectedImage = null;
+    });
   }
 
   @override
@@ -578,6 +603,9 @@ class _ProfileDialogState extends State<ProfileDialog> {
       displayName: _nameController.text,
       photoUrl: profile.photoUrl,
     );
+    final currentAvatarAsset = _selectedImage == null
+        ? _selectedAvatarAsset ?? humanAvatarAssetFromPhotoUrl(profile.photoUrl)
+        : null;
 
     return AlertDialog(
       backgroundColor: const Color(0xFF074333),
@@ -595,6 +623,7 @@ class _ProfileDialogState extends State<ProfileDialog> {
                     profile: preview,
                     radius: 46,
                     imageBytes: _selectedImage?.bytes,
+                    assetPath: _selectedAvatarAsset,
                   ),
                   Positioned(
                     right: -4,
@@ -624,10 +653,104 @@ class _ProfileDialogState extends State<ProfileDialog> {
               ),
               const SizedBox(height: 10),
               Text(
-                _selectedImage == null
-                    ? 'Clique na câmera para trocar a foto.'
-                    : 'Nova foto selecionada.',
+                _selectedImage != null
+                    ? 'Nova foto selecionada.'
+                    : _selectedAvatarAsset != null
+                        ? 'Novo avatar selecionado.'
+                        : 'Clique na câmera ou escolha um avatar abaixo.',
                 style: TextStyle(color: Colors.white.withValues(alpha: .65)),
+              ),
+              const SizedBox(height: 16),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'ESCOLHA UM AVATAR',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: const Color(0xFFFFD46B),
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                key: const ValueKey('lista-avatares-perfil'),
+                spacing: 8,
+                runSpacing: 8,
+                alignment: WrapAlignment.center,
+                children: [
+                  for (var index = 0;
+                      index < profileAvatarAssets.length;
+                      index++)
+                    Tooltip(
+                      message: 'Avatar ${index + 1}',
+                      child: InkWell(
+                        key: ValueKey('escolher-avatar-perfil-$index'),
+                        onTap: _saving || _selectingImage
+                            ? null
+                            : () => _selectAvatar(profileAvatarAssets[index]),
+                        customBorder: const CircleBorder(),
+                        child: SizedBox.square(
+                          dimension: 64,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Positioned.fill(
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 180),
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: currentAvatarAsset ==
+                                              profileAvatarAssets[index]
+                                          ? Colors.white70
+                                          : Colors.white24,
+                                      width: currentAvatarAsset ==
+                                              profileAvatarAssets[index]
+                                          ? 2
+                                          : 1,
+                                    ),
+                                  ),
+                                  clipBehavior: Clip.antiAlias,
+                                  child: Transform.scale(
+                                    scale: 1.08,
+                                    child: Image.asset(
+                                      profileAvatarAssets[index],
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              if (currentAvatarAsset ==
+                                  profileAvatarAssets[index])
+                                Positioned(
+                                  right: -3,
+                                  bottom: -3,
+                                  child: Container(
+                                    width: 22,
+                                    height: 22,
+                                    decoration: const BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Color(0xFF62DFA8),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black38,
+                                          blurRadius: 4,
+                                        ),
+                                      ],
+                                    ),
+                                    child: const Icon(
+                                      Icons.check_rounded,
+                                      size: 16,
+                                      color: Color(0xFF052D22),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(height: 20),
               TextField(

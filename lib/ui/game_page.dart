@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:dourada/auth/auth_service.dart';
 import 'package:dourada/game/douradinha_game.dart';
 import 'package:dourada/online/lobby_service.dart';
 import 'package:dourada/online/table_session.dart';
@@ -457,16 +458,16 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                     botSeat((game.humanPlayerIndex + 5) % 6,
                         const Alignment(.92, .52)),
                     playedCard((game.humanPlayerIndex + 2) % 6,
-                        const Alignment(-.48, -.26)),
+                        const Alignment(-.58, -.46)),
                     playedCard((game.humanPlayerIndex + 3) % 6,
-                        const Alignment(0, -.38)),
+                        const Alignment(0, -.62)),
                     playedCard((game.humanPlayerIndex + 4) % 6,
-                        const Alignment(.48, -.26)),
+                        const Alignment(.58, -.46)),
                     playedCard((game.humanPlayerIndex + 1) % 6,
-                        const Alignment(-.48, .26)),
+                        const Alignment(-.58, .46)),
                     playedCard((game.humanPlayerIndex + 5) % 6,
-                        const Alignment(.48, .26)),
-                    playedCard(game.humanPlayerIndex, const Alignment(0, .58)),
+                        const Alignment(.58, .46)),
+                    playedCard(game.humanPlayerIndex, const Alignment(0, .62)),
                   ],
                 ),
               ),
@@ -991,6 +992,7 @@ class _TablePlayerAvatar extends StatelessWidget {
       size: radius * 1.15,
     );
     final validPhoto = photoUrl?.trim().isNotEmpty ?? false;
+    final assetPath = isBot ? photoUrl : humanAvatarAssetFromPhotoUrl(photoUrl);
     return SizedBox.square(
       dimension: radius * 2,
       child: ClipOval(
@@ -998,13 +1000,16 @@ class _TablePlayerAvatar extends StatelessWidget {
         child: ColoredBox(
           color: color,
           child: validPhoto
-              ? isBot
-                  ? Image.asset(
-                      photoUrl!,
-                      width: radius * 2,
-                      height: radius * 2,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => fallback,
+              ? assetPath != null
+                  ? Transform.scale(
+                      scale: isBot ? 1 : 1.08,
+                      child: Image.asset(
+                        assetPath,
+                        width: radius * 2,
+                        height: radius * 2,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => fallback,
+                      ),
                     )
                   : Image.network(
                       photoUrl!,

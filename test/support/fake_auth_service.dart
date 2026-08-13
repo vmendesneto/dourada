@@ -19,6 +19,7 @@ class FakeAuthService extends AuthService {
   int updateProfileCalls = 0;
   String? savedName;
   SelectedProfileImage? savedImage;
+  String? savedAvatarAsset;
 
   @override
   bool get available => true;
@@ -51,16 +52,21 @@ class FakeAuthService extends AuthService {
   Future<void> updateProfile({
     required String displayName,
     SelectedProfileImage? image,
+    String? avatarAsset,
   }) async {
     updateProfileCalls++;
     savedName = displayName;
     savedImage = image;
+    savedAvatarAsset = avatarAsset;
     _profile = AuthProfile(
       uid: _profile!.uid,
       email: _profile!.email,
       displayName: displayName,
-      photoUrl:
-          image == null ? _profile!.photoUrl : 'https://foto.salva/avatar',
+      photoUrl: image != null
+          ? 'https://foto.salva/avatar'
+          : avatarAsset != null
+              ? humanAvatarPhotoUrl(avatarAsset)
+              : _profile!.photoUrl,
     );
     notifyListeners();
   }

@@ -120,6 +120,54 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('avatar escolhido só fica permanente depois de salvar',
+      (tester) async {
+    final authService = FakeAuthService(signedIn: true);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LobbyPage(
+          service: _HangingCancelLobbyService(),
+          authService: authService,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('abrir-perfil')));
+    await tester.pumpAndSettle();
+    final avatar = find.byKey(const ValueKey('escolher-avatar-perfil-8'));
+    await tester.ensureVisible(avatar);
+    await tester.tap(avatar);
+    await tester.pump();
+
+    expect(find.text('Novo avatar selecionado.'), findsOneWidget);
+    expect(authService.updateProfileCalls, 0);
+
+    await tester.tap(find.byKey(const ValueKey('cancelar-perfil')));
+    await tester.pumpAndSettle();
+    expect(authService.savedAvatarAsset, isNull);
+    expect(authService.currentUser?.photoUrl, isEmpty);
+
+    await tester.tap(find.byKey(const ValueKey('abrir-perfil')));
+    await tester.pumpAndSettle();
+    final savedAvatar = find.byKey(const ValueKey('escolher-avatar-perfil-8'));
+    await tester.ensureVisible(savedAvatar);
+    await tester.tap(savedAvatar);
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('salvar-perfil')));
+    await tester.pumpAndSettle();
+
+    expect(authService.updateProfileCalls, 1);
+    expect(authService.savedImage, isNull);
+    expect(authService.savedAvatarAsset, profileAvatarAssets[8]);
+    expect(
+      humanAvatarAssetFromPhotoUrl(authService.currentUser?.photoUrl),
+      profileAvatarAssets[8],
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('visitante precisa fazer login antes de entrar na mesa',
       (tester) async {
     final service = _HangingCancelLobbyService();
