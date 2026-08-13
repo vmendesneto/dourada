@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:dourada/auth/auth_service.dart';
 import 'package:dourada/main.dart';
 import 'package:dourada/online/lobby_service.dart';
 import 'package:dourada/ui/game_page.dart';
@@ -52,6 +54,12 @@ void main() {
         home: LobbyPage(
           service: _HangingCancelLobbyService(),
           authService: authService,
+          profileImagePicker: () async => SelectedProfileImage(
+            bytes: base64Decode(
+              'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+            ),
+            contentType: 'image/png',
+          ),
         ),
       ),
     );
@@ -76,15 +84,16 @@ void main() {
       find.byKey(const ValueKey('nome-perfil')),
       'Novo Nome',
     );
-    await tester.enterText(
-      find.byKey(const ValueKey('foto-perfil')),
-      'https://example.com/avatar.png',
-    );
+    expect(find.byKey(const ValueKey('foto-perfil')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('trocar-foto-perfil')));
+    await tester.pumpAndSettle();
+    expect(find.text('Nova foto selecionada.'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('salvar-perfil')));
     await tester.pumpAndSettle();
 
     expect(authService.savedName, 'Novo Nome');
-    expect(authService.savedPhotoUrl, 'https://example.com/avatar.png');
+    expect(authService.savedImage?.contentType, 'image/png');
+    expect(authService.savedImage?.bytes, isNotEmpty);
 
     await tester.tap(find.byKey(const ValueKey('abrir-perfil')));
     await tester.pumpAndSettle();

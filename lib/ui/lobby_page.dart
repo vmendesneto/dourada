@@ -1,16 +1,26 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:dourada/auth/auth_service.dart';
 import 'package:dourada/online/lobby_service.dart';
 import 'package:dourada/ui/game_page.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+
+typedef ProfileImagePicker = Future<SelectedProfileImage?> Function();
 
 class LobbyPage extends StatefulWidget {
-  const LobbyPage({super.key, this.service, this.authService});
+  const LobbyPage({
+    super.key,
+    this.service,
+    this.authService,
+    this.profileImagePicker,
+  });
 
   final LobbyService? service;
   final AuthService? authService;
+  final ProfileImagePicker? profileImagePicker;
 
   @override
   State<LobbyPage> createState() => _LobbyPageState();
@@ -79,7 +89,10 @@ class _LobbyPageState extends State<LobbyPage> {
     if (_authBusy || _authService.currentUser == null) return;
     await showDialog<void>(
       context: context,
-      builder: (_) => ProfileDialog(authService: _authService),
+      builder: (_) => ProfileDialog(
+        authService: _authService,
+        imagePicker: widget.profileImagePicker,
+      ),
     );
   }
 
@@ -395,10 +408,16 @@ class AuthAccountButton extends StatelessWidget {
 }
 
 class UserAvatar extends StatelessWidget {
-  const UserAvatar({super.key, required this.profile, this.radius = 28});
+  const UserAvatar({
+    super.key,
+    required this.profile,
+    this.radius = 28,
+    this.imageBytes,
+  });
 
   final AuthProfile profile;
   final double radius;
+  final Uint8List? imageBytes;
 
   @override
   Widget build(BuildContext context) {
@@ -413,14 +432,16 @@ class UserAvatar extends StatelessWidget {
         border: Border.all(color: const Color(0xFFFFD46B), width: 2),
       ),
       clipBehavior: Clip.antiAlias,
-      child: photoUrl.isEmpty
-          ? _AvatarInitials(text: fallback, fontSize: radius * .62)
-          : Image.network(
-              photoUrl,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) =>
-                  _AvatarInitials(text: fallback, fontSize: radius * .62),
-            ),
+      child: imageBytes != null
+          ? Image.memory(imageBytes!, fit: BoxFit.cover)
+          : photoUrl.isEmpty
+              ? _AvatarInitials(text: fallback, fontSize: radius * .62)
+              : Image.network(
+                  photoUrl,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) =>
+                      _AvatarInitials(text: fallback, fontSize: radius * .62),
+                ),
     );
   }
 
@@ -454,9 +475,14 @@ class _AvatarInitials extends StatelessWidget {
 }
 
 class ProfileDialog extends StatefulWidget {
-  const ProfileDialog({super.key, required this.authService});
+  const ProfileDialog({
+    super.key,
+    required this.authService,
+    this.imagePicker,
+  });
 
   final AuthService authService;
+  final ProfileImagePicker? imagePicker;
 
   @override
   State<ProfileDialog> createState() => _ProfileDialogState();
@@ -464,17 +490,16 @@ class ProfileDialog extends StatefulWidget {
 
 class _ProfileDialogState extends State<ProfileDialog> {
   late final TextEditingController _nameController;
-  late final TextEditingController _photoController;
+  SelectedProfileImage? _selectedImage;
   bool _saving = false;
+  bool _selectingImage = false;
 
   @override
   void initState() {
     super.initState();
     final profile = widget.authService.currentUser!;
     _nameController = TextEditingController(text: profile.displayName);
-    _photoController = TextEditingController(text: profile.photoUrl);
     _nameController.addListener(_profileChanged);
-    _photoController.addListener(_profileChanged);
   }
 
   void _profileChanged() {
@@ -487,7 +512,7 @@ class _ProfileDialogState extends State<ProfileDialog> {
     try {
       await widget.authService.updateProfile(
         displayName: _nameController.text,
-        photoUrl: _photoController.text,
+        image: _selectedImage,
       );
       if (mounted) Navigator.of(context).pop();
     } on Object catch (error) {
@@ -496,6 +521,22 @@ class _ProfileDialogState extends State<ProfileDialog> {
         SnackBar(content: Text(readableAuthError(error))),
       );
       setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _selectImage() async {
+    if (_saving || _selectingImage) return;
+    setState(() => _selectingImage = true);
+    try {
+      final image = await (widget.imagePicker ?? _pickProfileImage)();
+      if (image != null && mounted) setState(() => _selectedImage = image);
+    } on Object catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(readableAuthError(error))),
+      );
+    } finally {
+      if (mounted) setState(() => _selectingImage = false);
     }
   }
 
@@ -516,9 +557,7 @@ class _ProfileDialogState extends State<ProfileDialog> {
 
   @override
   void dispose() {
-    _photoController.removeListener(_profileChanged);
     _nameController.removeListener(_profileChanged);
-    _photoController.dispose();
     _nameController.dispose();
     super.dispose();
   }
@@ -531,7 +570,7 @@ class _ProfileDialogState extends State<ProfileDialog> {
       uid: profile.uid,
       email: profile.email,
       displayName: _nameController.text,
-      photoUrl: _photoController.text,
+      photoUrl: profile.photoUrl,
     );
 
     return AlertDialog(
@@ -543,7 +582,47 @@ class _ProfileDialogState extends State<ProfileDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              UserAvatar(profile: preview, radius: 42),
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  UserAvatar(
+                    profile: preview,
+                    radius: 46,
+                    imageBytes: _selectedImage?.bytes,
+                  ),
+                  Positioned(
+                    right: -4,
+                    bottom: -4,
+                    child: Material(
+                      color: const Color(0xFFE7A93E),
+                      shape: const CircleBorder(),
+                      elevation: 4,
+                      child: IconButton(
+                        key: const ValueKey('trocar-foto-perfil'),
+                        tooltip: 'Escolher nova foto',
+                        onPressed:
+                            _saving || _selectingImage ? null : _selectImage,
+                        color: const Color(0xFF173326),
+                        icon: _selectingImage
+                            ? const SizedBox.square(
+                                dimension: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.camera_alt_rounded),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                _selectedImage == null
+                    ? 'Clique na câmera para trocar a foto.'
+                    : 'Nova foto selecionada.',
+                style: TextStyle(color: Colors.white.withValues(alpha: .65)),
+              ),
               const SizedBox(height: 20),
               TextField(
                 key: const ValueKey('nome-perfil'),
@@ -553,20 +632,6 @@ class _ProfileDialogState extends State<ProfileDialog> {
                 decoration: const InputDecoration(
                   labelText: 'Nome do jogador',
                   prefixIcon: Icon(Icons.badge_outlined),
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                key: const ValueKey('foto-perfil'),
-                controller: _photoController,
-                enabled: !_saving,
-                keyboardType: TextInputType.url,
-                decoration: const InputDecoration(
-                  labelText: 'URL da foto',
-                  hintText: 'https://exemplo.com/minha-foto.jpg',
-                  helperText: 'O Firebase Auth salva o endereço da imagem.',
-                  prefixIcon: Icon(Icons.image_outlined),
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -611,6 +676,39 @@ class _ProfileDialogState extends State<ProfileDialog> {
   }
 }
 
+Future<SelectedProfileImage?> _pickProfileImage() async {
+  final file = await ImagePicker().pickImage(
+    source: ImageSource.gallery,
+    maxWidth: 512,
+    maxHeight: 512,
+    imageQuality: 85,
+    requestFullMetadata: false,
+  );
+  if (file == null) return null;
+  final bytes = await file.readAsBytes();
+  if (bytes.lengthInBytes > 3 * 1024 * 1024) {
+    throw ArgumentError('Escolha uma imagem de até 3 MB.');
+  }
+  final contentType = _imageContentType(file.name, file.mimeType);
+  if (contentType == null) {
+    throw ArgumentError('O arquivo escolhido precisa ser uma imagem.');
+  }
+  return SelectedProfileImage(bytes: bytes, contentType: contentType);
+}
+
+String? _imageContentType(String fileName, String? reportedType) {
+  final normalizedType = reportedType?.toLowerCase();
+  if (normalizedType?.startsWith('image/') == true) return normalizedType;
+  final lowerName = fileName.toLowerCase();
+  if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
+    return 'image/jpeg';
+  }
+  if (lowerName.endsWith('.png')) return 'image/png';
+  if (lowerName.endsWith('.webp')) return 'image/webp';
+  if (lowerName.endsWith('.gif')) return 'image/gif';
+  return null;
+}
+
 String readableAuthError(Object error) {
   if (error is FirebaseAuthException) {
     return switch (error.code) {
@@ -624,6 +722,15 @@ String readableAuthError(Object error) {
       'network-request-failed' =>
         'Falha de conexão durante o login. Tente novamente.',
       _ => error.message ?? 'Não foi possível concluir a autenticação.',
+    };
+  }
+  if (error is FirebaseException) {
+    return switch (error.code) {
+      'unauthorized' => 'Não foi permitido salvar a foto. Entre novamente.',
+      'retry-limit-exceeded' =>
+        'O envio da foto demorou demais. Tente novamente.',
+      'canceled' => 'O envio da foto foi cancelado.',
+      _ => error.message ?? 'Não foi possível salvar a foto.',
     };
   }
   return error

@@ -2,7 +2,18 @@ import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
+
+class SelectedProfileImage {
+  const SelectedProfileImage({
+    required this.bytes,
+    required this.contentType,
+  });
+
+  final Uint8List bytes;
+  final String contentType;
+}
 
 class AuthProfile {
   const AuthProfile({
@@ -31,7 +42,7 @@ abstract class AuthService extends ChangeNotifier {
 
   Future<void> updateProfile({
     required String displayName,
-    required String photoUrl,
+    SelectedProfileImage? image,
   });
 }
 
@@ -41,8 +52,9 @@ AuthService createAuthService() {
 }
 
 class FirebaseAuthService extends AuthService {
-  FirebaseAuthService({FirebaseAuth? auth})
-      : _auth = auth ?? FirebaseAuth.instance {
+  FirebaseAuthService({FirebaseAuth? auth, FirebaseStorage? storage})
+      : _auth = auth ?? FirebaseAuth.instance,
+        _storage = storage ?? FirebaseStorage.instance {
     _persistenceReady = _auth.setPersistence(Persistence.LOCAL);
     _currentUser = _profileFromUser(_auth.currentUser);
     _subscription = _auth.userChanges().listen((user) {
@@ -52,6 +64,7 @@ class FirebaseAuthService extends AuthService {
   }
 
   final FirebaseAuth _auth;
+  final FirebaseStorage _storage;
   late final Future<void> _persistenceReady;
   late final StreamSubscription<User?> _subscription;
   AuthProfile? _currentUser;
@@ -88,27 +101,34 @@ class FirebaseAuthService extends AuthService {
   @override
   Future<void> updateProfile({
     required String displayName,
-    required String photoUrl,
+    SelectedProfileImage? image,
   }) async {
     final user = _auth.currentUser;
     if (user == null) throw StateError('Entre na sua conta novamente.');
 
     final trimmedName = displayName.trim();
-    final trimmedPhoto = photoUrl.trim();
     if (trimmedName.isEmpty) {
       throw ArgumentError('Informe um nome para o jogador.');
     }
-    if (trimmedPhoto.isNotEmpty) {
-      final uri = Uri.tryParse(trimmedPhoto);
-      if (uri == null ||
-          !uri.hasScheme ||
-          (uri.scheme != 'http' && uri.scheme != 'https')) {
-        throw ArgumentError('Informe uma URL de imagem valida.');
-      }
+    if (image != null && image.bytes.lengthInBytes > 3 * 1024 * 1024) {
+      throw ArgumentError('Escolha uma imagem de até 3 MB.');
+    }
+    if (image != null && !image.contentType.startsWith('image/')) {
+      throw ArgumentError('O arquivo escolhido precisa ser uma imagem.');
     }
 
+    var photoUrl = user.photoURL;
+    if (image != null) {
+      final photoReference =
+          _storage.ref().child('profile_photos/${user.uid}/avatar');
+      await photoReference.putData(
+        image.bytes,
+        SettableMetadata(contentType: image.contentType),
+      );
+      photoUrl = await photoReference.getDownloadURL();
+    }
     await user.updateDisplayName(trimmedName);
-    await user.updatePhotoURL(trimmedPhoto.isEmpty ? null : trimmedPhoto);
+    if (image != null) await user.updatePhotoURL(photoUrl);
     await user.reload();
     _currentUser = _profileFromUser(_auth.currentUser);
     notifyListeners();
@@ -154,7 +174,7 @@ class DisabledAuthService extends AuthService {
   @override
   Future<void> updateProfile({
     required String displayName,
-    required String photoUrl,
+    SelectedProfileImage? image,
   }) {
     throw UnsupportedError('O login esta disponivel na versao Web do jogo.');
   }
