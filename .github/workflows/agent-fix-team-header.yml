@@ -1,0 +1,224 @@
+name: Corrigir header Nós e Eles
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/agent-fix-team-header.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Configurar o Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Configurar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: cloudflare/package-lock.json
+
+      - name: Corrigir mensagens de jogada
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          dart = Path('lib/game/douradinha_game.dart')
+          text = dart.read_text()
+
+          old = """      final sourcePerspective = json['perspectiveTeam'] as int? ?? 0;
+      String restoreMessage(String message) => sourcePerspective == humanTeam
+          ? message
+          : _swapTeamPerspective(message);
+"""
+          new = """      final sourcePerspective = json['perspectiveTeam'] as int? ?? 0;
+      String restoreMessage(String message) {
+        final hasLegacyTeamColor = RegExp(
+          r'(?:o )?trio (azul|dourado)',
+          caseSensitive: false,
+        ).hasMatch(message);
+        if (hasLegacyTeamColor) {
+          var normalized = message
+              .replaceAll(
+                RegExp(r'(?:o )?trio azul', caseSensitive: false),
+                teamLabel(0),
+              )
+              .replaceAll(
+                RegExp(r'(?:o )?trio dourado', caseSensitive: false),
+                teamLabel(1),
+              );
+          const legacyPlayConjugations = <String, String>{
+            'Nós jogou': 'Nós jogamos',
+            'Eles jogou': 'Eles jogaram',
+            'Nós descartou': 'Nós descartamos',
+            'Eles descartou': 'Eles descartaram',
+          };
+          for (final entry in legacyPlayConjugations.entries) {
+            normalized = normalized.replaceAll(entry.key, entry.value);
+          }
+          return normalized;
+        }
+        return sourcePerspective == humanTeam
+            ? message
+            : _swapTeamPerspective(message);
+      }
+"""
+          if old not in text:
+              raise SystemExit('Bloco restoreMessage não encontrado')
+          text = text.replace(old, new, 1)
+
+          old = """    statusMessage = hidden
+        ? '${player.name} descartou uma carta fechada.'
+        : '${player.name} jogou ${card.displayName}.';
+"""
+          new = """    statusMessage = hidden
+        ? player.team == humanTeam
+            ? 'Nós descartamos uma carta fechada.'
+            : 'Eles descartaram uma carta fechada.'
+        : player.team == humanTeam
+            ? 'Nós jogamos ${card.displayName}.'
+            : 'Eles jogaram ${card.displayName}.';
+"""
+          if old not in text:
+              raise SystemExit('Bloco de mensagem de jogada Flutter não encontrado')
+          text = text.replace(old, new, 1)
+          dart.write_text(text)
+
+          worker = Path('cloudflare/src/game.ts')
+          text = worker.read_text()
+          old = """  setStatus(
+    game,
+    hidden
+      ? \"Robô substituto descartou uma carta fechada.\"
+      : `Robô substituto jogou ${card}.`,
+  );
+"""
+          new = """  setStatus(
+    game,
+    hidden
+      ? `${teamAction(game, playerIndex % 2, \"descartamos\", \"descartaram\")} uma carta fechada.`
+      : `${teamAction(game, playerIndex % 2, \"jogamos\", \"jogaram\")} ${card}.`,
+  );
+"""
+          if old not in text:
+              raise SystemExit('Bloco de mensagem de jogada Worker não encontrado')
+          text = text.replace(old, new, 1)
+          worker.write_text(text)
+
+          tests = Path('test/douradinha_game_test.dart')
+          text = tests.read_text()
+          marker = """    test('sorteia entre as seis cadeiras quem abre a primeira mão', () {
+"""
+          addition = """    test('header usa Nós e Eles ao informar a última carta jogada', () {
+      final game = DouradinhaGame(
+        random: Random(1),
+        humanPlayerIndex: 1,
+      );
+
+      game.currentPlayerIndex = 0;
+      final opponentCard = game.players[0].hand.first;
+      game.autoPlayCurrentPlayerOnTimeout();
+      expect(game.statusMessage, 'Eles jogaram ${opponentCard.displayName}.');
+
+      game.currentPlayerIndex = 3;
+      final partnerCard = game.players[3].hand.first;
+      game.autoPlayCurrentPlayerOnTimeout();
+      expect(game.statusMessage, 'Nós jogamos ${partnerCard.displayName}.');
+    });
+
+    test('converte nomes antigos dos trios para a perspectiva do usuário', () {
+      final game = DouradinhaGame(
+        random: Random(1),
+        humanPlayerIndex: 1,
+      );
+      final snapshot = Map<String, dynamic>.from(
+        jsonDecode(jsonEncode(game.toJson())) as Map,
+      );
+      snapshot['statusMessage'] = 'Trio Azul jogou 3 de Copas.';
+      snapshot['history'] = [
+        'Trio Dourado jogou Ás de Espadas.',
+      ];
+
+      expect(game.restoreState(snapshot), isTrue);
+      expect(game.statusMessage, 'Eles jogaram 3 de Copas.');
+      expect(game.history.single, 'Nós jogamos Ás de Espadas.');
+    });
+
+"""
+          if marker not in text:
+              raise SystemExit('Ponto de inserção dos testes Flutter não encontrado')
+          text = text.replace(marker, addition + marker, 1)
+          tests.write_text(text)
+
+          worker_tests = Path('cloudflare/test/game.test.ts')
+          text = worker_tests.read_text()
+          old = """  it(\"joga automaticamente pela cadeira humana ausente\", () => {
+    const step = advanceBot(fixture());
+    expect(step.state.playerHands[0]).toHaveLength(0);
+    expect(step.state.playedCards).toEqual([{ playerIndex: 0, card: \"3o\" }]);
+    expect(step.state.currentPlayerIndex).toBe(1);
+    expect(step.nextDelayMs).toBe(650);
+  });
+"""
+          new = """  it(\"joga automaticamente pela cadeira humana ausente\", () => {
+    const ours = fixture();
+    ours.perspectiveTeam = 0;
+    const ourStep = advanceBot(ours);
+    expect(ourStep.state.playerHands[0]).toHaveLength(0);
+    expect(ourStep.state.playedCards).toEqual([{ playerIndex: 0, card: \"3o\" }]);
+    expect(ourStep.state.statusMessage).toBe(\"Nós jogamos 3o.\");
+    expect(ourStep.state.currentPlayerIndex).toBe(1);
+    expect(ourStep.nextDelayMs).toBe(650);
+
+    const theirs = fixture();
+    theirs.perspectiveTeam = 1;
+    expect(advanceBot(theirs).state.statusMessage).toBe(\"Eles jogaram 3o.\");
+  });
+"""
+          if old not in text:
+              raise SystemExit('Teste Worker não encontrado')
+          text = text.replace(old, new, 1)
+          worker_tests.write_text(text)
+          PY
+
+          dart format lib/game/douradinha_game.dart test/douradinha_game_test.dart
+          npx --yes prettier@3.6.2 --write cloudflare/src/game.ts cloudflare/test/game.test.ts
+
+      - name: Instalar dependências Flutter
+        run: flutter pub get
+
+      - name: Analisar Flutter
+        run: flutter analyze
+
+      - name: Testar Flutter
+        run: flutter test
+
+      - name: Instalar dependências do Worker
+        working-directory: cloudflare
+        run: npm ci
+
+      - name: Testar Worker
+        working-directory: cloudflare
+        run: npm run check
+
+      - name: Commitar correção validada
+        run: |
+          rm .github/workflows/agent-fix-team-header.yml
+          git config user.name "Vitor Mendes"
+          git config user.email "vmendesneto@gmail.com"
+          git add -A
+          git commit -m "Corrige Nós e Eles no header de jogadas"
+          git push origin HEAD:main
