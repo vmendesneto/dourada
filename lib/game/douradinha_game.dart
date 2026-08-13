@@ -113,14 +113,20 @@ class PlayerSeat {
   bool isHuman;
   String? photoUrl;
   final List<PlayingCard> hand = [];
+  final Set<PlayingCard> hiddenCards = {};
 }
 
 @immutable
 class PlayedCard {
-  const PlayedCard({required this.playerIndex, required this.card});
+  const PlayedCard({
+    required this.playerIndex,
+    required this.card,
+    this.hidden = false,
+  });
 
   final int playerIndex;
   final PlayingCard card;
+  final bool hidden;
 }
 
 @immutable
@@ -394,6 +400,10 @@ class DouradinhaGame extends ChangeNotifier {
           for (final player in players)
             [for (final card in player.hand) card.code],
         ],
+        'hiddenCards': [
+          for (final player in players)
+            [for (final card in player.hiddenCards) card.code],
+        ],
         'currentTrick': [
           for (final play in currentTrick) _playedCardToJson(play)
         ],
@@ -445,9 +455,29 @@ class DouradinhaGame extends ChangeNotifier {
               .toList())
           .toList();
       if (restoredHands.length != players.length) return false;
+      final restoredHiddenCards = json['hiddenCards'] == null
+          ? List<List<PlayingCard>>.generate(players.length, (_) => [])
+          : (json['hiddenCards'] as List<Object?>)
+              .map((cards) => (cards as List<Object?>)
+                  .map((code) => PlayingCard.fromCode(code as String))
+                  .toList())
+              .toList();
+      if (restoredHiddenCards.length != players.length ||
+          restoredHiddenCards.any((cards) => cards.length > 1)) {
+        return false;
+      }
 
       final restoredCurrentTrick = _playedCardList(json['currentTrick']);
       final restoredPlayedCards = _playedCardList(json['playedCards']);
+      if ((restoredScores.contains(10) &&
+              restoredCurrentTrick.any((play) => play.hidden)) ||
+          [0, 1].any((team) =>
+              restoredCurrentTrick
+                  .where((play) => play.hidden && play.playerIndex % 2 == team)
+                  .length >
+              2)) {
+        return false;
+      }
       final restoredTrickWinners = (json['trickWinners'] as List<Object?>)
           .map((winner) => winner == null ? null : winner as int)
           .toList();
@@ -485,6 +515,11 @@ class DouradinhaGame extends ChangeNotifier {
         players[index].hand
           ..clear()
           ..addAll(restoredHands[index]);
+        players[index].hiddenCards
+          ..clear()
+          ..addAll(
+            restoredHiddenCards[index].where(restoredHands[index].contains),
+          );
       }
       currentTrick
         ..clear()
@@ -537,6 +572,7 @@ class DouradinhaGame extends ChangeNotifier {
   static Map<String, Object> _playedCardToJson(PlayedCard play) => {
         'playerIndex': play.playerIndex,
         'card': play.card.code,
+        if (play.hidden) 'hidden': true,
       };
 
   static List<PlayedCard> _playedCardList(Object? value) =>
@@ -545,6 +581,7 @@ class DouradinhaGame extends ChangeNotifier {
         return PlayedCard(
           playerIndex: map['playerIndex'] as int,
           card: PlayingCard.fromCode(map['card'] as String),
+          hidden: map['hidden'] as bool? ?? false,
         );
       }).toList();
 
@@ -655,6 +692,7 @@ class DouradinhaGame extends ChangeNotifier {
     final deck = PlayingCard.fullDeck()..shuffle(_random);
     for (final player in players) {
       player.hand.clear();
+      player.hiddenCards.clear();
     }
     for (var round = 0; round < 3; round++) {
       for (var offset = 1; offset <= players.length; offset++) {
@@ -724,6 +762,33 @@ class DouradinhaGame extends ChangeNotifier {
     _playCard(humanPlayerIndex, card);
   }
 
+  bool isHumanCardHidden(PlayingCard card) =>
+      players[humanPlayerIndex].hiddenCards.contains(card);
+
+  int hiddenPlaysForTeam(int team) => currentTrick
+      .where((play) => play.hidden && players[play.playerIndex].team == team)
+      .length;
+
+  bool canHumanHideCard(PlayingCard card) {
+    if (isTenHand ||
+        !isHumanTurn ||
+        !players[humanPlayerIndex].hand.contains(card)) {
+      return false;
+    }
+    return isHumanCardHidden(card) || hiddenPlaysForTeam(humanTeam) < 2;
+  }
+
+  void toggleHumanCardHidden(PlayingCard card) {
+    if (!canHumanHideCard(card)) return;
+    final hiddenCards = players[humanPlayerIndex].hiddenCards;
+    if (!hiddenCards.remove(card)) {
+      hiddenCards
+        ..clear()
+        ..add(card);
+    }
+    notifyListeners();
+  }
+
   void autoPlayCurrentPlayerOnTimeout() {
     if (!canCurrentPlayerPlayCard) return;
     final playerIndex = currentPlayerIndex;
@@ -757,7 +822,8 @@ class DouradinhaGame extends ChangeNotifier {
   PlayingCard _chooseBotCard(PlayerSeat player) {
     final cards = [...player.hand]
       ..sort((a, b) => a.strength.compareTo(b.strength));
-    if (currentTrick.isEmpty) {
+    final visibleTrick = currentTrick.where((play) => !play.hidden).toList();
+    if (visibleTrick.isEmpty) {
       if (trickWinners.isNotEmpty && trickWinners.first == player.team) {
         return cards.first;
       }
@@ -766,8 +832,8 @@ class DouradinhaGame extends ChangeNotifier {
     }
 
     final topStrength =
-        currentTrick.map((play) => play.card.strength).reduce(max);
-    final topTeams = currentTrick
+        visibleTrick.map((play) => play.card.strength).reduce(max);
+    final topTeams = visibleTrick
         .where((play) => play.card.strength == topStrength)
         .map((play) => players[play.playerIndex].team)
         .toSet();
@@ -806,7 +872,7 @@ class DouradinhaGame extends ChangeNotifier {
     final challengeChance = botProactiveChallengeProbability(
       raiseVotes: raises,
       acceptVotes: accepts,
-      tableIsEmpty: currentTrick.isEmpty,
+      tableIsEmpty: currentTrick.every((play) => play.hidden),
       completedTricks: trickWinners.length,
       handValue: handValue,
     );
@@ -852,7 +918,9 @@ class DouradinhaGame extends ChangeNotifier {
     // O robô conhece sua própria mão e todas as cartas já abertas na mesa.
     // As cartas ainda escondidas são tratadas apenas como possibilidades.
     final knownCodes = <String>{
-      ...playedCards.map((play) => play.card.code),
+      ...playedCards
+          .where((play) => !play.hidden)
+          .map((play) => play.card.code),
       ...player.hand.map((card) => card.code),
     };
     final unseen = PlayingCard.fullDeck()
@@ -866,10 +934,11 @@ class DouradinhaGame extends ChangeNotifier {
         ((average - 1) / 18) * .22 +
         safety * .14;
 
-    if (currentTrick.isNotEmpty) {
+    final visibleTrick = currentTrick.where((play) => !play.hidden).toList();
+    if (visibleTrick.isNotEmpty) {
       final topStrength =
-          currentTrick.map((play) => play.card.strength).reduce(max);
-      final topTeams = currentTrick
+          visibleTrick.map((play) => play.card.strength).reduce(max);
+      final topTeams = visibleTrick
           .where((play) => play.card.strength == topStrength)
           .map((play) => players[play.playerIndex].team)
           .toSet();
@@ -889,7 +958,7 @@ class DouradinhaGame extends ChangeNotifier {
     // Na terceira mão, perder a carta mais alta é especialmente perigoso,
     // pois o desempate pode ser definido pela primeira mão.
     if (trickWinners.length == 2 &&
-        currentTrick.isNotEmpty &&
+        visibleTrick.isNotEmpty &&
         !_teamCurrentlyLeadsTrick(player.team)) {
       confidence -= .10;
     }
@@ -897,10 +966,11 @@ class DouradinhaGame extends ChangeNotifier {
   }
 
   bool _teamCurrentlyLeadsTrick(int team) {
-    if (currentTrick.isEmpty) return false;
+    final visibleTrick = currentTrick.where((play) => !play.hidden).toList();
+    if (visibleTrick.isEmpty) return false;
     final topStrength =
-        currentTrick.map((play) => play.card.strength).reduce(max);
-    final topTeams = currentTrick
+        visibleTrick.map((play) => play.card.strength).reduce(max);
+    final topTeams = visibleTrick
         .where((play) => play.card.strength == topStrength)
         .map((play) => players[play.playerIndex].team)
         .toSet();
@@ -908,19 +978,22 @@ class DouradinhaGame extends ChangeNotifier {
   }
 
   bool _currentTrickIsLockedAgainst(int team) {
-    if (currentTrick.isEmpty) return false;
+    final visibleTrick = currentTrick.where((play) => !play.hidden).toList();
+    if (visibleTrick.isEmpty) return false;
     final topStrength =
-        currentTrick.map((play) => play.card.strength).reduce(max);
+        visibleTrick.map((play) => play.card.strength).reduce(max);
     final publicCodes = <String>{
-      ...playedCards.map((play) => play.card.code),
-      ...currentTrick.map((play) => play.card.code),
+      ...playedCards
+          .where((play) => !play.hidden)
+          .map((play) => play.card.code),
+      ...visibleTrick.map((play) => play.card.code),
     };
     final aStrongerCardCanStillAppear = PlayingCard.fullDeck().any(
       (card) => !publicCodes.contains(card.code) && card.strength > topStrength,
     );
     if (aStrongerCardCanStillAppear) return false;
 
-    final topTeams = currentTrick
+    final topTeams = visibleTrick
         .where((play) => play.card.strength == topStrength)
         .map((play) => players[play.playerIndex].team)
         .toSet();
@@ -1069,10 +1142,19 @@ class DouradinhaGame extends ChangeNotifier {
   void _playCard(int playerIndex, PlayingCard card) {
     final player = players[playerIndex];
     player.hand.remove(card);
-    final play = PlayedCard(playerIndex: playerIndex, card: card);
+    final requestedHidden = player.hiddenCards.remove(card);
+    final hidden =
+        requestedHidden && !isTenHand && hiddenPlaysForTeam(player.team) < 2;
+    final play = PlayedCard(
+      playerIndex: playerIndex,
+      card: card,
+      hidden: hidden,
+    );
     currentTrick.add(play);
     playedCards.add(play);
-    statusMessage = '${player.name} jogou ${card.displayName}.';
+    statusMessage = hidden
+        ? '${player.name} descartou uma carta fechada.'
+        : '${player.name} jogou ${card.displayName}.';
     _addHistory(statusMessage);
 
     if (currentTrick.length == players.length) {
@@ -1170,10 +1252,13 @@ class DouradinhaGame extends ChangeNotifier {
     List<PlayedCard> plays,
     List<PlayerSeat> seats,
   ) {
-    if (plays.isEmpty) return null;
-    final maxStrength = plays.map((play) => play.card.strength).reduce(max);
-    final strongest =
-        plays.where((play) => play.card.strength == maxStrength).toList();
+    final visiblePlays = plays.where((play) => !play.hidden).toList();
+    if (visiblePlays.isEmpty) return null;
+    final maxStrength =
+        visiblePlays.map((play) => play.card.strength).reduce(max);
+    final strongest = visiblePlays
+        .where((play) => play.card.strength == maxStrength)
+        .toList();
     final teams = strongest.map((play) => seats[play.playerIndex].team).toSet();
     if (teams.length > 1) return null;
     return seats[strongest.first.playerIndex];

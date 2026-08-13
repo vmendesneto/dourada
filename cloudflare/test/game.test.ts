@@ -3,6 +3,7 @@ import {
   advanceBot,
   cardStrength,
   createInitialGame,
+  isGameState,
   resolveDisputeWinner,
   resolveTrickWinner,
   scorePoints,
@@ -42,7 +43,11 @@ const fixture = (): GameState => ({
 
 describe("motor do robô substituto", () => {
   it("permite que qualquer cadeira sorteada abra a primeira mão", () => {
-    for (let firstPlayerIndex = 0; firstPlayerIndex < 6; firstPlayerIndex += 1) {
+    for (
+      let firstPlayerIndex = 0;
+      firstPlayerIndex < 6;
+      firstPlayerIndex += 1
+    ) {
       const game = createInitialGame(firstPlayerIndex);
 
       expect(game.currentPlayerIndex).toBe(firstPlayerIndex);
@@ -81,6 +86,36 @@ describe("motor do robô substituto", () => {
         { playerIndex: 1, card: "2o" },
       ]),
     ).toBe(0);
+  });
+
+  it("desconsidera cartas escondidas ao resolver a mão", () => {
+    expect(
+      resolveTrickWinner([
+        { playerIndex: 0, card: "Qo", hidden: true },
+        { playerIndex: 1, card: "4o" },
+      ]),
+    ).toBe(1);
+    expect(
+      resolveTrickWinner([
+        { playerIndex: 0, card: "Qo", hidden: true },
+        { playerIndex: 1, card: "3o", hidden: true },
+      ]),
+    ).toBeNull();
+  });
+
+  it("rejeita três descartes escondidos do mesmo trio e qualquer um na mão de dez", () => {
+    const threeHidden = fixture();
+    threeHidden.currentTrick = [
+      { playerIndex: 0, card: "4o", hidden: true },
+      { playerIndex: 2, card: "5o", hidden: true },
+      { playerIndex: 4, card: "6o", hidden: true },
+    ];
+    expect(isGameState(threeHidden)).toBe(false);
+
+    const tenHand = fixture();
+    tenHand.scores[0] = 10;
+    tenHand.currentTrick = [{ playerIndex: 1, card: "4o", hidden: true }];
+    expect(isGameState(tenHand)).toBe(false);
   });
 
   it("joga automaticamente pela cadeira humana ausente", () => {

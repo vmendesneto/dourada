@@ -1273,16 +1273,20 @@ class _PlayedCardAtSeat extends StatelessWidget {
     final height = compact ? 56.0 : 88.0;
     final resultIsVisible =
         game.awaitingNextTrick || game.phase == MatchPhase.handFinished;
-    final greatestStrength = game.currentTrick.fold<int>(
-      0,
-      (greatest, play) =>
-          play.card.strength > greatest ? play.card.strength : greatest,
-    );
-    final isGreatestCard =
-        resultIsVisible && playedCard.card.strength == greatestStrength;
+    final greatestStrength =
+        game.currentTrick.where((play) => !play.hidden).fold<int>(
+              0,
+              (greatest, play) =>
+                  play.card.strength > greatest ? play.card.strength : greatest,
+            );
+    final isGreatestCard = resultIsVisible &&
+        !playedCard.hidden &&
+        playedCard.card.strength == greatestStrength;
 
     return _WinningCardPulse(
-      key: ValueKey('${playedCard.card.code}-$playerIndex'),
+      key: ValueKey(
+        '${playedCard.card.code}-${playedCard.hidden}-$playerIndex',
+      ),
       active: isGreatestCard,
       child: Container(
         padding: const EdgeInsets.all(2),
@@ -1302,7 +1306,12 @@ class _PlayedCardAtSeat extends StatelessWidget {
             ),
           ],
         ),
-        child: _CardFace(card: playedCard.card, width: width, height: height),
+        child: playedCard.hidden
+            ? KeyedSubtree(
+                key: ValueKey('carta-jogada-escondida-$playerIndex'),
+                child: _CardBack(width: width, height: height),
+              )
+            : _CardFace(card: playedCard.card, width: width, height: height),
       ),
     );
   }
@@ -1507,8 +1516,11 @@ class _HumanControls extends StatelessWidget {
                       child: _PlayableCard(
                         card: card,
                         enabled: active,
+                        hidden: game.isHumanCardHidden(card),
+                        canToggleHidden: game.canHumanHideCard(card),
                         compact: true,
                         onTap: () => game.playHumanCard(card),
+                        onToggleHidden: () => game.toggleHumanCardHidden(card),
                       ),
                     ),
                 ],
@@ -1586,7 +1598,10 @@ class _HumanControls extends StatelessWidget {
                     child: _PlayableCard(
                       card: card,
                       enabled: active,
+                      hidden: game.isHumanCardHidden(card),
+                      canToggleHidden: game.canHumanHideCard(card),
                       onTap: () => game.playHumanCard(card),
+                      onToggleHidden: () => game.toggleHumanCardHidden(card),
                     ),
                   ),
               ],
@@ -1664,15 +1679,22 @@ class _TurnProgress extends StatelessWidget {
 }
 
 class _PlayableCard extends StatefulWidget {
-  const _PlayableCard(
-      {required this.card,
-      required this.enabled,
-      required this.onTap,
-      this.compact = false});
+  const _PlayableCard({
+    required this.card,
+    required this.enabled,
+    required this.hidden,
+    required this.canToggleHidden,
+    required this.onTap,
+    required this.onToggleHidden,
+    this.compact = false,
+  });
 
   final PlayingCard card;
   final bool enabled;
+  final bool hidden;
+  final bool canToggleHidden;
   final VoidCallback onTap;
+  final VoidCallback onToggleHidden;
   final bool compact;
 
   @override
@@ -1684,6 +1706,9 @@ class _PlayableCardState extends State<_PlayableCard> {
 
   @override
   Widget build(BuildContext context) {
+    final width = widget.compact ? 58.0 : 67.0;
+    final height = widget.compact ? 85.0 : 98.0;
+    final buttonHeight = widget.compact ? 17.0 : 20.0;
     return MouseRegion(
       onEnter: (_) => setState(() => hovered = true),
       onExit: (_) => setState(() => hovered = false),
@@ -1693,13 +1718,99 @@ class _PlayableCardState extends State<_PlayableCard> {
         child: AnimatedOpacity(
           opacity: widget.enabled ? 1 : .68,
           duration: const Duration(milliseconds: 180),
-          child: InkWell(
-            onTap: widget.enabled ? widget.onTap : null,
-            borderRadius: BorderRadius.circular(7),
-            child: _CardFace(
-              card: widget.card,
-              width: widget.compact ? 58 : 67,
-              height: widget.compact ? 85 : 98,
+          child: SizedBox(
+            width: width,
+            height: height,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: GestureDetector(
+                    onTap: widget.enabled ? widget.onTap : null,
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 240),
+                      transitionBuilder: (child, animation) {
+                        final turn = Tween<double>(begin: math.pi / 2, end: 0)
+                            .animate(CurvedAnimation(
+                          parent: animation,
+                          curve: Curves.easeOut,
+                        ));
+                        return AnimatedBuilder(
+                          animation: turn,
+                          child: child,
+                          builder: (context, child) => Transform(
+                            alignment: Alignment.center,
+                            transform: Matrix4.rotationY(turn.value),
+                            child: child,
+                          ),
+                        );
+                      },
+                      child: widget.hidden
+                          ? KeyedSubtree(
+                              key: const ValueKey('carta-escondida'),
+                              child: _CardBack(width: width, height: height),
+                            )
+                          : KeyedSubtree(
+                              key: const ValueKey('carta-visivel'),
+                              child: _CardFace(
+                                card: widget.card,
+                                width: width,
+                                height: height,
+                              ),
+                            ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: 2,
+                  right: 2,
+                  bottom: 2,
+                  height: buttonHeight,
+                  child: Tooltip(
+                    message: widget.canToggleHidden
+                        ? widget.hidden
+                            ? 'Mostrar carta'
+                            : 'Jogar esta carta escondida'
+                        : 'Não é possível esconder esta carta',
+                    child: Material(
+                      color: widget.canToggleHidden
+                          ? const Color(0xE60B2D25)
+                          : const Color(0xB3555555),
+                      borderRadius: BorderRadius.circular(3),
+                      child: InkWell(
+                        key: ValueKey('esconder-carta-${widget.card.code}'),
+                        onTap: widget.canToggleHidden
+                            ? widget.onToggleHidden
+                            : null,
+                        borderRadius: BorderRadius.circular(3),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                widget.hidden
+                                    ? Icons.visibility
+                                    : Icons.visibility_off,
+                                size: widget.compact ? 9 : 11,
+                                color: Colors.white,
+                              ),
+                              const SizedBox(width: 2),
+                              Text(
+                                widget.hidden ? 'MOSTRAR' : 'ESCONDER',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: widget.compact ? 6.5 : 7.5,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -1976,14 +2087,16 @@ class _HandResultOverlay extends StatelessWidget {
         ? 'Três mãos empatadas: nenhum tento.'
         : game.teamScored(game.lastHandWinner!, game.lastHandPoints);
     final strongestPlays = <PlayedCard>[];
-    if (game.currentTrick.isNotEmpty) {
-      final greatestStrength = game.currentTrick.fold<int>(
+    final visiblePlays =
+        game.currentTrick.where((play) => !play.hidden).toList();
+    if (visiblePlays.isNotEmpty) {
+      final greatestStrength = visiblePlays.fold<int>(
         0,
         (greatest, play) =>
             play.card.strength > greatest ? play.card.strength : greatest,
       );
       strongestPlays.addAll(
-        game.currentTrick.where(
+        visiblePlays.where(
           (play) => play.card.strength == greatestStrength,
         ),
       );

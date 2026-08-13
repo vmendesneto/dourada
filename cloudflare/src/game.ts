@@ -3,6 +3,7 @@ export type MatchPhase = "playing" | "handFinished" | "gameOver";
 export interface PlayedCardState {
   playerIndex: number;
   card: string;
+  hidden?: boolean;
 }
 
 export interface ChallengeState {
@@ -17,6 +18,7 @@ export interface GameState {
   perspectiveTeam?: number;
   scores: number[];
   playerHands: string[][];
+  hiddenCards?: string[][];
   currentTrick: PlayedCardState[];
   playedCards: PlayedCardState[];
   trickWinners: Array<number | null>;
@@ -63,6 +65,7 @@ export function createInitialGame(
     perspectiveTeam: 0,
     scores: [0, 0],
     playerHands: Array.from({ length: 6 }, () => [] as string[]),
+    hiddenCards: Array.from({ length: 6 }, () => [] as string[]),
     currentTrick: [],
     playedCards: [],
     trickWinners: [],
@@ -130,8 +133,10 @@ export function cardStrength(code: string): number {
 }
 
 export function scorePoints(handValue: number): number {
-  return ({ 1: 2, 2: 4, 3: 6, 4: 8, 6: 12 } as Record<number, number>)[handValue] ??
-    handValue * 2;
+  return (
+    ({ 1: 2, 2: 4, 3: 6, 4: 8, 6: 12 } as Record<number, number>)[handValue] ??
+    handValue * 2
+  );
 }
 
 export function isGameState(value: unknown): value is GameState {
@@ -143,7 +148,17 @@ export function isGameState(value: unknown): value is GameState {
     state.scores.length === 2 &&
     Array.isArray(state.playerHands) &&
     state.playerHands.length === 6 &&
+    (state.hiddenCards === undefined ||
+      (Array.isArray(state.hiddenCards) &&
+        state.hiddenCards.length === 6 &&
+        state.hiddenCards.every(
+          (cards) =>
+            Array.isArray(cards) &&
+            cards.length <= 1 &&
+            cards.every((card) => typeof card === "string"),
+        ))) &&
     Array.isArray(state.currentTrick) &&
+    hasLegalHiddenDiscards(state.currentTrick, state.scores) &&
     Array.isArray(state.playedCards) &&
     Array.isArray(state.trickWinners) &&
     ["playing", "handFinished", "gameOver"].includes(state.phase ?? "")
@@ -184,7 +199,10 @@ export function advanceBot(state: GameState): BotStep {
   const tenTeam = pendingTenTeam(game);
   if (tenTeam !== null) {
     game.tenDecisionMade[tenTeam] = true;
-    setStatus(game, `${teamAction(game, tenTeam, "decidimos", "decidiram")} jogar a mão de dez.`);
+    setStatus(
+      game,
+      `${teamAction(game, tenTeam, "decidimos", "decidiram")} jogar a mão de dez.`,
+    );
     return { state: game, nextDelayMs: 650 };
   }
 
@@ -196,7 +214,9 @@ export function advanceBot(state: GameState): BotStep {
   if (card === null) return { state: game, nextDelayMs: null };
   playCard(game, playerIndex, card);
   const delay =
-    (game as GameState).phase === "handFinished" || game.awaitingNextTrick ? 5000 : 650;
+    (game as GameState).phase === "handFinished" || game.awaitingNextTrick
+      ? 5000
+      : 650;
   return { state: game, nextDelayMs: delay };
 }
 
@@ -214,7 +234,10 @@ function acceptPendingChallenge(game: GameState): void {
   game.pendingChallenge = null;
   game.challengeNotice = null;
   game.challengeNoticeAccepted = false;
-  setStatus(game, `${teamAction(game, challenge.targetTeam, "aceitamos", "aceitaram")} o desafio.`);
+  setStatus(
+    game,
+    `${teamAction(game, challenge.targetTeam, "aceitamos", "aceitaram")} o desafio.`,
+  );
 }
 
 function chooseBotCard(game: GameState, playerIndex: number): string | null {
@@ -222,15 +245,21 @@ function chooseBotCard(game: GameState, playerIndex: number): string | null {
     (a, b) => cardStrength(a) - cardStrength(b),
   );
   if (cards.length === 0) return null;
-  if (game.currentTrick.length === 0) {
-    if (game.trickWinners.length > 0 && game.trickWinners[0] === playerIndex % 2) {
+  const visibleTrick = game.currentTrick.filter((play) => !play.hidden);
+  if (visibleTrick.length === 0) {
+    if (
+      game.trickWinners.length > 0 &&
+      game.trickWinners[0] === playerIndex % 2
+    ) {
       return cards[0];
     }
     return cards[Math.min(1, cards.length - 1)];
   }
-  const topStrength = Math.max(...game.currentTrick.map((play) => cardStrength(play.card)));
+  const topStrength = Math.max(
+    ...visibleTrick.map((play) => cardStrength(play.card)),
+  );
   const topTeams = new Set(
-    game.currentTrick
+    visibleTrick
       .filter((play) => cardStrength(play.card) === topStrength)
       .map((play) => play.playerIndex % 2),
   );
@@ -243,10 +272,24 @@ function playCard(game: GameState, playerIndex: number, card: string): void {
   const cardIndex = hand.indexOf(card);
   if (cardIndex < 0) return;
   hand.splice(cardIndex, 1);
-  const play = { playerIndex, card };
+  game.hiddenCards ??= Array.from({ length: 6 }, () => [] as string[]);
+  const hiddenIndex = game.hiddenCards[playerIndex].indexOf(card);
+  const canHide =
+    !game.scores.includes(10) &&
+    hiddenPlaysForTeam(game.currentTrick, playerIndex % 2) < 2;
+  const hidden = hiddenIndex >= 0 && canHide;
+  if (hiddenIndex >= 0) game.hiddenCards[playerIndex].splice(hiddenIndex, 1);
+  const play: PlayedCardState = hidden
+    ? { playerIndex, card, hidden: true }
+    : { playerIndex, card };
   game.currentTrick.push(play);
   game.playedCards.push(play);
-  setStatus(game, `Robô substituto jogou ${card}.`);
+  setStatus(
+    game,
+    hidden
+      ? "Robô substituto descartou uma carta fechada."
+      : `Robô substituto jogou ${card}.`,
+  );
 
   if (game.currentTrick.length === 6) {
     finishTrick(game);
@@ -287,14 +330,21 @@ function finishTrick(game: GameState): void {
 }
 
 export function resolveTrickWinner(plays: PlayedCardState[]): number | null {
-  if (plays.length === 0) return null;
-  const maximum = Math.max(...plays.map((play) => cardStrength(play.card)));
-  const strongest = plays.filter((play) => cardStrength(play.card) === maximum);
+  const visiblePlays = plays.filter((play) => !play.hidden);
+  if (visiblePlays.length === 0) return null;
+  const maximum = Math.max(
+    ...visiblePlays.map((play) => cardStrength(play.card)),
+  );
+  const strongest = visiblePlays.filter(
+    (play) => cardStrength(play.card) === maximum,
+  );
   const teams = new Set(strongest.map((play) => play.playerIndex % 2));
   return teams.size === 1 ? strongest[0].playerIndex : null;
 }
 
-export function resolveDisputeWinner(results: Array<number | null>): number | null {
+export function resolveDisputeWinner(
+  results: Array<number | null>,
+): number | null {
   if (results.length < 2) return null;
   const [first, second] = results;
   if (first === null && second !== null) return second;
@@ -351,6 +401,7 @@ function dealHand(game: GameState): void {
 
   const deck = shuffle(fullDeck());
   game.playerHands = Array.from({ length: 6 }, () => [] as string[]);
+  game.hiddenCards = Array.from({ length: 6 }, () => [] as string[]);
   for (let round = 0; round < 3; round += 1) {
     for (let offset = 1; offset <= 6; offset += 1) {
       const playerIndex = (game.dealerIndex + offset) % 6;
@@ -366,7 +417,10 @@ function dealHand(game: GameState): void {
     tenToTen || game.scores[0] !== 10,
     tenToTen || game.scores[1] !== 10,
   ];
-  setStatus(game, tenHand ? "Mão de dez: sem desafios, valendo 4." : "Nova disputa.");
+  setStatus(
+    game,
+    tenHand ? "Mão de dez: sem desafios, valendo 4." : "Nova disputa.",
+  );
 }
 
 function shuffle<T>(values: T[]): T[] {
@@ -377,6 +431,35 @@ function shuffle<T>(values: T[]): T[] {
     [values[index], values[target]] = [values[target], values[index]];
   }
   return values;
+}
+
+function hiddenPlaysForTeam(plays: PlayedCardState[], team: number): number {
+  return plays.filter((play) => play.hidden && play.playerIndex % 2 === team)
+    .length;
+}
+
+function hasLegalHiddenDiscards(
+  plays: unknown[],
+  scores: number[] | undefined,
+): boolean {
+  const typedPlays = plays.filter(
+    (play): play is PlayedCardState =>
+      typeof play === "object" &&
+      play !== null &&
+      Number.isInteger((play as PlayedCardState).playerIndex) &&
+      (play as PlayedCardState).playerIndex >= 0 &&
+      (play as PlayedCardState).playerIndex < 6 &&
+      typeof (play as PlayedCardState).card === "string" &&
+      ((play as PlayedCardState).hidden === undefined ||
+        typeof (play as PlayedCardState).hidden === "boolean"),
+  );
+  const hiddenCount = typedPlays.filter((play) => play.hidden).length;
+  return (
+    typedPlays.length === plays.length &&
+    (!scores?.includes(10) || hiddenCount === 0) &&
+    hiddenPlaysForTeam(typedPlays, 0) <= 2 &&
+    hiddenPlaysForTeam(typedPlays, 1) <= 2
+  );
 }
 
 function setStatus(game: GameState, message: string): void {

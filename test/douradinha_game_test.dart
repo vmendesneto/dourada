@@ -122,7 +122,9 @@ void main() {
       final original = DouradinhaGame(random: Random(41));
       original.currentPlayerIndex = original.humanPlayerIndex;
       original.trickLeaderIndex = original.humanPlayerIndex;
-      original.playHumanCard(original.players[0].hand.first);
+      final hiddenCard = original.players[0].hand.first;
+      original.toggleHumanCardHidden(hiddenCard);
+      original.playHumanCard(hiddenCard);
       original.autoPlayCurrentPlayerOnTimeout();
       final snapshot = jsonEncode(original.toJson());
 
@@ -135,6 +137,7 @@ void main() {
       expect(jsonEncode(restored.toJson()), snapshot);
       expect(restored.currentPlayerIndex, original.currentPlayerIndex);
       expect(restored.players[0].hand, original.players[0].hand);
+      expect(restored.playedCards.first.hidden, isTrue);
       expect(restored.timeoutCountFor(1), 1);
     });
 
@@ -195,6 +198,106 @@ void main() {
       expect(DouradinhaGame.resolveTrickWinner(tied, game.players), isNull);
       expect(
           DouradinhaGame.resolveTrickWinner(sameTeam, game.players)?.team, 0);
+    });
+
+    test('carta escondida não participa do resultado da mão', () {
+      final game = DouradinhaGame(random: Random(3));
+      final plays = [
+        const PlayedCard(
+          playerIndex: 0,
+          card: PlayingCard('Q', 'o'),
+          hidden: true,
+        ),
+        const PlayedCard(playerIndex: 1, card: PlayingCard('4', 'o')),
+      ];
+      final onlyHidden = [
+        const PlayedCard(
+          playerIndex: 0,
+          card: PlayingCard('Q', 'o'),
+          hidden: true,
+        ),
+        const PlayedCard(
+          playerIndex: 1,
+          card: PlayingCard('3', 'o'),
+          hidden: true,
+        ),
+      ];
+
+      expect(
+        DouradinhaGame.resolveTrickWinner(plays, game.players)?.team,
+        1,
+      );
+      expect(
+        DouradinhaGame.resolveTrickWinner(onlyHidden, game.players),
+        isNull,
+      );
+    });
+
+    test('joga a carta marcada escondida como descarte fechado', () {
+      final game = DouradinhaGame(random: Random(31));
+      game.currentPlayerIndex = game.humanPlayerIndex;
+      game.trickLeaderIndex = game.humanPlayerIndex;
+      final card = game.players[game.humanPlayerIndex].hand.first;
+
+      game.toggleHumanCardHidden(card);
+      expect(game.isHumanCardHidden(card), isTrue);
+
+      game.playHumanCard(card);
+
+      expect(game.currentTrick.single.card, card);
+      expect(game.currentTrick.single.hidden, isTrue);
+      expect(game.statusMessage, contains('carta fechada'));
+      expect(game.players[game.humanPlayerIndex].hiddenCards, isEmpty);
+    });
+
+    test('mantém somente uma carta selecionada para esconder', () {
+      final game = DouradinhaGame(random: Random(33));
+      game.currentPlayerIndex = game.humanPlayerIndex;
+      final first = game.players[game.humanPlayerIndex].hand[0];
+      final second = game.players[game.humanPlayerIndex].hand[1];
+
+      game.toggleHumanCardHidden(first);
+      game.toggleHumanCardHidden(second);
+
+      expect(game.isHumanCardHidden(first), isFalse);
+      expect(game.isHumanCardHidden(second), isTrue);
+    });
+
+    test('terceiro jogador do trio não pode esconder outra carta', () {
+      final game = DouradinhaGame(random: Random(37));
+      game.currentPlayerIndex = game.humanPlayerIndex;
+      game.trickLeaderIndex = game.humanPlayerIndex;
+      game.currentTrick.addAll(const [
+        PlayedCard(
+          playerIndex: 2,
+          card: PlayingCard('4', 'o'),
+          hidden: true,
+        ),
+        PlayedCard(
+          playerIndex: 4,
+          card: PlayingCard('5', 'o'),
+          hidden: true,
+        ),
+      ]);
+      final card = game.players[game.humanPlayerIndex].hand.first;
+
+      expect(game.canHumanHideCard(card), isFalse);
+      game.toggleHumanCardHidden(card);
+      expect(game.isHumanCardHidden(card), isFalse);
+    });
+
+    test('não permite esconder cartas na mão de dez', () {
+      final game = DouradinhaGame(random: Random(41));
+      game.currentPlayerIndex = game.humanPlayerIndex;
+      game.trickLeaderIndex = game.humanPlayerIndex;
+      game.scores[game.humanTeam] = 10;
+      game.chooseToPlayTenHand();
+      final card = game.players[game.humanPlayerIndex].hand.first;
+
+      expect(game.isHumanTurn, isTrue);
+      expect(game.canHumanHideCard(card), isFalse);
+      game.toggleHumanCardHidden(card);
+      expect(game.isHumanCardHidden(card), isFalse);
     });
 
     test('a maior carta abre a próxima mão e o empate mantém quem abriu', () {

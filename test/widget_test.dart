@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:dourada/auth/auth_service.dart';
+import 'package:dourada/game/douradinha_game.dart';
 import 'package:dourada/main.dart';
 import 'package:dourada/online/lobby_service.dart';
 import 'package:dourada/ui/game_page.dart';
@@ -236,6 +237,62 @@ void main() {
     expect(find.byKey(const ValueKey('nome-jogador-local')), findsOneWidget);
     expect(find.byKey(const ValueKey('sair-da-mesa')), findsOneWidget);
     expect(find.text('TRUCO!'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('esconde a carta na mão e mantém o verso ao descartá-la',
+      (tester) async {
+    final savedGame = DouradinhaGame()..currentPlayerIndex = 0;
+    final card = savedGame.players[0].hand.first;
+    SharedPreferences.setMockInitialValues({
+      'douradinha_partida_em_andamento_v1': jsonEncode(savedGame.toJson()),
+    });
+    addTearDown(() => SharedPreferences.setMockInitialValues({}));
+
+    await tester.pumpWidget(
+      DouradinhaApp(authService: FakeAuthService(signedIn: true)),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
+    await tester.pumpAndSettle();
+
+    final hideButton = find.byKey(ValueKey('esconder-carta-${card.code}'));
+    expect(hideButton, findsOneWidget);
+    await tester.tap(hideButton);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byKey(const ValueKey('carta-escondida')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('carta-escondida')));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(
+      find.byKey(const ValueKey('carta-jogada-escondida-0')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('desabilita esconder na mão de dez', (tester) async {
+    final savedGame = DouradinhaGame()
+      ..currentPlayerIndex = 0
+      ..scores[0] = 10;
+    savedGame.chooseToPlayTenHand();
+    final card = savedGame.players[0].hand.first;
+    SharedPreferences.setMockInitialValues({
+      'douradinha_partida_em_andamento_v1': jsonEncode(savedGame.toJson()),
+    });
+    addTearDown(() => SharedPreferences.setMockInitialValues({}));
+
+    await tester.pumpWidget(
+      DouradinhaApp(authService: FakeAuthService(signedIn: true)),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
+    await tester.pumpAndSettle();
+
+    final hideButton = find.byKey(ValueKey('esconder-carta-${card.code}'));
+    expect(tester.widget<InkWell>(hideButton).onTap, isNull);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
