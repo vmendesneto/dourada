@@ -85,6 +85,18 @@ class _LobbyPageState extends State<LobbyPage> {
     }
   }
 
+  Future<void> _signOut() async {
+    if (_authBusy) return;
+    setState(() => _authBusy = true);
+    try {
+      await _authService.signOut();
+    } on Object catch (error) {
+      if (mounted) _showAuthError(error);
+    } finally {
+      if (mounted) setState(() => _authBusy = false);
+    }
+  }
+
   Future<void> _openProfile() async {
     if (_authBusy || _authService.currentUser == null) return;
     await showDialog<void>(
@@ -279,12 +291,19 @@ class _LobbyPageState extends State<LobbyPage> {
                       ],
                     ),
                   ),
-                  IconButton(
-                    tooltip: 'Atualizar mesas',
-                    onPressed: _connectLobby,
-                    color: Colors.white,
-                    icon: const Icon(Icons.refresh_rounded),
-                  ),
+                  if (_authService.currentUser != null)
+                    IconButton(
+                      key: const ValueKey('sair-conta'),
+                      tooltip: 'Sair da conta',
+                      onPressed: _authBusy ? null : _signOut,
+                      color: Colors.white,
+                      icon: _authBusy
+                          ? const SizedBox.square(
+                              dimension: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.logout_rounded),
+                    ),
                   const SizedBox(width: 4),
                   AuthAccountButton(
                     profile: _authService.currentUser,
@@ -540,21 +559,6 @@ class _ProfileDialogState extends State<ProfileDialog> {
     }
   }
 
-  Future<void> _logout() async {
-    if (_saving) return;
-    setState(() => _saving = true);
-    try {
-      await widget.authService.signOut();
-      if (mounted) Navigator.of(context).pop();
-    } on Object catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(readableAuthError(error))),
-      );
-      setState(() => _saving = false);
-    }
-  }
-
   @override
   void dispose() {
     _nameController.removeListener(_profileChanged);
@@ -655,10 +659,10 @@ class _ProfileDialogState extends State<ProfileDialog> {
       actionsAlignment: MainAxisAlignment.spaceBetween,
       actions: [
         TextButton.icon(
-          key: const ValueKey('sair-conta'),
-          onPressed: _saving ? null : _logout,
-          icon: const Icon(Icons.logout_rounded),
-          label: const Text('SAIR'),
+          key: const ValueKey('cancelar-perfil'),
+          onPressed: _saving ? null : () => Navigator.of(context).pop(),
+          icon: const Icon(Icons.close_rounded),
+          label: const Text('CANCELAR'),
         ),
         FilledButton.icon(
           key: const ValueKey('salvar-perfil'),

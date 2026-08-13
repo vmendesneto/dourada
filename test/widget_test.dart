@@ -46,7 +46,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('login abre perfil, salva nome e foto e permite logout',
+  testWidgets('perfil só altera Firebase ao salvar e permite cancelar',
       (tester) async {
     final authService = FakeAuthService();
     await tester.pumpWidget(
@@ -82,23 +82,38 @@ void main() {
 
     await tester.enterText(
       find.byKey(const ValueKey('nome-perfil')),
-      'Novo Nome',
+      'Nome descartado',
     );
     expect(find.byKey(const ValueKey('foto-perfil')), findsNothing);
     await tester.tap(find.byKey(const ValueKey('trocar-foto-perfil')));
     await tester.pumpAndSettle();
     expect(find.text('Nova foto selecionada.'), findsOneWidget);
+    expect(authService.updateProfileCalls, 0);
+    await tester.tap(find.byKey(const ValueKey('cancelar-perfil')));
+    await tester.pumpAndSettle();
+
+    expect(authService.updateProfileCalls, 0);
+    expect(authService.currentUser?.displayName, 'Jogador');
+    expect(authService.savedImage, isNull);
+
+    await tester.tap(find.byKey(const ValueKey('abrir-perfil')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('nome-perfil')),
+      'Novo Nome',
+    );
+    await tester.tap(find.byKey(const ValueKey('trocar-foto-perfil')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('salvar-perfil')));
     await tester.pumpAndSettle();
 
+    expect(authService.updateProfileCalls, 1);
     expect(authService.savedName, 'Novo Nome');
     expect(authService.savedImage?.contentType, 'image/png');
     expect(authService.savedImage?.bytes, isNotEmpty);
 
-    await tester.tap(find.byKey(const ValueKey('abrir-perfil')));
-    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('sair-conta')));
-    await tester.pumpAndSettle();
+    await tester.pump();
 
     expect(authService.signOutCalls, 1);
     expect(find.byKey(const ValueKey('entrar-conta')), findsOneWidget);

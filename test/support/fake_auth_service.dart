@@ -16,6 +16,7 @@ class FakeAuthService extends AuthService {
   int signInCalls = 0;
   int signOutCalls = 0;
   int idTokenCalls = 0;
+  int updateProfileCalls = 0;
   String? savedName;
   SelectedProfileImage? savedImage;
 
@@ -51,6 +52,7 @@ class FakeAuthService extends AuthService {
     required String displayName,
     SelectedProfileImage? image,
   }) async {
+    updateProfileCalls++;
     savedName = displayName;
     savedImage = image;
     _profile = AuthProfile(
