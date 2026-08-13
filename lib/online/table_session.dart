@@ -279,10 +279,45 @@ class TableSession extends ChangeNotifier {
     if (value is! Map || _game == null) return;
     _applyingRemoteState = true;
     try {
-      _game!.restoreState(Map<String, dynamic>.from(value));
+      final restored = _game!.restoreState(Map<String, dynamic>.from(value));
+      if (restored) _normalizeLegacyTeamMessages();
     } finally {
       _applyingRemoteState = false;
     }
+  }
+
+  void _normalizeLegacyTeamMessages() {
+    final game = _game;
+    if (game == null) return;
+
+    String normalize(String message) {
+      var normalized = message
+          .replaceAll(
+            RegExp(r'(?:o )?trio azul', caseSensitive: false),
+            game.teamLabel(0),
+          )
+          .replaceAll(
+            RegExp(r'(?:o )?trio dourado', caseSensitive: false),
+            game.teamLabel(1),
+          );
+      const conjugations = <String, String>{
+        'Nós jogou': 'Nós jogamos',
+        'Eles jogou': 'Eles jogaram',
+        'Nós descartou': 'Nós descartamos',
+        'Eles descartou': 'Eles descartaram',
+      };
+      for (final entry in conjugations.entries) {
+        normalized = normalized.replaceAll(entry.key, entry.value);
+      }
+      return normalized;
+    }
+
+    game.statusMessage = normalize(game.statusMessage);
+    for (var index = 0; index < game.history.length; index++) {
+      game.history[index] = normalize(game.history[index]);
+    }
+    final notice = game.challengeNotice;
+    if (notice != null) game.challengeNotice = normalize(notice);
   }
 
   Future<void> _rejoinAndConnect() async {
