@@ -1569,18 +1569,17 @@ class _HumanControls extends StatelessWidget {
                   style:
                       TextStyle(color: teamColor, fontWeight: FontWeight.bold),
                 ),
-                Text(
-                  active ? 'Sua vez' : 'Aguarde',
-                  style: const TextStyle(color: Colors.white60, fontSize: 12),
-                ),
-                if (clockActive) ...[
-                  const SizedBox(height: 6),
+                if (clockActive)
                   _TurnProgress(
                     progress: turnProgress,
                     secondsLeft: secondsLeft,
                     width: 105,
+                  )
+                else
+                  Text(
+                    active ? 'Sua vez' : 'Aguarde',
+                    style: const TextStyle(color: Colors.white60, fontSize: 12),
                   ),
-                ],
                 if (game.footIndex == game.humanPlayerIndex)
                   const Text('PÉ',
                       style: TextStyle(color: Colors.white38, fontSize: 10)),
