@@ -993,7 +993,7 @@ class _HandWinnerDots extends StatelessWidget {
             ? '${index + 1}ª mão: ainda não jogada'
             : winner == null
                 ? '${index + 1}ª mão: empate'
-                : '${index + 1}ª mão: ${winner == 0 ? 'Trio Azul' : 'Trio Dourado'}';
+                : '${index + 1}ª mão: ${winner == 0 ? 'Nós' : 'Eles'}';
         final color = !wasPlayed
             ? Colors.transparent
             : winner == null
@@ -1792,7 +1792,7 @@ class _ChallengeOverlay extends StatelessWidget {
                       fontWeight: FontWeight.w900),
                 ),
                 const SizedBox(height: 4),
-                const Text('O Trio Dourado desafiou o seu trio.',
+                const Text('Eles desafiaram o seu trio.',
                     style: TextStyle(color: Colors.white70)),
                 const SizedBox(height: 14),
                 Wrap(
@@ -1855,7 +1855,7 @@ class _ChallengeNoticeOverlay extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    accepted ? 'DESAFIO ACEITO' : 'O TRIO DOURADO CORREU',
+                    accepted ? 'DESAFIO ACEITO' : 'ELES CORRERAM',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: color,
@@ -1872,7 +1872,7 @@ class _ChallengeNoticeOverlay extends StatelessWidget {
                   if (!accepted) ...[
                     const SizedBox(height: 4),
                     const Text(
-                      'O Trio Azul venceu a disputa.',
+                      'Nós vencemos a disputa.',
                       style: TextStyle(color: Colors.white),
                     ),
                   ],

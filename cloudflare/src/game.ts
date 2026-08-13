@@ -384,5 +384,5 @@ function setStatus(game: GameState, message: string): void {
 }
 
 function teamLabel(team: number): string {
-  return team === 0 ? "Trio Azul" : "Trio Dourado";
+  return team === 0 ? "Nós" : "Eles";
 }

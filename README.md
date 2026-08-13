@@ -36,7 +36,7 @@ O GitHub Pages é atualizado automaticamente a cada envio para a branch `main`.
 - limite de uma avaliação de desafio do trio por mão, com pedidos e aumentos
   probabilísticos; mãos fortes ajudam, mas não garantem truco, e blefes raros
   continuam possíveis;
-- decisões de aposta do Trio Azul exclusivas do jogador humano; os parceiros
+- nossas decisões de aposta são exclusivas do jogador humano; os parceiros
   robôs apenas jogam suas próprias cartas;
 - relógio individual de 15 segundos, reduzido para 12 e depois 8 segundos após
   estouros, com escolha automática de carta para a partida nunca travar;

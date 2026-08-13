@@ -307,7 +307,7 @@ class DouradinhaGame extends ChangeNotifier {
   static String challengeLabelForPoints(int points) =>
       points == 2 ? 'TRUCO!' : 'VALE ${spokenValueForPoints(points)}!';
 
-  /// O Trio Azul é representado exclusivamente pelo jogador humano nas apostas.
+  /// Nós somos representados exclusivamente pelo jogador humano nas apostas.
   static bool botCanDecideChallengeForTeam(int team) => team != 0;
 
   static bool isChallengeTurnForTeam({
@@ -373,8 +373,8 @@ class DouradinhaGame extends ChangeNotifier {
 
   int timeoutCountFor(int playerIndex) => _automaticTimeouts[playerIndex];
 
-  String get teamOneLabel => 'Trio Azul';
-  String get teamTwoLabel => 'Trio Dourado';
+  String get teamOneLabel => 'Nós';
+  String get teamTwoLabel => 'Eles';
 
   Map<String, Object?> toJson() => {
         'version': 1,
