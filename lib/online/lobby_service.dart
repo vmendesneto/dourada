@@ -1,11 +1,17 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 enum LobbyTablePhase { empty, waiting, playing }
+
+const botAvatarAssetCount = 10;
+
+String botAvatarAsset(int number) =>
+    'assets/images/avatar/robos/robo_${number.toString().padLeft(2, '0')}.png';
 
 class SavedTableSession {
   const SavedTableSession(
@@ -206,6 +212,10 @@ class LobbyService {
     String? playerPhotoUrl,
   }) async {
     if (!enabled) {
+      final botAvatars = List<int>.generate(
+        botAvatarAssetCount,
+        (index) => index + 1,
+      )..shuffle(Random());
       return TableEntry(
         serverUrl: '',
         tableNumber: '$tableNumber',
@@ -221,7 +231,9 @@ class LobbyService {
             name: index == 0 ? (playerName ?? 'Você') : 'Robô $index',
             team: index % 2,
             connected: true,
-            photoUrl: index == 0 ? playerPhotoUrl : null,
+            photoUrl: index == 0
+                ? playerPhotoUrl
+                : botAvatarAsset(botAvatars[index - 1]),
           ),
         ),
       );

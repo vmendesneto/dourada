@@ -51,6 +51,7 @@ const tableCount = 10;
 const seatCount = 6;
 const disconnectGraceMs = 5000;
 const humanTurnMs = 15000;
+const botAvatarCount = 10;
 
 const corsHeaders = (request: Request): Record<string, string> => ({
   "Access-Control-Allow-Origin": request.headers.get("Origin") ?? "*",
@@ -456,6 +457,7 @@ export class GameTable extends DurableObject<Env> {
         table.seats[index] = {
           kind: "bot",
           name: `Robô ${index + 1}`,
+          photoUrl: randomBotAvatar(table),
           token: null,
           joinedAt: now,
           disconnectedAt: null,
@@ -502,6 +504,7 @@ export class GameTable extends DurableObject<Env> {
       table.seats[seatIndex] = {
         kind: "bot",
         name: `RobÃ´ substituto ${seatIndex + 1}`,
+        photoUrl: randomBotAvatar(table),
         token: null,
         joinedAt: now,
         disconnectedAt: null,
@@ -860,7 +863,10 @@ function publicSeats(table: SharedTableState): Array<Record<string, unknown> | n
           index,
           kind: seat.kind,
           name: seat.name,
-          photoUrl: seat.photoUrl ?? null,
+          photoUrl:
+            seat.kind === "bot"
+              ? seat.photoUrl ?? fallbackBotAvatar(table.tableNumber, index)
+              : seat.photoUrl ?? null,
           team: index % 2,
           connected: seat.kind === "bot" || seat.disconnectedAt === null,
         },
@@ -885,6 +891,31 @@ function cleanPhotoUrl(value: string | null | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+function botAvatarAsset(number: number): string {
+  return `assets/images/avatar/robos/robo_${String(number).padStart(2, "0")}.png`;
+}
+
+function randomBotAvatar(table: SharedTableState): string {
+  const used = new Set(
+    table.seats
+      .filter((seat) => seat?.kind === "bot")
+      .map((seat) => seat?.photoUrl)
+      .filter((value): value is string => typeof value === "string"),
+  );
+  const available = Array.from({ length: botAvatarCount }, (_, index) => index + 1)
+    .map(botAvatarAsset)
+    .filter((asset) => !used.has(asset));
+  const choices = available.length > 0
+    ? available
+    : Array.from({ length: botAvatarCount }, (_, index) => botAvatarAsset(index + 1));
+  const randomValue = crypto.getRandomValues(new Uint32Array(1))[0];
+  return choices[randomValue % choices.length];
+}
+
+function fallbackBotAvatar(tableNumber: number, seatIndex: number): string {
+  return botAvatarAsset(((tableNumber * 3 + seatIndex * 7) % botAvatarCount) + 1);
 }
 
 async function readSmallBody(request: Request): Promise<string | null> {

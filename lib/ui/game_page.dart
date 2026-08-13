@@ -982,7 +982,7 @@ class _TablePlayerAvatar extends StatelessWidget {
       color: const Color(0xFF052D22),
       size: radius * 1.15,
     );
-    final validPhoto = !isBot && (photoUrl?.trim().isNotEmpty ?? false);
+    final validPhoto = photoUrl?.trim().isNotEmpty ?? false;
     return Container(
       width: radius * 2,
       height: radius * 2,
@@ -993,11 +993,17 @@ class _TablePlayerAvatar extends StatelessWidget {
       ),
       clipBehavior: Clip.antiAlias,
       child: validPhoto
-          ? Image.network(
-              photoUrl!,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => fallback,
-            )
+          ? isBot
+              ? Image.asset(
+                  photoUrl!,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => fallback,
+                )
+              : Image.network(
+                  photoUrl!,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => fallback,
+                )
           : fallback,
     );
   }

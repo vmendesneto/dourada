@@ -600,6 +600,17 @@ void main() {
     for (var index = 1; index <= 5; index++) {
       expect(find.text('Robô $index'), findsOneWidget);
     }
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Image &&
+            widget.image is AssetImage &&
+            (widget.image as AssetImage)
+                .assetName
+                .startsWith('assets/images/avatar/robos/'),
+      ),
+      findsNWidgets(5),
+    );
     expect(find.text('TRUCO!'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());

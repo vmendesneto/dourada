@@ -102,6 +102,20 @@ void main() {
 
     expect(entry.seats.first?.name, 'Maria');
     expect(entry.seats.first?.photoUrl, 'https://example.com/maria.jpg');
+    final botPhotos = entry.seats
+        .skip(1)
+        .map((seat) => seat?.photoUrl)
+        .whereType<String>()
+        .toSet();
+    expect(botPhotos, hasLength(5));
+    expect(
+      botPhotos.every(
+        (photo) => RegExp(
+          r'^assets/images/avatar/robos/robo_\d{2}\.png$',
+        ).hasMatch(photo),
+      ),
+      isTrue,
+    );
     service.dispose();
   });
 }
