@@ -385,19 +385,26 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       builder: (context, constraints) {
         final compact = constraints.maxHeight < 250;
         final tableSize = math.min(
-          constraints.maxWidth * .88,
-          constraints.maxHeight * .96,
+          constraints.maxWidth * .68,
+          constraints.maxHeight * (compact ? .82 : .69),
         );
+        final seatOutset = compact ? 62.0 : 102.0;
 
         Widget botSeat(int playerIndex, Alignment alignment) => Align(
               alignment: alignment,
-              child: _BotSeat(
-                game: game,
-                playerIndex: playerIndex,
-                compact: compact,
-                clockActive: _clockPlayerIndex == playerIndex,
-                turnProgress: _turnProgress,
-                secondsLeft: _turnSecondsLeft,
+              child: Transform.translate(
+                offset: Offset(
+                  alignment.x * seatOutset,
+                  alignment.y * seatOutset,
+                ),
+                child: _BotSeat(
+                  game: game,
+                  playerIndex: playerIndex,
+                  compact: compact,
+                  clockActive: _clockPlayerIndex == playerIndex,
+                  turnProgress: _turnProgress,
+                  secondsLeft: _turnSecondsLeft,
+                ),
               ),
             );
 
@@ -416,6 +423,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
               child: SizedBox.square(
                 dimension: tableSize,
                 child: Stack(
+                  clipBehavior: Clip.none,
                   children: [
                     Positioned.fill(
                       child: Container(
@@ -439,15 +447,15 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                       ),
                     ),
                     botSeat((game.humanPlayerIndex + 2) % 6,
-                        const Alignment(-.88, -.48)),
+                        const Alignment(-.92, -.52)),
                     botSeat((game.humanPlayerIndex + 3) % 6,
-                        const Alignment(0, -.88)),
+                        const Alignment(0, -1)),
                     botSeat((game.humanPlayerIndex + 4) % 6,
-                        const Alignment(.88, -.48)),
+                        const Alignment(.92, -.52)),
                     botSeat((game.humanPlayerIndex + 1) % 6,
-                        const Alignment(-.88, .48)),
+                        const Alignment(-.92, .52)),
                     botSeat((game.humanPlayerIndex + 5) % 6,
-                        const Alignment(.88, .48)),
+                        const Alignment(.92, .52)),
                     playedCard((game.humanPlayerIndex + 2) % 6,
                         const Alignment(-.48, -.26)),
                     playedCard((game.humanPlayerIndex + 3) % 6,
@@ -983,28 +991,31 @@ class _TablePlayerAvatar extends StatelessWidget {
       size: radius * 1.15,
     );
     final validPhoto = photoUrl?.trim().isNotEmpty ?? false;
-    return Container(
-      width: radius * 2,
-      height: radius * 2,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: color,
-        border: Border.all(color: color, width: 2),
+    return SizedBox.square(
+      dimension: radius * 2,
+      child: ClipOval(
+        clipBehavior: Clip.antiAlias,
+        child: ColoredBox(
+          color: color,
+          child: validPhoto
+              ? isBot
+                  ? Image.asset(
+                      photoUrl!,
+                      width: radius * 2,
+                      height: radius * 2,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => fallback,
+                    )
+                  : Image.network(
+                      photoUrl!,
+                      width: radius * 2,
+                      height: radius * 2,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => fallback,
+                    )
+              : fallback,
+        ),
       ),
-      clipBehavior: Clip.antiAlias,
-      child: validPhoto
-          ? isBot
-              ? Image.asset(
-                  photoUrl!,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => fallback,
-                )
-              : Image.network(
-                  photoUrl!,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => fallback,
-                )
-          : fallback,
     );
   }
 }
@@ -1057,7 +1068,7 @@ class _BotSeat extends StatelessWidget {
                 isBot: !player.isHuman,
                 photoUrl: player.photoUrl,
                 color: teamColor,
-                radius: compact ? 10 : 13,
+                radius: compact ? 16 : 22,
               ),
               const SizedBox(height: 2),
               Row(
