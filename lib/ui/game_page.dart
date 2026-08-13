@@ -36,6 +36,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   int _turnSecondsLeft = 15;
   double _turnProgress = 1;
   bool _restoringGame = true;
+  bool _leavingTable = false;
 
   @override
   void initState() {
@@ -95,6 +96,60 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     _persistGame();
     tableSession.syncGame(game);
     _scheduleAutomation();
+  }
+
+  Future<void> _confirmLeaveTable() async {
+    if (_leavingTable) return;
+    final waiting = tableSession.waiting;
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            backgroundColor: const Color(0xFF123C30),
+            icon: const Icon(
+              Icons.logout_rounded,
+              color: Color(0xFFFFC857),
+              size: 42,
+            ),
+            title: const Text(
+              'SAIR DA MESA?',
+              textAlign: TextAlign.center,
+            ),
+            content: Text(
+              waiting
+                  ? 'Sua cadeira será liberada e você voltará ao lobby. Não será possível retornar por esta sessão.'
+                  : 'Um robô assumirá sua cadeira e você voltará ao lobby. Não será possível retornar para esta partida.',
+              textAlign: TextAlign.center,
+            ),
+            actionsAlignment: MainAxisAlignment.center,
+            actions: [
+              OutlinedButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('CONTINUAR NA MESA'),
+              ),
+              FilledButton.icon(
+                key: const ValueKey('confirmar-saida-mesa'),
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                icon: const Icon(Icons.logout_rounded),
+                label: const Text('SAIR'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !mounted) return;
+
+    setState(() => _leavingTable = true);
+    try {
+      await tableSession.leaveTable();
+      if (mounted) Navigator.of(context).pop();
+    } on Object catch (error) {
+      if (!mounted) return;
+      final message = error.toString().replaceFirst('Bad state: ', '');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+      setState(() => _leavingTable = false);
+    }
   }
 
   void _onTableSessionChanged() {
@@ -283,7 +338,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         (tableSession.enabled && tableSession.phase == LobbyTablePhase.empty)) {
       return _WaitingRoom(
         session: tableSession,
-        onBack: () => Navigator.of(context).pop(),
+        leaving: _leavingTable,
+        onLeave: () => unawaited(_confirmLeaveTable()),
       );
     }
     return Scaffold(
@@ -291,7 +347,12 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       body: SafeArea(
         child: Column(
           children: [
-            _ScoreBoard(game: game, tableSession: tableSession),
+            _ScoreBoard(
+              game: game,
+              tableSession: tableSession,
+              leaving: _leavingTable,
+              onLeave: () => unawaited(_confirmLeaveTable()),
+            ),
             Expanded(child: _buildTable()),
             _HumanControls(
               game: game,
@@ -428,10 +489,15 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 }
 
 class _WaitingRoom extends StatefulWidget {
-  const _WaitingRoom({required this.session, required this.onBack});
+  const _WaitingRoom({
+    required this.session,
+    required this.leaving,
+    required this.onLeave,
+  });
 
   final TableSession session;
-  final VoidCallback onBack;
+  final bool leaving;
+  final VoidCallback onLeave;
 
   @override
   State<_WaitingRoom> createState() => _WaitingRoomState();
@@ -485,10 +551,18 @@ class _WaitingRoomState extends State<_WaitingRoom> {
                     Row(
                       children: [
                         IconButton(
-                          tooltip: 'Voltar ao lobby',
-                          onPressed: widget.onBack,
+                          key: const ValueKey('sair-mesa-espera'),
+                          tooltip: 'Sair da mesa',
+                          onPressed: widget.leaving ? null : widget.onLeave,
                           color: Colors.white,
-                          icon: const Icon(Icons.arrow_back_rounded),
+                          icon: widget.leaving
+                              ? const SizedBox.square(
+                                  dimension: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.logout_rounded),
                         ),
                         Expanded(
                           child: Text(
@@ -665,10 +739,17 @@ class _WaitingRoomState extends State<_WaitingRoom> {
 }
 
 class _ScoreBoard extends StatelessWidget {
-  const _ScoreBoard({required this.game, required this.tableSession});
+  const _ScoreBoard({
+    required this.game,
+    required this.tableSession,
+    required this.leaving,
+    required this.onLeave,
+  });
 
   final DouradinhaGame game;
   final TableSession tableSession;
+  final bool leaving;
+  final VoidCallback onLeave;
 
   @override
   Widget build(BuildContext context) {
@@ -753,6 +834,19 @@ class _ScoreBoard extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+          const SizedBox(width: 6),
+          IconButton(
+            key: const ValueKey('sair-da-mesa'),
+            tooltip: 'Sair da mesa',
+            onPressed: leaving ? null : onLeave,
+            color: const Color(0xFFFF9E80),
+            icon: leaving
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.logout_rounded),
           ),
         ],
       ),

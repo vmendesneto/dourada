@@ -128,6 +128,42 @@ class TableSession extends ChangeNotifier {
     _channel?.sink.add(jsonEncode({'type': 'restart'}));
   }
 
+  Future<void> leaveTable() async {
+    if (_disposed) return;
+    final currentTable = tableNumber;
+    final currentToken = playerToken;
+    if (enabled && currentTable != null && currentToken != null) {
+      final response = await _client
+          .post(
+            Uri.parse('$_serverUrl/api/tables/$currentTable/leave'),
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({'playerToken': currentToken}),
+          )
+          .timeout(const Duration(seconds: 12));
+      if (response.statusCode != 200) {
+        final payload = jsonDecode(response.body) as Map<String, dynamic>;
+        throw StateError(
+          payload['error'] as String? ?? 'Não foi possível sair da mesa.',
+        );
+      }
+    }
+
+    _presencePaused = true;
+    _reconnectTimer?.cancel();
+    connected = false;
+    replacementBotActive = false;
+    playerToken = null;
+    websocketUrl = null;
+    final preferences = _preferences ?? await SharedPreferences.getInstance();
+    await Future.wait([
+      preferences.remove(tableNumberKey),
+      preferences.remove(playerTokenKey),
+      preferences.remove(LobbyService.seatIndexKey),
+    ]);
+    unawaited(_closeChannel());
+    if (!_disposed) notifyListeners();
+  }
+
   Future<void> pausePresence() async {
     if (!enabled || _disposed || _presencePaused) return;
     _presencePaused = true;

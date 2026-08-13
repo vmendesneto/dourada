@@ -6,6 +6,7 @@ import 'package:dourada/ui/game_page.dart';
 import 'package:dourada/ui/lobby_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   testWidgets('entra na mesa mesmo se o lobby nao confirmar o fechamento',
@@ -53,6 +54,30 @@ void main() {
     expect(find.text('TRUCO!'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('saida confirmada volta ao lobby e encerra a sessao',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(const DouradinhaApp());
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('sair-da-mesa')));
+    await tester.pumpAndSettle();
+    expect(find.text('SAIR DA MESA?'), findsOneWidget);
+    expect(find.textContaining('Não será possível retornar'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('confirmar-saida-mesa')));
+    for (var attempt = 0;
+        attempt < 30 && find.text('LOBBY DOURADINHA').evaluate().isEmpty;
+        attempt++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.text('LOBBY DOURADINHA'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byType(GamePage), findsNothing);
   });
 
   testWidgets('barra do resultado diminui durante os cinco segundos',

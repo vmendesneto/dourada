@@ -76,7 +76,7 @@ export default {
     }
 
     const action = url.pathname.match(
-      /^\/api\/tables\/(10|[1-9])\/(join|fill-bots|can-resume|decline-resume|connect)$/,
+      /^\/api\/tables\/(10|[1-9])\/(join|fill-bots|can-resume|decline-resume|leave|connect)$/,
     );
     if (action) {
       const tableNumber = Number(action[1]);
@@ -97,7 +97,11 @@ export default {
         error: "Não foi possível acessar a mesa.",
       }))) as Record<string, unknown>;
       if (!internal.ok) return json(request, body, internal.status);
-      if (operation === "can-resume" || operation === "decline-resume") {
+      if (
+        operation === "can-resume" ||
+        operation === "decline-resume" ||
+        operation === "leave"
+      ) {
         return json(request, body, internal.status);
       }
       return json(
@@ -212,6 +216,9 @@ export class GameTable extends DurableObject<Env> {
       return this.canResume(request, requestedTableNumber);
     }
     if (url.pathname === "/decline-resume" && request.method === "POST") {
+      return this.declineResume(request, requestedTableNumber);
+    }
+    if (url.pathname === "/leave" && request.method === "POST") {
       return this.declineResume(request, requestedTableNumber);
     }
     if (url.pathname.match(/^\/api\/tables\/(10|[1-9])\/connect$/)) {
