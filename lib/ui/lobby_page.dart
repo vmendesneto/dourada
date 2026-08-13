@@ -337,7 +337,7 @@ class _LobbyPageState extends State<LobbyPage> {
                             ? 5
                             : constraints.maxWidth >= 650
                                 ? 3
-                                : constraints.maxWidth >= 390
+                                : constraints.maxWidth >= 520
                                     ? 2
                                     : 1;
                         return GridView.builder(

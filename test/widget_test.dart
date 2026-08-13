@@ -219,6 +219,27 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('mesa de jogo se adapta a telefone sem sobreposicoes',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      DouradinhaApp(authService: FakeAuthService(signedIn: true)),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('nome-jogador-local')), findsOneWidget);
+    expect(find.byKey(const ValueKey('sair-da-mesa')), findsOneWidget);
+    expect(find.text('TRUCO!'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('saida confirmada volta ao lobby e encerra a sessao',
       (tester) async {
     SharedPreferences.setMockInitialValues({});

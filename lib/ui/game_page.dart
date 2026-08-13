@@ -386,12 +386,23 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   Widget _buildTable() {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final compact = constraints.maxHeight < 250;
+        final phone = MediaQuery.sizeOf(context).width < 600;
+        final compact = phone || constraints.maxHeight < 250;
         final tableSize = math.min(
-          constraints.maxWidth * .68,
-          constraints.maxHeight * (compact ? .82 : .69),
+          constraints.maxWidth * (phone ? .88 : .68),
+          constraints.maxHeight *
+              (phone
+                  ? .78
+                  : compact
+                      ? .82
+                      : .69),
         );
-        final seatOutset = compact ? 62.0 : 102.0;
+        final seatOutset = phone
+            ? 10.0
+            : compact
+                ? 62.0
+                : 102.0;
+        final sideSeatX = phone ? .84 : .92;
 
         Widget botSeat(int playerIndex, Alignment alignment) => Align(
               alignment: alignment,
@@ -450,15 +461,15 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                       ),
                     ),
                     botSeat((game.humanPlayerIndex + 2) % 6,
-                        const Alignment(-.92, -.52)),
+                        Alignment(-sideSeatX, -.52)),
                     botSeat((game.humanPlayerIndex + 3) % 6,
                         const Alignment(0, -1)),
                     botSeat((game.humanPlayerIndex + 4) % 6,
-                        const Alignment(.92, -.52)),
+                        Alignment(sideSeatX, -.52)),
                     botSeat((game.humanPlayerIndex + 1) % 6,
-                        const Alignment(-.92, .52)),
+                        Alignment(-sideSeatX, .52)),
                     botSeat((game.humanPlayerIndex + 5) % 6,
-                        const Alignment(.92, .52)),
+                        Alignment(sideSeatX, .52)),
                     playedCard((game.humanPlayerIndex + 2) % 6,
                         const Alignment(-.58, -.46)),
                     playedCard((game.humanPlayerIndex + 3) % 6,
@@ -475,14 +486,14 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
               ),
             ),
             Positioned(
-              left: 18,
-              bottom: 8,
+              left: phone ? 6 : 18,
+              bottom: phone ? 2 : 8,
               child: _FootLegend(game: game),
             ),
-            const Positioned(
-              right: 18,
-              bottom: 8,
-              child: _ManilhasButton(),
+            Positioned(
+              right: phone ? 6 : 18,
+              bottom: phone ? 2 : 8,
+              child: const _ManilhasButton(),
             ),
             if (game.humanMustAnswerChallenge)
               Positioned.fill(child: _ChallengeOverlay(game: game)),
@@ -776,6 +787,95 @@ class _ScoreBoard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final phone = MediaQuery.sizeOf(context).width < 600;
+    if (phone) {
+      return Container(
+        height: 98,
+        padding: const EdgeInsets.fromLTRB(8, 4, 4, 5),
+        decoration: const BoxDecoration(
+          color: Color(0xFF052D22),
+          boxShadow: [BoxShadow(color: Colors.black45, blurRadius: 8)],
+        ),
+        child: Column(
+          children: [
+            Expanded(
+              child: Row(
+                children: [
+                  _TeamScore(
+                    label: game.teamOneLabel,
+                    score: game.scores[0],
+                    color: const Color(0xFF5CB6FF),
+                    compact: true,
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 6),
+                    child: Text('×',
+                        style: TextStyle(fontSize: 18, color: Colors.white54)),
+                  ),
+                  _TeamScore(
+                    label: game.teamTwoLabel,
+                    score: game.scores[1],
+                    color: const Color(0xFFFFC857),
+                    compact: true,
+                  ),
+                  const Spacer(),
+                  Tooltip(
+                    message: tableSession.errorMessage ??
+                        tableSession.connectionLabel,
+                    child: Icon(
+                      tableSession.connected
+                          ? Icons.cloud_done
+                          : Icons.cloud_off,
+                      size: 16,
+                      color: tableSession.connected
+                          ? const Color(0xFF7CE0A3)
+                          : Colors.white54,
+                    ),
+                  ),
+                  IconButton(
+                    key: const ValueKey('sair-da-mesa'),
+                    tooltip: 'Sair da mesa',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: leaving ? null : onLeave,
+                    color: const Color(0xFFFF9E80),
+                    icon: leaving
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.logout_rounded),
+                  ),
+                ],
+              ),
+            ),
+            Row(
+              children: [
+                _HandWinnerDots(results: game.trickWinners),
+                const SizedBox(width: 7),
+                Text(
+                  '${game.displayedHandNumber}ª Mão • Vale ${DouradinhaGame.spokenValueForPoints(game.handValue)}',
+                  style: const TextStyle(color: Colors.white70, fontSize: 11),
+                ),
+              ],
+            ),
+            const SizedBox(height: 2),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                game.statusMessage,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     return Container(
       height: 72,
       padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -940,31 +1040,38 @@ class _HandWinnerDots extends StatelessWidget {
 
 class _TeamScore extends StatelessWidget {
   const _TeamScore(
-      {required this.label, required this.score, required this.color});
+      {required this.label,
+      required this.score,
+      required this.color,
+      this.compact = false});
 
   final String label;
   final int score;
   final Color color;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
         Container(
-          width: 9,
-          height: 38,
+          width: compact ? 6 : 9,
+          height: compact ? 30 : 38,
           decoration: BoxDecoration(
               color: color, borderRadius: BorderRadius.circular(5)),
         ),
-        const SizedBox(width: 8),
+        SizedBox(width: compact ? 5 : 8),
         Column(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: TextStyle(color: color, fontSize: 12)),
+            Text(label,
+                style: TextStyle(color: color, fontSize: compact ? 10 : 12)),
             Text('$score',
-                style: const TextStyle(
-                    color: Colors.white, fontSize: 26, height: 1)),
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: compact ? 21 : 26,
+                    height: 1)),
           ],
         ),
       ],
@@ -1056,7 +1163,10 @@ class _BotSeat extends StatelessWidget {
         game.canHumanSeePartnerCardsInTenHand && player.team == game.humanTeam;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 250),
-      padding: EdgeInsets.symmetric(horizontal: 8, vertical: compact ? 3 : 6),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 4 : 8,
+        vertical: compact ? 2 : 6,
+      ),
       decoration: BoxDecoration(
         color:
             active ? teamColor.withValues(alpha: .22) : const Color(0xB8052D22),
@@ -1075,14 +1185,14 @@ class _BotSeat extends StatelessWidget {
                 isBot: !player.isHuman,
                 photoUrl: player.photoUrl,
                 color: teamColor,
-                radius: compact ? 16 : 22,
+                radius: compact ? 14 : 22,
               ),
               const SizedBox(height: 2),
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 90),
+                    constraints: BoxConstraints(maxWidth: compact ? 66 : 90),
                     child: Text(
                       player.name,
                       maxLines: 1,
@@ -1090,7 +1200,7 @@ class _BotSeat extends StatelessWidget {
                       style: TextStyle(
                         color: teamColor,
                         fontWeight: FontWeight.bold,
-                        fontSize: 12,
+                        fontSize: compact ? 10 : 12,
                       ),
                     ),
                   ),
@@ -1109,7 +1219,7 @@ class _BotSeat extends StatelessWidget {
             _TurnProgress(
               progress: turnProgress,
               secondsLeft: secondsLeft,
-              width: 94,
+              width: compact ? 66 : 94,
             ),
           ],
           if (!compact || reveal) ...[
@@ -1158,8 +1268,8 @@ class _PlayedCardAtSeat extends StatelessWidget {
     final teamColor = game.players[playerIndex].team == 0
         ? const Color(0xFF5CB6FF)
         : const Color(0xFFFFC857);
-    final width = compact ? 50.0 : 60.0;
-    final height = compact ? 74.0 : 88.0;
+    final width = compact ? 38.0 : 60.0;
+    final height = compact ? 56.0 : 88.0;
     final resultIsVisible =
         game.awaitingNextTrick || game.phase == MatchPhase.handFinished;
     final greatestStrength = game.currentTrick.fold<int>(
@@ -1292,8 +1402,121 @@ class _HumanControls extends StatelessWidget {
   Widget build(BuildContext context) {
     final human = game.players[game.humanPlayerIndex];
     final active = game.isHumanTurn;
+    final phone = MediaQuery.sizeOf(context).width < 600;
     final teamColor =
         human.team == 0 ? const Color(0xFF5CB6FF) : const Color(0xFFFFC857);
+    if (phone) {
+      return Container(
+        height: 154,
+        padding: const EdgeInsets.fromLTRB(8, 5, 8, 7),
+        decoration: const BoxDecoration(
+          color: Color(0xFF052D22),
+          boxShadow: [BoxShadow(color: Colors.black45, blurRadius: 10)],
+        ),
+        child: Column(
+          children: [
+            SizedBox(
+              height: 40,
+              child: Row(
+                children: [
+                  Container(
+                    width: 4,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: active ? teamColor : Colors.white24,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                  _TablePlayerAvatar(
+                    key: const ValueKey('avatar-jogador-local'),
+                    isBot: false,
+                    photoUrl: human.photoUrl,
+                    color: teamColor,
+                    radius: 17,
+                  ),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          human.name,
+                          key: const ValueKey('nome-jogador-local'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: teamColor,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        if (clockActive)
+                          _TurnProgress(
+                            progress: turnProgress,
+                            secondsLeft: secondsLeft,
+                            width: 105,
+                          )
+                        else
+                          Text(
+                            active ? 'Sua vez' : 'Aguarde',
+                            style: const TextStyle(
+                              color: Colors.white60,
+                              fontSize: 10,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(
+                    width: 116,
+                    height: 36,
+                    child: FilledButton.icon(
+                      onPressed: game.canHumanChallenge
+                          ? game.requestHumanChallenge
+                          : null,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFFE9A23B),
+                        foregroundColor: const Color(0xFF271500),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        textStyle: const TextStyle(fontSize: 11),
+                      ),
+                      icon: const Icon(Icons.campaign, size: 17),
+                      label: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          game.challengeButtonLabel,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 4),
+            Expanded(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  for (final card in human.hand)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: _PlayableCard(
+                        card: card,
+                        enabled: active,
+                        compact: true,
+                        onTap: () => game.playHumanCard(card),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     return Container(
       height: 126,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
@@ -1441,11 +1664,15 @@ class _TurnProgress extends StatelessWidget {
 
 class _PlayableCard extends StatefulWidget {
   const _PlayableCard(
-      {required this.card, required this.enabled, required this.onTap});
+      {required this.card,
+      required this.enabled,
+      required this.onTap,
+      this.compact = false});
 
   final PlayingCard card;
   final bool enabled;
   final VoidCallback onTap;
+  final bool compact;
 
   @override
   State<_PlayableCard> createState() => _PlayableCardState();
@@ -1468,7 +1695,11 @@ class _PlayableCardState extends State<_PlayableCard> {
           child: InkWell(
             onTap: widget.enabled ? widget.onTap : null,
             borderRadius: BorderRadius.circular(7),
-            child: _CardFace(card: widget.card, width: 67, height: 98),
+            child: _CardFace(
+              card: widget.card,
+              width: widget.compact ? 58 : 67,
+              height: widget.compact ? 85 : 98,
+            ),
           ),
         ),
       ),
@@ -1564,18 +1795,18 @@ class _ChallengeOverlay extends StatelessWidget {
                 const Text('O Trio Dourado desafiou o seu trio.',
                     style: TextStyle(color: Colors.white70)),
                 const SizedBox(height: 14),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
                     OutlinedButton(
                         onPressed: game.foldHumanChallenge,
                         child: const Text('CORRER')),
-                    const SizedBox(width: 8),
                     FilledButton(
                         onPressed: game.acceptHumanChallenge,
                         child: const Text('ACEITAR')),
                     if (challenge.requestedValue < 6) ...[
-                      const SizedBox(width: 8),
                       FilledButton.tonal(
                         onPressed: game.raiseHumanChallenge,
                         child: Text(DouradinhaGame.challengeLabelForPoints(
@@ -1695,14 +1926,15 @@ class _TenHandOverlay extends StatelessWidget {
                   style: TextStyle(color: Colors.white70),
                 ),
                 const SizedBox(height: 14),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 10,
+                  runSpacing: 8,
                   children: [
                     OutlinedButton(
                       onPressed: game.foldHumanTenHand,
                       child: const Text('CORRER (CEDE 2)'),
                     ),
-                    const SizedBox(width: 10),
                     FilledButton(
                       onPressed: game.chooseToPlayTenHand,
                       child: const Text('JOGAR A MÃO'),
@@ -1785,6 +2017,121 @@ class _HandResultOverlay extends StatelessWidget {
             ? 'A mão empatou com cartas de mesma força'
             : '$teamName venceu a mão com '
                 '${featuredCards.first.isManilha ? featuredCards.first.displayName : featuredCards.first.rankName}';
+
+    final phone = MediaQuery.sizeOf(context).width < 600;
+    if (phone) {
+      return Align(
+        alignment: Alignment.topCenter,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(6, 4, 6, 0),
+          child: Card(
+            margin: EdgeInsets.zero,
+            color: const Color(0xF5123C30),
+            elevation: 12,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              child: Row(
+                children: [
+                  if (featuredCards.isEmpty)
+                    Icon(Icons.emoji_events, color: teamColor, size: 30)
+                  else
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (final card in featuredCards)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 3),
+                            child: Container(
+                              padding: const EdgeInsets.all(2),
+                              decoration: BoxDecoration(
+                                color: teamColor,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: _CardFace(
+                                card: card,
+                                width: 32,
+                                height: 47,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                completedHand > 0
+                                    ? '$completedHandª MÃO'
+                                    : 'FIM DA DISPUTA',
+                                style: const TextStyle(
+                                  color: Colors.white60,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              'Vale ${DouradinhaGame.spokenValueForPoints(game.handValue)}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Text(
+                          resultMessage,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: teamColor,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        if (contestEnded && completedHand > 0)
+                          Text(
+                            disputeSummary,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 9,
+                            ),
+                          ),
+                        const SizedBox(height: 4),
+                        HandResultProgress(
+                          key: ValueKey(
+                            'resultado-${game.playedCards.length}-$completedHand-${game.phase.name}',
+                          ),
+                          color: teamColor,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          nextMessage,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white60,
+                            fontSize: 9,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     return Align(
       alignment: Alignment.topCenter,
