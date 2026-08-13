@@ -6,6 +6,7 @@ import 'package:dourada/auth/auth_service.dart';
 import 'package:dourada/game/douradinha_game.dart';
 import 'package:dourada/online/lobby_service.dart';
 import 'package:dourada/online/table_session.dart';
+import 'package:dourada/platform/fullscreen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -152,6 +153,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     setState(() => _leavingTable = true);
     try {
       await tableSession.leaveTable();
+      await exitGameFullscreen();
       if (mounted) Navigator.of(context).pop();
     } on Object catch (error) {
       if (!mounted) return;

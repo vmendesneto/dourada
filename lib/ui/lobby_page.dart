@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:dourada/auth/auth_service.dart';
 import 'package:dourada/online/lobby_service.dart';
+import 'package:dourada/platform/fullscreen.dart';
 import 'package:dourada/ui/game_page.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -215,6 +216,9 @@ class _LobbyPageState extends State<LobbyPage> {
       return;
     }
     setState(() => _openingTable = table.tableNumber);
+    // Deve acontecer antes das chamadas ao Firebase e à Cloudflare: o
+    // navegador só permite fullscreen enquanto o clique ainda está ativo.
+    await enterGameFullscreen();
     final profile = _authService.currentUser!;
     final lobbySubscription = _lobbySubscription;
     _lobbySubscription = null;
@@ -240,6 +244,7 @@ class _LobbyPageState extends State<LobbyPage> {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(message)));
     } finally {
+      await exitGameFullscreen();
       if (mounted) {
         setState(() => _openingTable = null);
         unawaited(_connectLobby());
