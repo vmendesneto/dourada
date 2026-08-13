@@ -373,11 +373,22 @@ class DouradinhaGame extends ChangeNotifier {
 
   int timeoutCountFor(int playerIndex) => _automaticTimeouts[playerIndex];
 
-  String get teamOneLabel => 'Nós';
-  String get teamTwoLabel => 'Eles';
+  String teamLabel(int team) => team == humanTeam ? 'Nós' : 'Eles';
+
+  String teamWon(int team, String complement) => team == humanTeam
+      ? 'Nós vencemos $complement'
+      : 'Eles venceram $complement';
+
+  String teamScored(int team, int points) => team == humanTeam
+      ? 'Nós marcamos $points pontos.'
+      : 'Eles marcaram $points pontos.';
+
+  String get teamOneLabel => teamLabel(0);
+  String get teamTwoLabel => teamLabel(1);
 
   Map<String, Object?> toJson() => {
         'version': 1,
+        'perspectiveTeam': humanTeam,
         'scores': scores,
         'playerHands': [
           for (final player in players)
@@ -440,7 +451,14 @@ class DouradinhaGame extends ChangeNotifier {
       final restoredTrickWinners = (json['trickWinners'] as List<Object?>)
           .map((winner) => winner == null ? null : winner as int)
           .toList();
-      final restoredHistory = (json['history'] as List<Object?>).cast<String>();
+      final sourcePerspective = json['perspectiveTeam'] as int? ?? 0;
+      String restoreMessage(String message) => sourcePerspective == humanTeam
+          ? message
+          : _swapTeamPerspective(message);
+      final restoredHistory = (json['history'] as List<Object?>)
+          .cast<String>()
+          .map(restoreMessage)
+          .toList();
       final restoredTenDecisionMade =
           (json['tenDecisionMade'] as List<Object?>).cast<bool>();
       final restoredBotConsidered =
@@ -503,9 +521,12 @@ class DouradinhaGame extends ChangeNotifier {
       challengeAttemptedThisTurn = json['challengeAttemptedThisTurn'] as bool;
       phase = restoredPhase;
       pendingChallenge = restoredPendingChallenge;
-      challengeNotice = json['challengeNotice'] as String?;
+      challengeNotice = switch (json['challengeNotice']) {
+        final String message => restoreMessage(message),
+        _ => null,
+      };
       challengeNoticeAccepted = json['challengeNoticeAccepted'] as bool;
-      statusMessage = json['statusMessage'] as String;
+      statusMessage = restoreMessage(json['statusMessage'] as String);
       notifyListeners();
       return true;
     } on Object {
@@ -533,6 +554,53 @@ class DouradinhaGame extends ChangeNotifier {
     return list;
   }
 
+  static String _swapTeamPerspective(String message) {
+    var result = message;
+    const pairs = <(String, String)>[
+      ('Seu trio', 'O trio adversário'),
+      ('seu trio', 'o trio adversário'),
+      ('Nós', 'Eles'),
+      ('nós', 'eles'),
+    ];
+    for (var index = 0; index < pairs.length; index++) {
+      final (ours, theirs) = pairs[index];
+      final marker = '\u0000team-perspective-$index\u0000';
+      result = result
+          .replaceAll(ours, marker)
+          .replaceAll(theirs, ours)
+          .replaceAll(marker, theirs);
+    }
+    const conjugations = <String, String>{
+      'Nós venceram': 'Nós vencemos',
+      'Eles vencemos': 'Eles venceram',
+      'Nós ganharam': 'Nós ganhamos',
+      'Eles ganhamos': 'Eles ganharam',
+      'Nós marcaram': 'Nós marcamos',
+      'Eles marcamos': 'Eles marcaram',
+      'Nós decidiram': 'Nós decidimos',
+      'Eles decidimos': 'Eles decidiram',
+      'Nós aceitaram': 'Nós aceitamos',
+      'Eles aceitamos': 'Eles aceitaram',
+      'Nós correram': 'Nós corremos',
+      'Eles corremos': 'Eles correram',
+    };
+    for (final entry in conjugations.entries) {
+      result = result.replaceAll(entry.key, entry.value);
+    }
+    const legacyConjugations = <String, String>{
+      'Nós venceu': 'Nós vencemos',
+      'Eles venceu': 'Eles venceram',
+      'Nós ganhou': 'Nós ganhamos',
+      'Eles ganhou': 'Eles ganharam',
+      'Nós marcou': 'Nós marcamos',
+      'Eles marcou': 'Eles marcaram',
+    };
+    for (final entry in legacyConjugations.entries) {
+      result = result.replaceAll(RegExp('${entry.key}\\b'), entry.value);
+    }
+    return result;
+  }
+
   static Challenge _challengeFromJson(Map<String, dynamic> json) => Challenge(
         challengerTeam: json['challengerTeam'] as int,
         targetTeam: json['targetTeam'] as int,
@@ -556,8 +624,7 @@ class DouradinhaGame extends ChangeNotifier {
     if (phase != MatchPhase.handFinished) return;
     if (matchWinner != null) {
       phase = MatchPhase.gameOver;
-      statusMessage =
-          '${matchWinner == 0 ? teamOneLabel : teamTwoLabel} venceu a partida!';
+      statusMessage = '${teamWon(matchWinner!, 'a partida')}!';
       _addHistory(statusMessage);
       notifyListeners();
       return;
@@ -1034,7 +1101,7 @@ class DouradinhaGame extends ChangeNotifier {
         winningPlayer: winner.id,
       );
       statusMessage =
-          '${winner.team == 0 ? teamOneLabel : teamTwoLabel} venceu a ${trickWinners.length}ª mão.';
+          '${teamWon(winner.team, 'a ${trickWinners.length}ª mão')}.';
     }
     _addHistory(statusMessage);
 
@@ -1074,8 +1141,7 @@ class DouradinhaGame extends ChangeNotifier {
     scores[winningTeam] += scorePoints;
     lastHandWinner = winningTeam;
     lastHandPoints = scorePoints;
-    statusMessage =
-        '$reason ${winningTeam == 0 ? teamOneLabel : teamTwoLabel} ganhou $scorePoints pontos.';
+    statusMessage = '$reason ${teamScored(winningTeam, scorePoints)}';
     _addHistory(statusMessage);
     if (scores[winningTeam] >= 12) {
       matchWinner = winningTeam;

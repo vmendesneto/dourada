@@ -850,7 +850,7 @@ class _ScoreBoard extends StatelessWidget {
             ),
             Row(
               children: [
-                _HandWinnerDots(results: game.trickWinners),
+                _HandWinnerDots(game: game, results: game.trickWinners),
                 const SizedBox(width: 7),
                 Text(
                   '${game.displayedHandNumber}ª Mão • Vale ${DouradinhaGame.spokenValueForPoints(game.handValue)}',
@@ -910,7 +910,7 @@ class _ScoreBoard extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    _HandWinnerDots(results: game.trickWinners),
+                    _HandWinnerDots(game: game, results: game.trickWinners),
                     const SizedBox(width: 9),
                     Flexible(
                       child: Text(
@@ -978,8 +978,9 @@ class _ScoreBoard extends StatelessWidget {
 }
 
 class _HandWinnerDots extends StatelessWidget {
-  const _HandWinnerDots({required this.results});
+  const _HandWinnerDots({required this.game, required this.results});
 
+  final DouradinhaGame game;
   final List<int?> results;
 
   @override
@@ -993,7 +994,7 @@ class _HandWinnerDots extends StatelessWidget {
             ? '${index + 1}ª mão: ainda não jogada'
             : winner == null
                 ? '${index + 1}ª mão: empate'
-                : '${index + 1}ª mão: ${winner == 0 ? 'Nós' : 'Eles'}';
+                : '${index + 1}ª mão: ${game.teamLabel(winner)}';
         final color = !wasPlayed
             ? Colors.transparent
             : winner == null
@@ -1966,12 +1967,6 @@ class _HandResultOverlay extends StatelessWidget {
         : resultTeam == 0
             ? const Color(0xFF5CB6FF)
             : const Color(0xFFFFC857);
-    final teamName = resultTeam == null
-        ? 'Empate'
-        : resultTeam == 0
-            ? game.teamOneLabel
-            : game.teamTwoLabel;
-
     final nextMessage = game.matchWinner != null
         ? 'Resultado em 5 segundos…'
         : contestEnded
@@ -1979,7 +1974,7 @@ class _HandResultOverlay extends StatelessWidget {
             : 'Próxima mão em 5 segundos…';
     final disputeSummary = game.lastHandWinner == null
         ? 'Três mãos empatadas: nenhum tento.'
-        : '${game.lastHandWinner == 0 ? game.teamOneLabel : game.teamTwoLabel} marcou ${game.lastHandPoints}.';
+        : game.teamScored(game.lastHandWinner!, game.lastHandPoints);
     final strongestPlays = <PlayedCard>[];
     if (game.currentTrick.isNotEmpty) {
       final greatestStrength = game.currentTrick.fold<int>(
@@ -2012,10 +2007,10 @@ class _HandResultOverlay extends StatelessWidget {
     }
 
     final resultMessage = completedHand == 0
-        ? '$teamName venceu a disputa!'
+        ? '${game.teamWon(resultTeam!, 'a disputa')}!'
         : winnerTeam == null
             ? 'A mão empatou com cartas de mesma força'
-            : '$teamName venceu a mão com '
+            : '${game.teamWon(winnerTeam, 'a mão')} com '
                 '${featuredCards.first.isManilha ? featuredCards.first.displayName : featuredCards.first.rankName}';
 
     final phone = MediaQuery.sizeOf(context).width < 600;

@@ -90,4 +90,21 @@ describe("motor do robô substituto", () => {
     expect(step.state.currentPlayerIndex).toBe(1);
     expect(step.nextDelayMs).toBe(650);
   });
+
+  it("mantém Nós relativo à equipe do usuário", () => {
+    const ours = fixture();
+    ours.phase = "handFinished";
+    ours.matchWinner = 1;
+    ours.perspectiveTeam = 1;
+
+    const theirs = structuredClone(ours);
+    theirs.perspectiveTeam = 0;
+
+    expect(advanceBot(ours).state.statusMessage).toBe(
+      "Nós vencemos a partida!",
+    );
+    expect(advanceBot(theirs).state.statusMessage).toBe(
+      "Eles venceram a partida!",
+    );
+  });
 });

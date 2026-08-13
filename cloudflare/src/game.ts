@@ -14,6 +14,7 @@ export interface ChallengeState {
 
 export interface GameState {
   version: number;
+  perspectiveTeam?: number;
   scores: number[];
   playerHands: string[][];
   currentTrick: PlayedCardState[];
@@ -59,6 +60,7 @@ export function createInitialGame(
 ): GameState {
   const game: GameState = {
     version: 1,
+    perspectiveTeam: 0,
     scores: [0, 0],
     playerHands: Array.from({ length: 6 }, () => [] as string[]),
     currentTrick: [],
@@ -162,7 +164,7 @@ export function advanceBot(state: GameState): BotStep {
   if (game.phase === "handFinished") {
     if (game.matchWinner !== null) {
       game.phase = "gameOver";
-      setStatus(game, `${teamLabel(game.matchWinner)} venceu a partida!`);
+      setStatus(game, `${teamWon(game, game.matchWinner, "a partida")}!`);
       return { state: game, nextDelayMs: null };
     }
     dealHand(game);
@@ -182,7 +184,7 @@ export function advanceBot(state: GameState): BotStep {
   const tenTeam = pendingTenTeam(game);
   if (tenTeam !== null) {
     game.tenDecisionMade[tenTeam] = true;
-    setStatus(game, `${teamLabel(tenTeam)} decidiu jogar a mão de dez.`);
+    setStatus(game, `${teamAction(game, tenTeam, "decidimos", "decidiram")} jogar a mão de dez.`);
     return { state: game, nextDelayMs: 650 };
   }
 
@@ -212,7 +214,7 @@ function acceptPendingChallenge(game: GameState): void {
   game.pendingChallenge = null;
   game.challengeNotice = null;
   game.challengeNoticeAccepted = false;
-  setStatus(game, `${teamLabel(challenge.targetTeam)} aceitou o desafio.`);
+  setStatus(game, `${teamAction(game, challenge.targetTeam, "aceitamos", "aceitaram")} o desafio.`);
 }
 
 function chooseBotCard(game: GameState, playerIndex: number): string | null {
@@ -265,7 +267,7 @@ function finishTrick(game: GameState): void {
     game,
     winningTeam === null
       ? `A ${game.trickWinners.length}ª mão empatou.`
-      : `${teamLabel(winningTeam)} venceu a ${game.trickWinners.length}ª mão.`,
+      : `${teamWon(game, winningTeam, `a ${game.trickWinners.length}ª mão`)}.`,
   );
 
   const disputeWinner = resolveDisputeWinner(game.trickWinners);
@@ -324,7 +326,7 @@ function finishHand(game: GameState, winningTeam: number): void {
   game.lastHandPoints = points;
   if (game.scores[winningTeam] >= 12) game.matchWinner = winningTeam;
   game.phase = "handFinished";
-  setStatus(game, `${teamLabel(winningTeam)} ganhou ${points} pontos.`);
+  setStatus(game, `${teamScored(game, winningTeam, points)}`);
 }
 
 function dealHand(game: GameState): void {
@@ -383,6 +385,21 @@ function setStatus(game: GameState, message: string): void {
   if (game.history.length > 30) game.history.length = 30;
 }
 
-function teamLabel(team: number): string {
-  return team === 0 ? "Nós" : "Eles";
+function teamAction(
+  game: GameState,
+  team: number,
+  ours: string,
+  theirs: string,
+): string {
+  return team === (game.perspectiveTeam ?? 0)
+    ? `Nós ${ours}`
+    : `Eles ${theirs}`;
+}
+
+function teamWon(game: GameState, team: number, complement: string): string {
+  return `${teamAction(game, team, "vencemos", "venceram")} ${complement}`;
+}
+
+function teamScored(game: GameState, team: number, points: number): string {
+  return `${teamAction(game, team, "marcamos", "marcaram")} ${points} pontos.`;
 }

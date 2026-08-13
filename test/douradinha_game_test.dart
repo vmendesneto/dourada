@@ -72,6 +72,43 @@ void main() {
   });
 
   group('partida', () {
+    test('sempre chama a equipe do usuário de Nós', () {
+      final evenSeat = DouradinhaGame(random: Random(1));
+      final oddSeat = DouradinhaGame(
+        random: Random(1),
+        humanPlayerIndex: 1,
+      );
+
+      expect(evenSeat.teamOneLabel, 'Nós');
+      expect(evenSeat.teamTwoLabel, 'Eles');
+      expect(oddSeat.teamOneLabel, 'Eles');
+      expect(oddSeat.teamTwoLabel, 'Nós');
+    });
+
+    test('adapta mensagens recebidas à equipe do usuário', () {
+      final sender = DouradinhaGame(random: Random(1));
+      sender.statusMessage = 'Nós vencemos a mão. Eles marcaram 2 pontos.';
+      sender.history
+        ..clear()
+        ..add(sender.statusMessage);
+
+      final receiver = DouradinhaGame(
+        random: Random(1),
+        humanPlayerIndex: 1,
+      );
+      final restored = receiver.restoreState(
+        Map<String, dynamic>.from(
+          jsonDecode(jsonEncode(sender.toJson())) as Map,
+        ),
+      );
+
+      expect(restored, isTrue);
+      expect(
+        receiver.statusMessage,
+        'Eles venceram a mão. Nós marcamos 2 pontos.',
+      );
+    });
+
     test('sorteia entre as seis cadeiras quem abre a primeira mão', () {
       final starters = {
         for (var seed = 0; seed < 100; seed++)
