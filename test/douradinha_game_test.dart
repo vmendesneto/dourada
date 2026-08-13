@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:dourada/game/douradinha_game.dart';
 import 'package:dourada/main.dart';
+import 'package:dourada/ui/game_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -584,7 +585,18 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
     await tester.pumpAndSettle();
 
-    expect(find.text('VOCÊ'), findsOneWidget);
+    expect(
+      tester.widget<GamePage>(find.byType(GamePage)).entry.seats.first?.name,
+      'Jogador',
+    );
+    expect(find.byKey(const ValueKey('avatar-jogador-local')), findsOneWidget);
+    expect(find.byKey(const ValueKey('nome-jogador-local')), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(find.byKey(const ValueKey('nome-jogador-local')))
+          .data,
+      'Jogador',
+    );
     for (var index = 1; index <= 5; index++) {
       expect(find.text('Robô $index'), findsOneWidget);
     }

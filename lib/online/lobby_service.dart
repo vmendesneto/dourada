@@ -22,6 +22,7 @@ class LobbySeat {
     required this.name,
     required this.team,
     required this.connected,
+    this.photoUrl,
   });
 
   final int index;
@@ -29,6 +30,7 @@ class LobbySeat {
   final String name;
   final int team;
   final bool connected;
+  final String? photoUrl;
 
   bool get isBot => kind == 'bot';
 
@@ -38,6 +40,7 @@ class LobbySeat {
         name: json['name'] as String,
         team: json['team'] as int,
         connected: json['connected'] as bool? ?? true,
+        photoUrl: json['photoUrl'] as String?,
       );
 }
 
@@ -200,6 +203,7 @@ class LobbyService {
     int tableNumber, {
     String? firebaseIdToken,
     String? playerName,
+    String? playerPhotoUrl,
   }) async {
     if (!enabled) {
       return TableEntry(
@@ -214,9 +218,10 @@ class LobbyService {
           (index) => LobbySeat(
             index: index,
             kind: index == 0 ? 'human' : 'bot',
-            name: index == 0 ? 'Você' : 'Robô $index',
+            name: index == 0 ? (playerName ?? 'Você') : 'Robô $index',
             team: index % 2,
             connected: true,
+            photoUrl: index == 0 ? playerPhotoUrl : null,
           ),
         ),
       );

@@ -104,12 +104,14 @@ class PlayerSeat {
     required this.name,
     required this.team,
     required this.isHuman,
+    this.photoUrl,
   });
 
   final int id;
   String name;
   final int team;
   bool isHuman;
+  String? photoUrl;
   final List<PlayingCard> hand = [];
 }
 
@@ -187,14 +189,17 @@ class DouradinhaGame extends ChangeNotifier {
 
   int get humanTeam => players[humanPlayerIndex].team;
 
-  void configureSeats(List<({String name, bool isHuman})?> seats) {
+  void configureSeats(
+    List<({String name, bool isHuman, String? photoUrl})?> seats,
+  ) {
     if (seats.length != players.length) return;
     for (var index = 0; index < players.length; index++) {
       final seat = seats[index];
       if (seat == null) continue;
       players[index]
-        ..name = index == humanPlayerIndex ? 'Você' : seat.name
-        ..isHuman = seat.isHuman;
+        ..name = seat.name
+        ..isHuman = seat.isHuman
+        ..photoUrl = seat.photoUrl;
     }
   }
 

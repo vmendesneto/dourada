@@ -215,6 +215,7 @@ class _LobbyPageState extends State<LobbyPage> {
       return;
     }
     setState(() => _openingTable = table.tableNumber);
+    final profile = _authService.currentUser!;
     final lobbySubscription = _lobbySubscription;
     _lobbySubscription = null;
     if (lobbySubscription != null) {
@@ -225,7 +226,8 @@ class _LobbyPageState extends State<LobbyPage> {
       final entry = await _service.joinTable(
         table.tableNumber,
         firebaseIdToken: firebaseIdToken,
-        playerName: _authService.currentUser?.displayName,
+        playerName: profile.displayName,
+        playerPhotoUrl: profile.photoUrl,
       );
       if (!mounted) return;
       _resumeOfferHandled = true;

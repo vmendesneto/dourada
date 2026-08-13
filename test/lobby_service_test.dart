@@ -34,6 +34,7 @@ void main() {
               'index': 0,
               'kind': 'human',
               'name': 'Jogador 1',
+              'photoUrl': 'https://example.com/jogador.jpg',
               'team': 0,
               'connected': true,
             },
@@ -51,6 +52,10 @@ void main() {
     expect(tables.single.phase, LobbyTablePhase.waiting);
     expect(tables.single.humanCount, 1);
     expect(tables.single.seats.first?.connected, isTrue);
+    expect(
+      tables.single.seats.first?.photoUrl,
+      'https://example.com/jogador.jpg',
+    );
   });
 
   test('envia token Firebase e nome ao ocupar uma nova cadeira', () async {
@@ -83,6 +88,20 @@ void main() {
     final body = jsonDecode(sentRequest.body) as Map<String, dynamic>;
     expect(body['firebaseIdToken'], 'firebase-id-token');
     expect(body['playerName'], 'Maria');
+    service.dispose();
+  });
+
+  test('usa nome e foto do perfil na mesa local', () async {
+    final service = LobbyService(serverUrl: '');
+
+    final entry = await service.joinTable(
+      1,
+      playerName: 'Maria',
+      playerPhotoUrl: 'https://example.com/maria.jpg',
+    );
+
+    expect(entry.seats.first?.name, 'Maria');
+    expect(entry.seats.first?.photoUrl, 'https://example.com/maria.jpg');
     service.dispose();
   });
 }

@@ -6,6 +6,7 @@ export interface FirebaseIdentity {
   uid: string;
   email: string | null;
   displayName: string | null;
+  photoUrl: string | null;
 }
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -32,6 +33,7 @@ export async function verifyFirebaseIdToken(
         localId?: unknown;
         email?: unknown;
         displayName?: unknown;
+        photoUrl?: unknown;
       }>;
     };
     const user = payload.users?.[0];
@@ -42,6 +44,7 @@ export async function verifyFirebaseIdToken(
       uid: user.localId,
       email: typeof user.email === "string" ? user.email : null,
       displayName: typeof user.displayName === "string" ? user.displayName : null,
+      photoUrl: typeof user.photoUrl === "string" ? user.photoUrl : null,
     };
   } catch {
     return null;

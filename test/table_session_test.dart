@@ -26,6 +26,38 @@ void main() {
     session.dispose();
   });
 
+  test('aplica nome e foto de todos os jogadores no jogo', () async {
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+    final game = DouradinhaGame(random: Random(54));
+    final entry = TableEntry(
+      serverUrl: '',
+      tableNumber: '1',
+      playerToken: 'local',
+      websocketUrl: '',
+      seatIndex: 0,
+      phase: LobbyTablePhase.playing,
+      seats: [
+        const LobbySeat(
+          index: 0,
+          kind: 'human',
+          name: 'Maria',
+          team: 0,
+          connected: true,
+          photoUrl: 'https://example.com/maria.jpg',
+        ),
+        ...List<LobbySeat?>.filled(5, null),
+      ],
+    );
+    final session = TableSession(entry: entry);
+
+    await session.initialize(game, preferences);
+
+    expect(game.players.first.name, 'Maria');
+    expect(game.players.first.photoUrl, 'https://example.com/maria.jpg');
+    session.dispose();
+  });
+
   test('nova partida remove número e token antigos', () async {
     SharedPreferences.setMockInitialValues({
       TableSession.tableNumberKey: '123456',

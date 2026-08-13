@@ -10,6 +10,7 @@ describe("autenticação Firebase", () => {
             localId: "firebase-user-1",
             email: "jogador@exemplo.com",
             displayName: "Jogador",
+            photoUrl: "https://example.com/avatar.jpg",
           },
         ],
       }),
@@ -21,6 +22,7 @@ describe("autenticação Firebase", () => {
       uid: "firebase-user-1",
       email: "jogador@exemplo.com",
       displayName: "Jogador",
+      photoUrl: "https://example.com/avatar.jpg",
     });
     expect(fetcher).toHaveBeenCalledOnce();
   });

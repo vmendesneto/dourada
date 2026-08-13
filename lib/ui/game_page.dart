@@ -47,6 +47,16 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       DeviceOrientation.landscapeRight,
     ]);
     game = DouradinhaGame(humanPlayerIndex: widget.entry.seatIndex)
+      ..configureSeats([
+        for (final seat in widget.entry.seats)
+          seat == null
+              ? null
+              : (
+                  name: seat.name,
+                  isHuman: !seat.isBot,
+                  photoUrl: seat.photoUrl,
+                ),
+      ])
       ..addListener(_onGameChanged);
     tableSession = TableSession(entry: widget.entry)
       ..addListener(_onTableSessionChanged);
@@ -168,16 +178,20 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   Future<void> _restoreSavedGame() async {
     try {
       final preferences = await _preferences;
-      final savedGame = preferences.getString(_savedGameKey);
-      if (!widget.entry.online && savedGame != null) {
-        final decoded = jsonDecode(savedGame);
-        if (decoded is Map) {
-          game.restoreState(Map<String, dynamic>.from(decoded));
+      try {
+        final savedGame = preferences.getString(_savedGameKey);
+        if (!widget.entry.online && savedGame != null) {
+          final decoded = jsonDecode(savedGame);
+          if (decoded is Map) {
+            game.restoreState(Map<String, dynamic>.from(decoded));
+          }
         }
+      } on Object {
+        // Um salvamento antigo ou danificado não pode impedir o jogo de abrir.
       }
       await tableSession.initialize(game, preferences);
     } on Object {
-      // Um salvamento antigo ou danificado não pode impedir o jogo de abrir.
+      // A tela permanece disponível mesmo se o armazenamento falhar.
     } finally {
       _restoringGame = false;
       if (mounted) {
@@ -600,37 +614,35 @@ class _WaitingRoomState extends State<_WaitingRoom> {
                           width: 78,
                           child: Column(
                             children: [
-                              Container(
-                                width: 54,
-                                height: 54,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: seat == null
-                                      ? Colors.white.withValues(alpha: .05)
-                                      : color.withValues(alpha: .16),
-                                  border: Border.all(
-                                    color:
-                                        seat == null ? Colors.white24 : color,
-                                    width: 2,
+                              if (seat == null)
+                                Container(
+                                  width: 54,
+                                  height: 54,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: Colors.white.withValues(alpha: .05),
+                                    border: Border.all(color: Colors.white24),
                                   ),
+                                  child: const Icon(
+                                    Icons.chair_outlined,
+                                    color: Colors.white38,
+                                    size: 29,
+                                  ),
+                                )
+                              else
+                                _TablePlayerAvatar(
+                                  key: ValueKey('avatar-jogador-$index'),
+                                  isBot: seat.isBot,
+                                  photoUrl: seat.photoUrl,
+                                  color: color,
+                                  radius: 27,
                                 ),
-                                child: Icon(
-                                  seat == null
-                                      ? Icons.chair_outlined
-                                      : seat.isBot
-                                          ? Icons.smart_toy_rounded
-                                          : Icons.person_rounded,
-                                  color: seat == null ? Colors.white38 : color,
-                                  size: 29,
-                                ),
-                              ),
                               const SizedBox(height: 6),
                               Text(
-                                seat == null
-                                    ? 'Vazia'
-                                    : index == session.seatIndex
-                                        ? 'Você'
-                                        : seat.name,
+                                seat == null ? 'Vazia' : seat.name,
+                                key: index == session.seatIndex
+                                    ? const ValueKey('nome-jogador-local')
+                                    : null,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(color: color, fontSize: 11),
@@ -949,6 +961,48 @@ class _TeamScore extends StatelessWidget {
   }
 }
 
+class _TablePlayerAvatar extends StatelessWidget {
+  const _TablePlayerAvatar({
+    super.key,
+    required this.isBot,
+    required this.photoUrl,
+    required this.color,
+    required this.radius,
+  });
+
+  final bool isBot;
+  final String? photoUrl;
+  final Color color;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) {
+    final fallback = Icon(
+      isBot ? Icons.smart_toy_rounded : Icons.person_rounded,
+      color: const Color(0xFF052D22),
+      size: radius * 1.15,
+    );
+    final validPhoto = !isBot && (photoUrl?.trim().isNotEmpty ?? false);
+    return Container(
+      width: radius * 2,
+      height: radius * 2,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: color,
+        border: Border.all(color: color, width: 2),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: validPhoto
+          ? Image.network(
+              photoUrl!,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => fallback,
+            )
+          : fallback,
+    );
+  }
+}
+
 class _BotSeat extends StatelessWidget {
   const _BotSeat({
     required this.game,
@@ -989,34 +1043,41 @@ class _BotSeat extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
+          Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              CircleAvatar(
+              _TablePlayerAvatar(
+                key: ValueKey('avatar-jogador-$playerIndex'),
+                isBot: !player.isHuman,
+                photoUrl: player.photoUrl,
+                color: teamColor,
                 radius: compact ? 10 : 13,
-                backgroundColor: teamColor,
-                child: Icon(
-                  player.isHuman
-                      ? Icons.person_rounded
-                      : Icons.smart_toy_outlined,
-                  color: const Color(0xFF052D22),
-                  size: 16,
-                ),
               ),
-              const SizedBox(width: 6),
-              Text(
-                player.name,
-                style: TextStyle(
-                    color: teamColor,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12),
+              const SizedBox(height: 2),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 90),
+                    child: Text(
+                      player.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: teamColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                  if (game.footIndex == playerIndex)
+                    const Padding(
+                      padding: EdgeInsets.only(left: 5),
+                      child: Text('PÉ',
+                          style: TextStyle(color: Colors.white60, fontSize: 9)),
+                    ),
+                ],
               ),
-              if (game.footIndex == playerIndex)
-                const Padding(
-                  padding: EdgeInsets.only(left: 5),
-                  child: Text('PÉ',
-                      style: TextStyle(color: Colors.white60, fontSize: 9)),
-                ),
             ],
           ),
           if (clockActive) ...[
@@ -1227,29 +1288,44 @@ class _HumanControls extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('VOCÊ',
-                  style:
-                      TextStyle(color: teamColor, fontWeight: FontWeight.bold)),
-              Text(
-                active ? 'Sua vez' : 'Aguarde',
-                style: const TextStyle(color: Colors.white60, fontSize: 12),
-              ),
-              if (clockActive) ...[
-                const SizedBox(height: 6),
-                _TurnProgress(
-                  progress: turnProgress,
-                  secondsLeft: secondsLeft,
-                  width: 105,
+          SizedBox(
+            width: 112,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _TablePlayerAvatar(
+                  key: const ValueKey('avatar-jogador-local'),
+                  isBot: false,
+                  photoUrl: human.photoUrl,
+                  color: teamColor,
+                  radius: 22,
                 ),
+                const SizedBox(height: 2),
+                Text(
+                  human.name,
+                  key: const ValueKey('nome-jogador-local'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style:
+                      TextStyle(color: teamColor, fontWeight: FontWeight.bold),
+                ),
+                Text(
+                  active ? 'Sua vez' : 'Aguarde',
+                  style: const TextStyle(color: Colors.white60, fontSize: 12),
+                ),
+                if (clockActive) ...[
+                  const SizedBox(height: 6),
+                  _TurnProgress(
+                    progress: turnProgress,
+                    secondsLeft: secondsLeft,
+                    width: 105,
+                  ),
+                ],
+                if (game.footIndex == game.humanPlayerIndex)
+                  const Text('PÉ',
+                      style: TextStyle(color: Colors.white38, fontSize: 10)),
               ],
-              if (game.footIndex == game.humanPlayerIndex)
-                const Text('PÉ',
-                    style: TextStyle(color: Colors.white38, fontSize: 10)),
-            ],
+            ),
           ),
           const SizedBox(width: 16),
           Expanded(

@@ -159,7 +159,13 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
     await tester.pumpAndSettle();
 
-    expect(find.text('VOCÊ'), findsWidgets);
+    expect(find.byKey(const ValueKey('nome-jogador-local')), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(find.byKey(const ValueKey('nome-jogador-local')))
+          .data,
+      'Jogador',
+    );
     expect(find.text('TRUCO!'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
@@ -270,12 +276,14 @@ class _HangingCancelLobbyService extends LobbyService {
     int tableNumber, {
     String? firebaseIdToken,
     String? playerName,
+    String? playerPhotoUrl,
   }) async {
     joinCalled = true;
     return super.joinTable(
       tableNumber,
       firebaseIdToken: firebaseIdToken,
       playerName: playerName,
+      playerPhotoUrl: playerPhotoUrl,
     );
   }
 

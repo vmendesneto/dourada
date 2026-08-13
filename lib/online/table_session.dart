@@ -81,6 +81,7 @@ class TableSession extends ChangeNotifier {
   ) async {
     _game = game;
     _preferences = preferences;
+    _configureSeats();
     if (!enabled || _disposed) return;
     _applyEntry(entry!);
     await _connectSocket();
@@ -218,7 +219,13 @@ class TableSession extends ChangeNotifier {
   void _configureSeats() {
     _game?.configureSeats([
       for (final seat in seats)
-        seat == null ? null : (name: seat.name, isHuman: !seat.isBot),
+        seat == null
+            ? null
+            : (
+                name: seat.name,
+                isHuman: !seat.isBot,
+                photoUrl: seat.photoUrl,
+              ),
     ]);
   }
 

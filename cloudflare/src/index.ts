@@ -19,6 +19,7 @@ type SeatKind = "human" | "bot";
 interface TableSeat {
   kind: SeatKind;
   name: string;
+  photoUrl?: string | null;
   token: string | null;
   joinedAt: number;
   disconnectedAt: number | null;
@@ -109,6 +110,7 @@ export default {
         internalBody = JSON.stringify({
           playerToken,
           playerName: identity?.displayName ?? playerName,
+          photoUrl: identity?.photoUrl ?? null,
           firebaseAuthenticated: identity !== null,
         });
       }
@@ -383,6 +385,7 @@ export class GameTable extends DurableObject<Env> {
     const payload = (await request.json().catch(() => ({}))) as {
       playerToken?: string;
       playerName?: string;
+      photoUrl?: string | null;
       firebaseAuthenticated?: boolean;
     };
     const table = await this.load(tableNumber);
@@ -392,7 +395,12 @@ export class GameTable extends DurableObject<Env> {
         (seat) => seat?.kind === "human" && seat.token === payload.playerToken,
       );
       if (existingSeat >= 0) {
-        table.seats[existingSeat]!.disconnectedAt = Date.now();
+        const seat = table.seats[existingSeat]!;
+        seat.disconnectedAt = Date.now();
+        if (payload.firebaseAuthenticated === true) {
+          seat.name = cleanPlayerName(payload.playerName, existingSeat);
+          seat.photoUrl = cleanPhotoUrl(payload.photoUrl);
+        }
         table.updatedAt = Date.now();
         await this.saveAndSchedule(table, true);
         return Response.json(this.entry(table, existingSeat), { status: 200 });
@@ -417,6 +425,7 @@ export class GameTable extends DurableObject<Env> {
     table.seats[seatIndex] = {
       kind: "human",
       name: cleanPlayerName(payload.playerName, seatIndex),
+      photoUrl: cleanPhotoUrl(payload.photoUrl),
       token,
       joinedAt: now,
       disconnectedAt: now,
@@ -851,6 +860,7 @@ function publicSeats(table: SharedTableState): Array<Record<string, unknown> | n
           index,
           kind: seat.kind,
           name: seat.name,
+          photoUrl: seat.photoUrl ?? null,
           team: index % 2,
           connected: seat.kind === "bot" || seat.disconnectedAt === null,
         },
@@ -865,6 +875,16 @@ function connectionUrl(requestUrl: URL, tableNumber: number, token: string): str
 function cleanPlayerName(value: string | undefined, seatIndex: number): string {
   const clean = value?.trim().replace(/\s+/g, " ").slice(0, 20);
   return clean ? clean : `Jogador ${seatIndex + 1}`;
+}
+
+function cleanPhotoUrl(value: string | null | undefined): string | null {
+  if (!value || value.length > 2048) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
 async function readSmallBody(request: Request): Promise<string | null> {
