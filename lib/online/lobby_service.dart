@@ -181,7 +181,7 @@ class LobbyService {
       }
     } finally {
       if (identical(_lobbyChannel, channel)) _lobbyChannel = null;
-      await channel.sink.close();
+      unawaited(channel.sink.close());
     }
   }
 

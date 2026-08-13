@@ -1,10 +1,30 @@
+import 'dart:async';
+
 import 'package:dourada/main.dart';
+import 'package:dourada/online/lobby_service.dart';
 import 'package:dourada/ui/game_page.dart';
 import 'package:dourada/ui/lobby_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('entra na mesa mesmo se o lobby nao confirmar o fechamento',
+      (tester) async {
+    final service = _HangingCancelLobbyService();
+    await tester.pumpWidget(
+      MaterialApp(home: LobbyPage(service: service)),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
+    await tester.pump();
+
+    expect(service.joinCalled, isTrue);
+    await tester.pump();
+    expect(find.byType(GamePage), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('lobby se adapta a uma tela estreita', (tester) async {
     tester.view.physicalSize = const Size(360, 640);
     tester.view.devicePixelRatio = 1;
@@ -81,6 +101,45 @@ void main() {
     expect(find.text('NÃO VOLTOU'), findsOneWidget);
     expect(find.byType(ResumeTableDialog), findsNothing);
   });
+}
+
+class _HangingCancelLobbyService extends LobbyService {
+  _HangingCancelLobbyService() : super(serverUrl: '') {
+    _controller = StreamController<List<LobbyTable>>();
+    _controller.onListen = () => _controller.add(_tables);
+    _controller.onCancel = () => Completer<void>().future;
+  }
+
+  late final StreamController<List<LobbyTable>> _controller;
+  bool joinCalled = false;
+
+  static final _tables = List.generate(
+    10,
+    (index) => LobbyTable(
+      tableNumber: index + 1,
+      phase: LobbyTablePhase.empty,
+      playerCount: 0,
+      humanCount: 0,
+      botCount: 0,
+      capacity: 6,
+      seats: List<LobbySeat?>.filled(6, null),
+    ),
+  );
+
+  @override
+  Stream<List<LobbyTable>> watchTables() => _controller.stream;
+
+  @override
+  Future<TableEntry> joinTable(int tableNumber) async {
+    joinCalled = true;
+    return super.joinTable(tableNumber);
+  }
+
+  @override
+  void dispose() {
+    unawaited(_controller.close());
+    super.dispose();
+  }
 }
 
 class _ResumeDialogHarness extends StatefulWidget {

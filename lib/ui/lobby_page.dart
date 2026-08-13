@@ -5,7 +5,9 @@ import 'package:dourada/ui/game_page.dart';
 import 'package:flutter/material.dart';
 
 class LobbyPage extends StatefulWidget {
-  const LobbyPage({super.key});
+  const LobbyPage({super.key, this.service});
+
+  final LobbyService? service;
 
   @override
   State<LobbyPage> createState() => _LobbyPageState();
@@ -37,7 +39,7 @@ class _LobbyPageState extends State<LobbyPage> {
   @override
   void initState() {
     super.initState();
-    _service = LobbyService();
+    _service = widget.service ?? LobbyService();
     unawaited(_connectLobby());
   }
 
@@ -135,8 +137,11 @@ class _LobbyPageState extends State<LobbyPage> {
   Future<void> _enter(LobbyTable table) async {
     if (_openingTable != null) return;
     setState(() => _openingTable = table.tableNumber);
-    await _lobbySubscription?.cancel();
+    final lobbySubscription = _lobbySubscription;
     _lobbySubscription = null;
+    if (lobbySubscription != null) {
+      unawaited(lobbySubscription.cancel());
+    }
     try {
       final entry = await _service.joinTable(table.tableNumber);
       if (!mounted) return;
