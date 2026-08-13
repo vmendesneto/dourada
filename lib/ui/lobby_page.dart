@@ -1,13 +1,16 @@
 import 'dart:async';
 
+import 'package:dourada/auth/auth_service.dart';
 import 'package:dourada/online/lobby_service.dart';
 import 'package:dourada/ui/game_page.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 class LobbyPage extends StatefulWidget {
-  const LobbyPage({super.key, this.service});
+  const LobbyPage({super.key, this.service, this.authService});
 
   final LobbyService? service;
+  final AuthService? authService;
 
   @override
   State<LobbyPage> createState() => _LobbyPageState();
@@ -15,6 +18,8 @@ class LobbyPage extends StatefulWidget {
 
 class _LobbyPageState extends State<LobbyPage> {
   late final LobbyService _service;
+  late final AuthService _authService;
+  late final bool _ownsAuthService;
   StreamSubscription<List<LobbyTable>>? _lobbySubscription;
   Timer? _reconnectTimer;
   List<LobbyTable> _tables = List.generate(
@@ -34,13 +39,47 @@ class _LobbyPageState extends State<LobbyPage> {
   bool _loading = false;
   bool _resumeOfferHandled = false;
   bool _resumeDialogOpen = false;
+  bool _authBusy = false;
   SavedTableSession? _savedSession;
 
   @override
   void initState() {
     super.initState();
     _service = widget.service ?? LobbyService();
+    _ownsAuthService = widget.authService == null;
+    _authService = widget.authService ?? createAuthService();
+    _authService.addListener(_onAuthChanged);
     unawaited(_connectLobby());
+  }
+
+  void _onAuthChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _signIn() async {
+    if (_authBusy) return;
+    setState(() => _authBusy = true);
+    try {
+      await _authService.signInWithGoogle();
+    } on Object catch (error) {
+      if (mounted) _showAuthError(error);
+    } finally {
+      if (mounted) setState(() => _authBusy = false);
+    }
+  }
+
+  Future<void> _openProfile() async {
+    if (_authBusy || _authService.currentUser == null) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => ProfileDialog(authService: _authService),
+    );
+  }
+
+  void _showAuthError(Object error) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(readableAuthError(error))),
+    );
   }
 
   Future<void> _connectLobby() async {
@@ -166,6 +205,8 @@ class _LobbyPageState extends State<LobbyPage> {
   void dispose() {
     _reconnectTimer?.cancel();
     unawaited(_lobbySubscription?.cancel());
+    _authService.removeListener(_onAuthChanged);
+    if (_ownsAuthService) _authService.dispose();
     _service.dispose();
     super.dispose();
   }
@@ -211,6 +252,14 @@ class _LobbyPageState extends State<LobbyPage> {
                     onPressed: _connectLobby,
                     color: Colors.white,
                     icon: const Icon(Icons.refresh_rounded),
+                  ),
+                  const SizedBox(width: 4),
+                  AuthAccountButton(
+                    profile: _authService.currentUser,
+                    busy: _authBusy,
+                    available: _authService.available,
+                    onLogin: _signIn,
+                    onProfile: _openProfile,
                   ),
                 ],
               ),
@@ -264,6 +313,298 @@ class _LobbyPageState extends State<LobbyPage> {
       ),
     );
   }
+}
+
+class AuthAccountButton extends StatelessWidget {
+  const AuthAccountButton({
+    super.key,
+    required this.profile,
+    required this.busy,
+    required this.available,
+    required this.onLogin,
+    required this.onProfile,
+  });
+
+  final AuthProfile? profile;
+  final bool busy;
+  final bool available;
+  final VoidCallback onLogin;
+  final VoidCallback onProfile;
+
+  @override
+  Widget build(BuildContext context) {
+    final user = profile;
+    if (user != null) {
+      return Tooltip(
+        message: 'Minha conta',
+        child: InkWell(
+          key: const ValueKey('abrir-perfil'),
+          onTap: busy ? null : onProfile,
+          customBorder: const CircleBorder(),
+          child: Padding(
+            padding: const EdgeInsets.all(2),
+            child: UserAvatar(profile: user, radius: 20),
+          ),
+        ),
+      );
+    }
+
+    return OutlinedButton.icon(
+      key: const ValueKey('entrar-conta'),
+      onPressed: busy || !available ? null : onLogin,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: const Color(0xFFFFD46B),
+        side: const BorderSide(color: Color(0x99FFD46B)),
+        visualDensity: VisualDensity.compact,
+      ),
+      icon: busy
+          ? const SizedBox.square(
+              dimension: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.login_rounded, size: 18),
+      label: const Text('LOGIN'),
+    );
+  }
+}
+
+class UserAvatar extends StatelessWidget {
+  const UserAvatar({super.key, required this.profile, this.radius = 28});
+
+  final AuthProfile profile;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) {
+    final photoUrl = profile.photoUrl.trim();
+    final fallback = _initials(profile.displayName, profile.email);
+    return Container(
+      width: radius * 2,
+      height: radius * 2,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: const Color(0xFFE7A93E),
+        border: Border.all(color: const Color(0xFFFFD46B), width: 2),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: photoUrl.isEmpty
+          ? _AvatarInitials(text: fallback, fontSize: radius * .62)
+          : Image.network(
+              photoUrl,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) =>
+                  _AvatarInitials(text: fallback, fontSize: radius * .62),
+            ),
+    );
+  }
+
+  static String _initials(String name, String email) {
+    final source = name.trim().isEmpty ? email.split('@').first : name.trim();
+    final parts = source.split(RegExp(r'\s+')).where((part) => part.isNotEmpty);
+    final letters = parts.take(2).map((part) => part[0].toUpperCase()).join();
+    return letters.isEmpty ? '?' : letters;
+  }
+}
+
+class _AvatarInitials extends StatelessWidget {
+  const _AvatarInitials({required this.text, required this.fontSize});
+
+  final String text;
+  final double fontSize;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Text(
+        text,
+        style: TextStyle(
+          color: const Color(0xFF173326),
+          fontWeight: FontWeight.w900,
+          fontSize: fontSize,
+        ),
+      ),
+    );
+  }
+}
+
+class ProfileDialog extends StatefulWidget {
+  const ProfileDialog({super.key, required this.authService});
+
+  final AuthService authService;
+
+  @override
+  State<ProfileDialog> createState() => _ProfileDialogState();
+}
+
+class _ProfileDialogState extends State<ProfileDialog> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _photoController;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final profile = widget.authService.currentUser!;
+    _nameController = TextEditingController(text: profile.displayName);
+    _photoController = TextEditingController(text: profile.photoUrl);
+    _nameController.addListener(_profileChanged);
+    _photoController.addListener(_profileChanged);
+  }
+
+  void _profileChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _save() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      await widget.authService.updateProfile(
+        displayName: _nameController.text,
+        photoUrl: _photoController.text,
+      );
+      if (mounted) Navigator.of(context).pop();
+    } on Object catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(readableAuthError(error))),
+      );
+      setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _logout() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      await widget.authService.signOut();
+      if (mounted) Navigator.of(context).pop();
+    } on Object catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(readableAuthError(error))),
+      );
+      setState(() => _saving = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _photoController.removeListener(_profileChanged);
+    _nameController.removeListener(_profileChanged);
+    _photoController.dispose();
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final profile = widget.authService.currentUser;
+    if (profile == null) return const SizedBox.shrink();
+    final preview = AuthProfile(
+      uid: profile.uid,
+      email: profile.email,
+      displayName: _nameController.text,
+      photoUrl: _photoController.text,
+    );
+
+    return AlertDialog(
+      backgroundColor: const Color(0xFF074333),
+      title: const Text('MINHA CONTA', textAlign: TextAlign.center),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 430),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              UserAvatar(profile: preview, radius: 42),
+              const SizedBox(height: 20),
+              TextField(
+                key: const ValueKey('nome-perfil'),
+                controller: _nameController,
+                enabled: !_saving,
+                maxLength: 50,
+                decoration: const InputDecoration(
+                  labelText: 'Nome do jogador',
+                  prefixIcon: Icon(Icons.badge_outlined),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                key: const ValueKey('foto-perfil'),
+                controller: _photoController,
+                enabled: !_saving,
+                keyboardType: TextInputType.url,
+                decoration: const InputDecoration(
+                  labelText: 'URL da foto',
+                  hintText: 'https://exemplo.com/minha-foto.jpg',
+                  helperText: 'O Firebase Auth salva o endereço da imagem.',
+                  prefixIcon: Icon(Icons.image_outlined),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 18),
+              TextFormField(
+                key: const ValueKey('email-perfil'),
+                initialValue: profile.email,
+                readOnly: true,
+                enabled: false,
+                decoration: const InputDecoration(
+                  labelText: 'E-mail',
+                  helperText: 'O e-mail não pode ser alterado aqui.',
+                  prefixIcon: Icon(Icons.email_outlined),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actionsAlignment: MainAxisAlignment.spaceBetween,
+      actions: [
+        TextButton.icon(
+          key: const ValueKey('sair-conta'),
+          onPressed: _saving ? null : _logout,
+          icon: const Icon(Icons.logout_rounded),
+          label: const Text('SAIR'),
+        ),
+        FilledButton.icon(
+          key: const ValueKey('salvar-perfil'),
+          onPressed: _saving ? null : _save,
+          icon: _saving
+              ? const SizedBox.square(
+                  dimension: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.save_rounded),
+          label: const Text('SALVAR'),
+        ),
+      ],
+    );
+  }
+}
+
+String readableAuthError(Object error) {
+  if (error is FirebaseAuthException) {
+    return switch (error.code) {
+      'popup-closed-by-user' || 'cancelled-popup-request' => 'Login cancelado.',
+      'popup-blocked' =>
+        'O navegador bloqueou a janela de login. Permita pop-ups e tente novamente.',
+      'unauthorized-domain' =>
+        'Este endereço ainda não foi autorizado no Firebase Auth.',
+      'operation-not-allowed' =>
+        'O login com Google ainda não foi habilitado no Firebase Auth.',
+      'network-request-failed' =>
+        'Falha de conexão durante o login. Tente novamente.',
+      _ => error.message ?? 'Não foi possível concluir a autenticação.',
+    };
+  }
+  return error
+      .toString()
+      .replaceFirst('Invalid argument(s): ', '')
+      .replaceFirst('Bad state: ', '')
+      .replaceFirst('Unsupported operation: ', '');
 }
 
 class _TableCard extends StatelessWidget {
