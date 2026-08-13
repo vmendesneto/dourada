@@ -1,0 +1,64 @@
+import 'package:dourada/auth/auth_service.dart';
+
+class FakeAuthService extends AuthService {
+  FakeAuthService({bool signedIn = false}) {
+    if (signedIn) _profile = _testProfile;
+  }
+
+  static const _testProfile = AuthProfile(
+    uid: 'usuario-1',
+    email: 'jogador@exemplo.com',
+    displayName: 'Jogador',
+    photoUrl: '',
+  );
+
+  AuthProfile? _profile;
+  int signInCalls = 0;
+  int signOutCalls = 0;
+  int idTokenCalls = 0;
+  String? savedName;
+  String? savedPhotoUrl;
+
+  @override
+  bool get available => true;
+
+  @override
+  AuthProfile? get currentUser => _profile;
+
+  @override
+  Future<void> signInWithGoogle() async {
+    signInCalls++;
+    _profile = _testProfile;
+    notifyListeners();
+  }
+
+  @override
+  Future<void> signOut() async {
+    signOutCalls++;
+    _profile = null;
+    notifyListeners();
+  }
+
+  @override
+  Future<String> idToken() async {
+    idTokenCalls++;
+    if (_profile == null) throw StateError('Usuário não autenticado.');
+    return 'firebase-test-token';
+  }
+
+  @override
+  Future<void> updateProfile({
+    required String displayName,
+    required String photoUrl,
+  }) async {
+    savedName = displayName;
+    savedPhotoUrl = photoUrl;
+    _profile = AuthProfile(
+      uid: _profile!.uid,
+      email: _profile!.email,
+      displayName: displayName,
+      photoUrl: photoUrl,
+    );
+    notifyListeners();
+  }
+}

@@ -2,8 +2,13 @@ import 'dart:convert';
 
 import 'package:dourada/online/lobby_service.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('normaliza caracteres invisiveis na URL do servidor', () {
     final service = LobbyService(
       serverUrl: '\uFEFF  https://dourada.example.workers.dev///\n',
@@ -46,5 +51,38 @@ void main() {
     expect(tables.single.phase, LobbyTablePhase.waiting);
     expect(tables.single.humanCount, 1);
     expect(tables.single.seats.first?.connected, isTrue);
+  });
+
+  test('envia token Firebase e nome ao ocupar uma nova cadeira', () async {
+    SharedPreferences.setMockInitialValues({});
+    late http.Request sentRequest;
+    final service = LobbyService(
+      serverUrl: 'https://dourada.example.workers.dev',
+      client: MockClient((request) async {
+        sentRequest = request;
+        return http.Response(
+          jsonEncode({
+            'tableNumber': '3',
+            'playerToken': 'token-da-cadeira',
+            'websocketUrl': 'wss://dourada.example/connect',
+            'seatIndex': 0,
+            'phase': 'waiting',
+            'seats': List<Object?>.filled(6, null),
+          }),
+          201,
+        );
+      }),
+    );
+
+    await service.joinTable(
+      3,
+      firebaseIdToken: 'firebase-id-token',
+      playerName: 'Maria',
+    );
+
+    final body = jsonDecode(sentRequest.body) as Map<String, dynamic>;
+    expect(body['firebaseIdToken'], 'firebase-id-token');
+    expect(body['playerName'], 'Maria');
+    service.dispose();
   });
 }

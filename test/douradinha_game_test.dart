@@ -6,6 +6,8 @@ import 'package:dourada/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/fake_auth_service.dart';
+
 void main() {
   group('baralho e hierarquia', () {
     test('usa exatamente as 40 cartas permitidas', () {
@@ -575,7 +577,9 @@ void main() {
   });
 
   testWidgets('abre a mesa com um humano e os cinco robôs', (tester) async {
-    await tester.pumpWidget(const DouradinhaApp());
+    await tester.pumpWidget(
+      DouradinhaApp(authService: FakeAuthService(signedIn: true)),
+    );
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
     await tester.pumpAndSettle();

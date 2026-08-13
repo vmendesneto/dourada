@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:dourada/auth/auth_service.dart';
 import 'package:dourada/main.dart';
 import 'package:dourada/online/lobby_service.dart';
 import 'package:dourada/ui/game_page.dart';
@@ -9,12 +8,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/fake_auth_service.dart';
+
 void main() {
   testWidgets('entra na mesa mesmo se o lobby nao confirmar o fechamento',
       (tester) async {
     final service = _HangingCancelLobbyService();
+    final authService = FakeAuthService(signedIn: true);
     await tester.pumpWidget(
-      MaterialApp(home: LobbyPage(service: service)),
+      MaterialApp(
+        home: LobbyPage(service: service, authService: authService),
+      ),
     );
     await tester.pump();
 
@@ -42,7 +46,7 @@ void main() {
 
   testWidgets('login abre perfil, salva nome e foto e permite logout',
       (tester) async {
-    final authService = _FakeAuthService();
+    final authService = FakeAuthService();
     await tester.pumpWidget(
       MaterialApp(
         home: LobbyPage(
@@ -92,9 +96,37 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('visitante precisa fazer login antes de entrar na mesa',
+      (tester) async {
+    final service = _HangingCancelLobbyService();
+    final authService = FakeAuthService();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LobbyPage(service: service, authService: authService),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('FAÇA LOGIN PARA ENTRAR'), findsWidgets);
+    await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
+    await tester.pump();
+
+    expect(authService.signInCalls, 1);
+    expect(service.joinCalled, isFalse);
+    expect(find.byType(GamePage), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
+    await tester.pump();
+    expect(authService.idTokenCalls, 1);
+    expect(service.joinCalled, isTrue);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('abre o lobby e só entra na mesa depois do clique',
       (tester) async {
-    await tester.pumpWidget(const DouradinhaApp());
+    await tester.pumpWidget(
+      DouradinhaApp(authService: FakeAuthService(signedIn: true)),
+    );
     await tester.pump();
 
     expect(find.byKey(const ValueKey('entrar-em-uma-mesa')), findsOneWidget);
@@ -112,7 +144,9 @@ void main() {
   testWidgets('saida confirmada volta ao lobby e encerra a sessao',
       (tester) async {
     SharedPreferences.setMockInitialValues({});
-    await tester.pumpWidget(const DouradinhaApp());
+    await tester.pumpWidget(
+      DouradinhaApp(authService: FakeAuthService(signedIn: true)),
+    );
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
     await tester.pumpAndSettle();
@@ -208,64 +242,23 @@ class _HangingCancelLobbyService extends LobbyService {
   Stream<List<LobbyTable>> watchTables() => _controller.stream;
 
   @override
-  Future<TableEntry> joinTable(int tableNumber) async {
+  Future<TableEntry> joinTable(
+    int tableNumber, {
+    String? firebaseIdToken,
+    String? playerName,
+  }) async {
     joinCalled = true;
-    return super.joinTable(tableNumber);
+    return super.joinTable(
+      tableNumber,
+      firebaseIdToken: firebaseIdToken,
+      playerName: playerName,
+    );
   }
 
   @override
   void dispose() {
     unawaited(_controller.close());
     super.dispose();
-  }
-}
-
-class _FakeAuthService extends AuthService {
-  AuthProfile? _profile;
-  int signInCalls = 0;
-  int signOutCalls = 0;
-  String? savedName;
-  String? savedPhotoUrl;
-
-  @override
-  bool get available => true;
-
-  @override
-  AuthProfile? get currentUser => _profile;
-
-  @override
-  Future<void> signInWithGoogle() async {
-    signInCalls++;
-    _profile = const AuthProfile(
-      uid: 'usuario-1',
-      email: 'jogador@exemplo.com',
-      displayName: 'Jogador',
-      photoUrl: '',
-    );
-    notifyListeners();
-  }
-
-  @override
-  Future<void> signOut() async {
-    signOutCalls++;
-    _profile = null;
-    notifyListeners();
-  }
-
-  @override
-  Future<void> updateProfile({
-    required String displayName,
-    required String photoUrl,
-  }) async {
-    savedName = displayName;
-    savedPhotoUrl = photoUrl;
-    _profile = AuthProfile(
-      uid: _profile!.uid,
-      email: _profile!.email,
-      displayName: displayName,
-      photoUrl: photoUrl,
-    );
-    notifyListeners();
   }
 }
 

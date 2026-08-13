@@ -1,4 +1,6 @@
+import 'package:dourada/auth/auth_service.dart';
 import 'package:dourada/firebase_options.dart';
+import 'package:dourada/online/lobby_service.dart';
 import 'package:dourada/ui/lobby_page.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
@@ -13,7 +15,14 @@ Future<void> main() async {
 }
 
 class DouradinhaApp extends StatelessWidget {
-  const DouradinhaApp({super.key});
+  const DouradinhaApp({
+    super.key,
+    this.authService,
+    this.lobbyService,
+  });
+
+  final AuthService? authService;
+  final LobbyService? lobbyService;
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +36,7 @@ class DouradinhaApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const LobbyPage(),
+      home: LobbyPage(service: lobbyService, authService: authService),
     );
   }
 }

@@ -53,7 +53,14 @@ class _LobbyPageState extends State<LobbyPage> {
   }
 
   void _onAuthChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+    if (_authService.currentUser != null &&
+        !_resumeOfferHandled &&
+        !_resumeDialogOpen &&
+        _savedSession != null) {
+      unawaited(_receiveTables(_tables));
+    }
   }
 
   Future<void> _signIn() async {
@@ -111,7 +118,10 @@ class _LobbyPageState extends State<LobbyPage> {
       _error = null;
     });
     final savedSession = _savedSession;
-    if (!_resumeOfferHandled && !_resumeDialogOpen && savedSession != null) {
+    if (_authService.currentUser != null &&
+        !_resumeOfferHandled &&
+        !_resumeDialogOpen &&
+        savedSession != null) {
       await _offerResume(savedSession, tables);
     }
   }
@@ -175,6 +185,10 @@ class _LobbyPageState extends State<LobbyPage> {
 
   Future<void> _enter(LobbyTable table) async {
     if (_openingTable != null) return;
+    if (_authService.currentUser == null) {
+      await _signIn();
+      return;
+    }
     setState(() => _openingTable = table.tableNumber);
     final lobbySubscription = _lobbySubscription;
     _lobbySubscription = null;
@@ -182,7 +196,12 @@ class _LobbyPageState extends State<LobbyPage> {
       unawaited(lobbySubscription.cancel());
     }
     try {
-      final entry = await _service.joinTable(table.tableNumber);
+      final firebaseIdToken = await _authService.idToken();
+      final entry = await _service.joinTable(
+        table.tableNumber,
+        firebaseIdToken: firebaseIdToken,
+        playerName: _authService.currentUser?.displayName,
+      );
       if (!mounted) return;
       _resumeOfferHandled = true;
       await Navigator.of(context).push(
@@ -294,11 +313,18 @@ class _LobbyPageState extends State<LobbyPage> {
                           itemCount: _tables.length,
                           itemBuilder: (context, index) {
                             final table = _tables[index];
+                            final requiresLogin =
+                                _authService.currentUser == null;
                             return _TableCard(
                               table: table,
-                              opening: _openingTable == table.tableNumber,
-                              onEnter:
-                                  table.canJoin ? () => _enter(table) : null,
+                              opening: _openingTable == table.tableNumber ||
+                                  _authBusy,
+                              requiresLogin: requiresLogin,
+                              onEnter: table.canJoin
+                                  ? requiresLogin
+                                      ? _signIn
+                                      : () => _enter(table)
+                                  : null,
                               firstButtonKey: index == 0
                                   ? const ValueKey('entrar-em-uma-mesa')
                                   : null,
@@ -611,12 +637,14 @@ class _TableCard extends StatelessWidget {
   const _TableCard({
     required this.table,
     required this.opening,
+    required this.requiresLogin,
     required this.onEnter,
     this.firstButtonKey,
   });
 
   final LobbyTable table;
   final bool opening;
+  final bool requiresLogin;
   final VoidCallback? onEnter;
   final Key? firstButtonKey;
 
@@ -712,7 +740,9 @@ class _TableCard extends StatelessWidget {
                     )
                   : Text(table.phase == LobbyTablePhase.playing
                       ? 'SEM VAGA'
-                      : 'ENTRAR EM UMA MESA'),
+                      : requiresLogin
+                          ? 'FAÇA LOGIN PARA ENTRAR'
+                          : 'ENTRAR EM UMA MESA'),
             ),
           ),
         ],

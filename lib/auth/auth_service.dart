@@ -27,6 +27,8 @@ abstract class AuthService extends ChangeNotifier {
 
   Future<void> signOut();
 
+  Future<String> idToken();
+
   Future<void> updateProfile({
     required String displayName,
     required String photoUrl,
@@ -41,6 +43,7 @@ AuthService createAuthService() {
 class FirebaseAuthService extends AuthService {
   FirebaseAuthService({FirebaseAuth? auth})
       : _auth = auth ?? FirebaseAuth.instance {
+    _persistenceReady = _auth.setPersistence(Persistence.LOCAL);
     _currentUser = _profileFromUser(_auth.currentUser);
     _subscription = _auth.userChanges().listen((user) {
       _currentUser = _profileFromUser(user);
@@ -49,6 +52,7 @@ class FirebaseAuthService extends AuthService {
   }
 
   final FirebaseAuth _auth;
+  late final Future<void> _persistenceReady;
   late final StreamSubscription<User?> _subscription;
   AuthProfile? _currentUser;
 
@@ -60,6 +64,7 @@ class FirebaseAuthService extends AuthService {
 
   @override
   Future<void> signInWithGoogle() async {
+    await _persistenceReady;
     final provider = GoogleAuthProvider();
     provider.setCustomParameters({'prompt': 'select_account'});
     await _auth.signInWithPopup(provider);
@@ -67,6 +72,18 @@ class FirebaseAuthService extends AuthService {
 
   @override
   Future<void> signOut() => _auth.signOut();
+
+  @override
+  Future<String> idToken() async {
+    await _persistenceReady;
+    final user = _auth.currentUser;
+    if (user == null) throw StateError('Entre na sua conta novamente.');
+    final token = await user.getIdToken();
+    if (token == null || token.isEmpty) {
+      throw StateError('Não foi possível confirmar sua autenticação.');
+    }
+    return token;
+  }
 
   @override
   Future<void> updateProfile({
@@ -128,6 +145,11 @@ class DisabledAuthService extends AuthService {
 
   @override
   Future<void> signOut() async {}
+
+  @override
+  Future<String> idToken() {
+    throw UnsupportedError('O login está disponível na versão Web do jogo.');
+  }
 
   @override
   Future<void> updateProfile({

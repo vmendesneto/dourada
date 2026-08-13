@@ -11,6 +11,7 @@ import {
   type LobbyTablePhase,
   type LobbyTableStatus,
 } from "./lobby";
+import { verifyFirebaseIdToken } from "./firebase_auth";
 
 type TablePhase = LobbyTablePhase;
 type SeatKind = "human" | "bot";
@@ -87,10 +88,34 @@ export default {
       if (request.method !== "POST") {
         return json(request, { error: "Método não permitido." }, 405);
       }
+      const requestBody = await readSmallBody(request);
+      if (requestBody === null) {
+        return json(request, { error: "Requisição muito grande." }, 413);
+      }
+      let internalBody = requestBody;
+      if (operation === "join") {
+        const payload = parseRecord(requestBody);
+        if (payload === null) {
+          return json(request, { error: "Dados de entrada inválidos." }, 400);
+        }
+        const playerToken =
+          typeof payload.playerToken === "string" ? payload.playerToken : undefined;
+        const playerName =
+          typeof payload.playerName === "string" ? payload.playerName : undefined;
+        const identity = await verifyFirebaseIdToken(payload.firebaseIdToken);
+        if (!identity && !playerToken) {
+          return json(request, { error: "Faça login para entrar em uma mesa." }, 401);
+        }
+        internalBody = JSON.stringify({
+          playerToken,
+          playerName: identity?.displayName ?? playerName,
+          firebaseAuthenticated: identity !== null,
+        });
+      }
       const internal = await tableStub(env, tableNumber).fetch(
         new Request(`https://table.internal/${operation}?tableNumber=${tableNumber}`, {
           method: "POST",
-          body: await request.text(),
+          body: internalBody,
         }),
       );
       const body = (await internal.json().catch(() => ({
@@ -358,6 +383,7 @@ export class GameTable extends DurableObject<Env> {
     const payload = (await request.json().catch(() => ({}))) as {
       playerToken?: string;
       playerName?: string;
+      firebaseAuthenticated?: boolean;
     };
     const table = await this.load(tableNumber);
 
@@ -371,6 +397,10 @@ export class GameTable extends DurableObject<Env> {
         await this.saveAndSchedule(table, true);
         return Response.json(this.entry(table, existingSeat), { status: 200 });
       }
+    }
+
+    if (payload.firebaseAuthenticated !== true) {
+      return Response.json({ error: "Faça login para entrar em uma mesa." }, { status: 401 });
     }
 
     if (table.phase === "playing") {
@@ -835,4 +865,22 @@ function connectionUrl(requestUrl: URL, tableNumber: number, token: string): str
 function cleanPlayerName(value: string | undefined, seatIndex: number): string {
   const clean = value?.trim().replace(/\s+/g, " ").slice(0, 20);
   return clean ? clean : `Jogador ${seatIndex + 1}`;
+}
+
+async function readSmallBody(request: Request): Promise<string | null> {
+  const declaredLength = Number(request.headers.get("Content-Length"));
+  if (Number.isFinite(declaredLength) && declaredLength > 16_384) return null;
+  const body = await request.text();
+  return new TextEncoder().encode(body).byteLength <= 16_384 ? body : null;
+}
+
+function parseRecord(value: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
 }

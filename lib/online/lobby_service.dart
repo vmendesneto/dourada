@@ -196,7 +196,11 @@ class LobbyService {
         .toList(growable: false);
   }
 
-  Future<TableEntry> joinTable(int tableNumber) async {
+  Future<TableEntry> joinTable(
+    int tableNumber, {
+    String? firebaseIdToken,
+    String? playerName,
+  }) async {
     if (!enabled) {
       return TableEntry(
         serverUrl: '',
@@ -228,6 +232,8 @@ class LobbyService {
           body: jsonEncode({
             if (savedTable == '$tableNumber' && savedToken != null)
               'playerToken': savedToken,
+            'firebaseIdToken': firebaseIdToken,
+            'playerName': playerName,
           }),
         )
         .timeout(const Duration(seconds: 12));
