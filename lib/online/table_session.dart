@@ -305,6 +305,20 @@ class TableSession extends ChangeNotifier {
         'Eles jogou': 'Eles jogaram',
         'Nós descartou': 'Nós descartamos',
         'Eles descartou': 'Eles descartaram',
+        'Nós venceu': 'Nós vencemos',
+        'Eles venceu': 'Eles venceram',
+        'Nós ganhou': 'Nós ganhamos',
+        'Eles ganhou': 'Eles ganharam',
+        'Nós marcou': 'Nós marcamos',
+        'Eles marcou': 'Eles marcaram',
+        'Nós decidiu': 'Nós decidimos',
+        'Eles decidiu': 'Eles decidiram',
+        'Nós aceitou': 'Nós aceitamos',
+        'Eles aceitou': 'Eles aceitaram',
+        'Nós correu': 'Nós corremos',
+        'Eles correu': 'Eles correram',
+        'Nós pediu': 'Nós pedimos',
+        'Eles pediu': 'Eles pediram',
       };
       for (final entry in conjugations.entries) {
         normalized = normalized.replaceAll(entry.key, entry.value);
