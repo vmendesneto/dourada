@@ -99,6 +99,7 @@ class TableEntry {
     required this.phase,
     required this.seats,
     this.waitingStartAt,
+    this.fillBotsVote,
     this.gameState,
   });
 
@@ -110,6 +111,7 @@ class TableEntry {
   final LobbyTablePhase phase;
   final List<LobbySeat?> seats;
   final DateTime? waitingStartAt;
+  final FillBotsVote? fillBotsVote;
   final Object? gameState;
 
   bool get online => serverUrl.isNotEmpty;
@@ -130,8 +132,52 @@ class TableEntry {
             )
             .toList(growable: false),
         waitingStartAt: _dateTimeFromMilliseconds(json['waitingStartAt']),
+        fillBotsVote: FillBotsVote.fromJsonValue(json['fillBotsVote']),
         gameState: json['gameState'],
       );
+}
+
+class FillBotsVote {
+  const FillBotsVote({
+    required this.requesterSeatIndex,
+    required this.participantSeatIndexes,
+    required this.votes,
+    required this.expiresAt,
+  });
+
+  final int requesterSeatIndex;
+  final List<int> participantSeatIndexes;
+  final List<bool?> votes;
+  final DateTime expiresAt;
+
+  bool? voteFor(int seatIndex) =>
+      seatIndex >= 0 && seatIndex < votes.length ? votes[seatIndex] : null;
+
+  static FillBotsVote? fromJsonValue(Object? value) {
+    if (value is! Map) return null;
+    final json = Map<String, dynamic>.from(value);
+    final requester = json['requesterSeatIndex'];
+    final participants = json['participantSeatIndexes'];
+    final rawVotes = json['votes'];
+    final expires = json['expiresAt'];
+    if (requester is! num ||
+        participants is! List ||
+        rawVotes is! List ||
+        expires is! num) {
+      return null;
+    }
+    final participantIndexes =
+        participants.whereType<num>().map((index) => index.toInt()).toList();
+    if (participantIndexes.length != participants.length) return null;
+    return FillBotsVote(
+      requesterSeatIndex: requester.toInt(),
+      participantSeatIndexes: participantIndexes,
+      votes: rawVotes
+          .map<bool?>((vote) => vote is bool ? vote : null)
+          .toList(growable: false),
+      expiresAt: DateTime.fromMillisecondsSinceEpoch(expires.toInt()),
+    );
+  }
 }
 
 DateTime? _dateTimeFromMilliseconds(Object? value) =>

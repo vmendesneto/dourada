@@ -237,6 +237,12 @@ void main() {
     expect(find.byKey(const ValueKey('nome-jogador-local')), findsOneWidget);
     expect(find.byKey(const ValueKey('sair-da-mesa')), findsOneWidget);
     expect(find.text('TRUCO!'), findsOneWidget);
+    expect(
+      tester
+          .getSize(find.byKey(const ValueKey('cabecalho-mesa-mobile')))
+          .height,
+      72,
+    );
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
@@ -350,6 +356,49 @@ void main() {
     expect(progress().value, closeTo(0, .001));
   });
 
+  testWidgets('solicitante aguarda os votos para completar com robôs',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(
+      MaterialApp(home: GamePage(entry: _fillBotsVoteEntry(seatIndex: 0))),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('dialogo-votacao-robos')), findsOneWidget);
+    expect(find.text('AGUARDANDO RESPOSTAS'), findsOneWidget);
+    expect(find.textContaining('Você pediu para completar'), findsOneWidget);
+    expect(find.byKey(const ValueKey('aceitar-robos')), findsNothing);
+    expect(find.byKey(const ValueKey('recusar-robos')), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 12));
+  });
+
+  testWidgets('outro humano recebe o pedido com avatares e ações',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues({});
+
+    await tester.pumpWidget(
+      MaterialApp(home: GamePage(entry: _fillBotsVoteEntry(seatIndex: 1))),
+    );
+    await tester.pump();
+
+    expect(find.text('COMPLETAR COM ROBÔS?'), findsOneWidget);
+    expect(find.textContaining('Ana pediu para completar'), findsOneWidget);
+    expect(find.byKey(const ValueKey('aceitar-robos')), findsOneWidget);
+    expect(find.byKey(const ValueKey('recusar-robos')), findsOneWidget);
+    expect(find.text('Pediu'), findsOneWidget);
+    expect(find.text('Aguardando'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 12));
+  });
+
   testWidgets('retomada escolhe não voltar depois de vinte segundos',
       (tester) async {
     await tester.pumpWidget(const MaterialApp(home: _ResumeDialogHarness()));
@@ -369,6 +418,41 @@ void main() {
     expect(find.text('NÃO VOLTOU'), findsOneWidget);
     expect(find.byType(ResumeTableDialog), findsNothing);
   });
+}
+
+TableEntry _fillBotsVoteEntry({required int seatIndex}) {
+  final seats = [
+    const LobbySeat(
+      index: 0,
+      kind: 'human',
+      name: 'Ana',
+      team: 0,
+      connected: true,
+    ),
+    const LobbySeat(
+      index: 1,
+      kind: 'human',
+      name: 'Beto',
+      team: 1,
+      connected: true,
+    ),
+    ...List<LobbySeat?>.filled(4, null),
+  ];
+  return TableEntry(
+    serverUrl: 'http://127.0.0.1:1',
+    tableNumber: '1',
+    playerToken: 'token-$seatIndex',
+    websocketUrl: 'ws://127.0.0.1:1/connect',
+    seatIndex: seatIndex,
+    phase: LobbyTablePhase.waiting,
+    seats: seats,
+    fillBotsVote: FillBotsVote(
+      requesterSeatIndex: 0,
+      participantSeatIndexes: const [0, 1],
+      votes: const [true, null, null, null, null, null],
+      expiresAt: DateTime.now().add(const Duration(seconds: 10)),
+    ),
+  );
 }
 
 class _HangingCancelLobbyService extends LobbyService {

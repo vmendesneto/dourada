@@ -79,6 +79,54 @@ void main() {
     session.dispose();
   });
 
+  test('pedido para robôs abre a votação recebida do servidor', () async {
+    late http.Request sentRequest;
+    final seats = [
+      const LobbySeat(
+        index: 0,
+        kind: 'human',
+        name: 'Ana',
+        team: 0,
+        connected: true,
+      ),
+      const LobbySeat(
+        index: 1,
+        kind: 'human',
+        name: 'Beto',
+        team: 1,
+        connected: true,
+      ),
+      ...List<LobbySeat?>.filled(4, null),
+    ];
+    final client = MockClient((request) async {
+      sentRequest = request;
+      return http.Response(
+        '''{"phase":"waiting","seatIndex":0,"seats":[{"index":0,"kind":"human","name":"Ana","team":0,"connected":true},{"index":1,"kind":"human","name":"Beto","team":1,"connected":true},null,null,null,null],"waitingStartAt":null,"gameState":null,"fillBotsVote":{"requesterSeatIndex":0,"participantSeatIndexes":[0,1],"votes":[true,null,null,null,null,null],"expiresAt":2000000000000}}''',
+        200,
+      );
+    });
+    final session = TableSession(
+      entry: TableEntry(
+        serverUrl: 'https://dourada.example.workers.dev',
+        tableNumber: '3',
+        playerToken: 'token-ana',
+        websocketUrl: 'wss://dourada.example/connect',
+        seatIndex: 0,
+        phase: LobbyTablePhase.waiting,
+        seats: seats,
+      ),
+      client: client,
+    );
+
+    await session.fillRemainingWithBots();
+
+    expect(sentRequest.url.path, '/api/tables/3/fill-bots');
+    expect(session.fillBotsVote?.requesterSeatIndex, 0);
+    expect(session.fillBotsVote?.participantSeatIndexes, [0, 1]);
+    expect(session.requestingFillBotsVote, isFalse);
+    session.dispose();
+  });
+
   test('sair avisa o servidor e apaga a possibilidade de retorno', () async {
     SharedPreferences.setMockInitialValues({
       TableSession.tableNumberKey: '4',

@@ -548,7 +548,10 @@ class _WaitingRoomState extends State<_WaitingRoom> {
   void initState() {
     super.initState();
     _countdownTicker = Timer.periodic(const Duration(milliseconds: 100), (_) {
-      if (mounted && session.waitingStartAt != null) setState(() {});
+      if (mounted &&
+          (session.waitingStartAt != null || session.fillBotsVote != null)) {
+        setState(() {});
+      }
     });
   }
 
@@ -568,205 +571,497 @@ class _WaitingRoomState extends State<_WaitingRoom> {
     final countdownProgress = remainingMilliseconds / 5000;
     return Scaffold(
       backgroundColor: const Color(0xFF032C21),
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 680),
-              child: Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF074333),
-                  borderRadius: BorderRadius.circular(26),
-                  border: Border.all(color: const Color(0xFFD7A84C), width: 2),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 680),
+                  child: Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF074333),
+                      borderRadius: BorderRadius.circular(26),
+                      border:
+                          Border.all(color: const Color(0xFFD7A84C), width: 2),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            IconButton(
+                              key: const ValueKey('sair-mesa-espera'),
+                              tooltip: 'Sair da mesa',
+                              onPressed: widget.leaving ? null : widget.onLeave,
+                              color: Colors.white,
+                              icon: widget.leaving
+                                  ? const SizedBox.square(
+                                      dimension: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.logout_rounded),
+                            ),
+                            Expanded(
+                              child: Text(
+                                'MESA ${session.tableNumber}',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: Color(0xFFFFD46B),
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 48),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'AGUARDANDO JOGADORES • ${session.playerCount}/6',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: .75),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        Wrap(
+                          alignment: WrapAlignment.center,
+                          spacing: 16,
+                          runSpacing: 18,
+                          children: List.generate(6, (index) {
+                            final seat = session.seats[index];
+                            final color = index.isEven
+                                ? const Color(0xFF5CB6FF)
+                                : const Color(0xFFFFC857);
+                            return SizedBox(
+                              width: 78,
+                              child: Column(
+                                children: [
+                                  if (seat == null)
+                                    Container(
+                                      width: 54,
+                                      height: 54,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color:
+                                            Colors.white.withValues(alpha: .05),
+                                        border:
+                                            Border.all(color: Colors.white24),
+                                      ),
+                                      child: const Icon(
+                                        Icons.chair_outlined,
+                                        color: Colors.white38,
+                                        size: 29,
+                                      ),
+                                    )
+                                  else
+                                    _TablePlayerAvatar(
+                                      key: ValueKey('avatar-jogador-$index'),
+                                      isBot: seat.isBot,
+                                      photoUrl: seat.photoUrl,
+                                      color: color,
+                                      radius: 27,
+                                    ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    seat == null ? 'Vazia' : seat.name,
+                                    key: index == session.seatIndex
+                                        ? const ValueKey('nome-jogador-local')
+                                        : null,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style:
+                                        TextStyle(color: color, fontSize: 11),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                        ),
+                        const SizedBox(height: 24),
+                        if (countdownEnd != null) ...[
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFC857)
+                                  .withValues(alpha: .12),
+                              borderRadius: BorderRadius.circular(14),
+                              border:
+                                  Border.all(color: const Color(0xFFFFC857)),
+                            ),
+                            child: Column(
+                              children: [
+                                Text(
+                                  '6 HUMANOS CONECTADOS',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium
+                                      ?.copyWith(
+                                        color: const Color(0xFFFFC857),
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                ),
+                                const SizedBox(height: 5),
+                                Text(
+                                  'A partida começa em $countdownSeconds ${countdownSeconds == 1 ? 'segundo' : 'segundos'}.',
+                                  style: const TextStyle(color: Colors.white),
+                                ),
+                                const SizedBox(height: 10),
+                                LinearProgressIndicator(
+                                  key: const ValueKey('contagem-seis-humanos'),
+                                  value: countdownProgress,
+                                  minHeight: 7,
+                                  borderRadius: BorderRadius.circular(4),
+                                  color: const Color(0xFFFFC857),
+                                  backgroundColor: Colors.white12,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                        ] else if (session.missingPlayers == 0) ...[
+                          const Text(
+                            'Aguardando os 6 jogadores estarem conectados para iniciar a contagem.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Color(0xFFFFC857)),
+                          ),
+                          const SizedBox(height: 16),
+                        ],
+                        SizedBox(
+                          width: double.infinity,
+                          height: 52,
+                          child: FilledButton.icon(
+                            key: const ValueKey('colocar-robos'),
+                            onPressed: session.connecting ||
+                                    session.fillBotsVote != null ||
+                                    session.missingPlayers == 0
+                                ? null
+                                : session.fillRemainingWithBots,
+                            icon: const Icon(Icons.smart_toy_rounded),
+                            label: Text(
+                              session.missingPlayers == 0
+                                  ? countdownEnd == null
+                                      ? 'AGUARDANDO CONEXÃO DOS JOGADORES'
+                                      : 'INÍCIO AUTOMÁTICO EM $countdownSeconds'
+                                  : session.missingPlayers == 1
+                                      ? 'COLOCAR 1 ROBÔ E INICIAR'
+                                      : 'COLOCAR ${session.missingPlayers} ROBÔS E INICIAR',
+                            ),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFFE7A93E),
+                              foregroundColor: const Color(0xFF173326),
+                              textStyle:
+                                  const TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                        ),
+                        if (session.errorMessage != null) ...[
+                          const SizedBox(height: 12),
+                          Text(session.errorMessage!,
+                              style: const TextStyle(color: Color(0xFFFF9E80))),
+                        ],
+                        const SizedBox(height: 10),
+                        Text(
+                          'Seis humanos iniciam automaticamente. Você também pode preencher todas as cadeiras vazias com robôs.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                              color: Colors.white.withValues(alpha: .55)),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
+              ),
+            ),
+          ),
+          if (session.fillBotsVote != null || session.requestingFillBotsVote)
+            _FillBotsVoteOverlay(session: session),
+        ],
+      ),
+    );
+  }
+}
+
+class _FillBotsVoteOverlay extends StatelessWidget {
+  const _FillBotsVoteOverlay({required this.session});
+
+  final TableSession session;
+
+  @override
+  Widget build(BuildContext context) {
+    final vote = session.fillBotsVote;
+    if (vote == null) {
+      return const Stack(
+        children: [
+          ModalBarrier(color: Colors.black54, dismissible: false),
+          Center(
+            child: Card(
+              color: Color(0xFF123C30),
+              child: Padding(
+                padding: EdgeInsets.all(28),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Row(
-                      children: [
-                        IconButton(
-                          key: const ValueKey('sair-mesa-espera'),
-                          tooltip: 'Sair da mesa',
-                          onPressed: widget.leaving ? null : widget.onLeave,
-                          color: Colors.white,
-                          icon: widget.leaving
-                              ? const SizedBox.square(
-                                  dimension: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.logout_rounded),
-                        ),
-                        Expanded(
-                          child: Text(
-                            'MESA ${session.tableNumber}',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Color(0xFFFFD46B),
-                              fontSize: 24,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 48),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
+                    CircularProgressIndicator(color: Color(0xFFFFC857)),
+                    SizedBox(height: 18),
                     Text(
-                      'AGUARDANDO JOGADORES • ${session.playerCount}/6',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: .75),
-                        fontWeight: FontWeight.w700,
-                      ),
+                      'AGUARDANDO RESPOSTAS',
+                      style: TextStyle(fontWeight: FontWeight.w900),
                     ),
-                    const SizedBox(height: 24),
-                    Wrap(
-                      alignment: WrapAlignment.center,
-                      spacing: 16,
-                      runSpacing: 18,
-                      children: List.generate(6, (index) {
-                        final seat = session.seats[index];
-                        final color = index.isEven
-                            ? const Color(0xFF5CB6FF)
-                            : const Color(0xFFFFC857);
-                        return SizedBox(
-                          width: 78,
-                          child: Column(
-                            children: [
-                              if (seat == null)
-                                Container(
-                                  width: 54,
-                                  height: 54,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: Colors.white.withValues(alpha: .05),
-                                    border: Border.all(color: Colors.white24),
-                                  ),
-                                  child: const Icon(
-                                    Icons.chair_outlined,
-                                    color: Colors.white38,
-                                    size: 29,
-                                  ),
-                                )
-                              else
-                                _TablePlayerAvatar(
-                                  key: ValueKey('avatar-jogador-$index'),
-                                  isBot: seat.isBot,
-                                  photoUrl: seat.photoUrl,
-                                  color: color,
-                                  radius: 27,
-                                ),
-                              const SizedBox(height: 6),
-                              Text(
-                                seat == null ? 'Vazia' : seat.name,
-                                key: index == session.seatIndex
-                                    ? const ValueKey('nome-jogador-local')
-                                    : null,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(color: color, fontSize: 11),
-                              ),
-                            ],
-                          ),
-                        );
-                      }),
-                    ),
-                    const SizedBox(height: 24),
-                    if (countdownEnd != null) ...[
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFC857).withValues(alpha: .12),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: const Color(0xFFFFC857)),
-                        ),
-                        child: Column(
-                          children: [
-                            Text(
-                              '6 HUMANOS CONECTADOS',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleMedium
-                                  ?.copyWith(
-                                    color: const Color(0xFFFFC857),
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                            ),
-                            const SizedBox(height: 5),
-                            Text(
-                              'A partida começa em $countdownSeconds ${countdownSeconds == 1 ? 'segundo' : 'segundos'}.',
-                              style: const TextStyle(color: Colors.white),
-                            ),
-                            const SizedBox(height: 10),
-                            LinearProgressIndicator(
-                              key: const ValueKey('contagem-seis-humanos'),
-                              value: countdownProgress,
-                              minHeight: 7,
-                              borderRadius: BorderRadius.circular(4),
-                              color: const Color(0xFFFFC857),
-                              backgroundColor: Colors.white12,
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                    ] else if (session.missingPlayers == 0) ...[
-                      const Text(
-                        'Aguardando os 6 jogadores estarem conectados para iniciar a contagem.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Color(0xFFFFC857)),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-                    SizedBox(
-                      width: double.infinity,
-                      height: 52,
-                      child: FilledButton.icon(
-                        key: const ValueKey('colocar-robos'),
-                        onPressed:
-                            session.connecting || session.missingPlayers == 0
-                                ? null
-                                : session.fillRemainingWithBots,
-                        icon: const Icon(Icons.smart_toy_rounded),
-                        label: Text(
-                          session.missingPlayers == 0
-                              ? countdownEnd == null
-                                  ? 'AGUARDANDO CONEXÃO DOS JOGADORES'
-                                  : 'INÍCIO AUTOMÁTICO EM $countdownSeconds'
-                              : session.missingPlayers == 1
-                                  ? 'COLOCAR 1 ROBÔ E INICIAR'
-                                  : 'COLOCAR ${session.missingPlayers} ROBÔS E INICIAR',
-                        ),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFFE7A93E),
-                          foregroundColor: const Color(0xFF173326),
-                          textStyle:
-                              const TextStyle(fontWeight: FontWeight.w900),
-                        ),
-                      ),
-                    ),
-                    if (session.errorMessage != null) ...[
-                      const SizedBox(height: 12),
-                      Text(session.errorMessage!,
-                          style: const TextStyle(color: Color(0xFFFF9E80))),
-                    ],
-                    const SizedBox(height: 10),
-                    Text(
-                      'Seis humanos iniciam automaticamente. Você também pode preencher todas as cadeiras vazias com robôs.',
-                      textAlign: TextAlign.center,
-                      style:
-                          TextStyle(color: Colors.white.withValues(alpha: .55)),
-                    ),
+                    SizedBox(height: 8),
+                    Text('Enviando seu pedido aos outros jogadores...'),
                   ],
                 ),
               ),
             ),
           ),
+        ],
+      );
+    }
+
+    final requester = vote.requesterSeatIndex >= 0 &&
+            vote.requesterSeatIndex < session.seats.length
+        ? session.seats[vote.requesterSeatIndex]
+        : null;
+    final isRequester = vote.requesterSeatIndex == session.seatIndex;
+    final localVote = vote.voteFor(session.seatIndex);
+    final canRespond = session.canRespondToFillBotsVote;
+    final responders = vote.participantSeatIndexes
+        .where((index) => index != vote.requesterSeatIndex)
+        .toList(growable: false);
+    final accepted =
+        responders.where((index) => vote.voteFor(index) == true).length;
+    final refused =
+        responders.where((index) => vote.voteFor(index) == false).length;
+    final pending = responders.length - accepted - refused;
+    final remainingMs = vote.expiresAt
+        .difference(DateTime.now())
+        .inMilliseconds
+        .clamp(0, 10000);
+    final remainingSeconds = (remainingMs / 1000).ceil();
+
+    String message;
+    if (isRequester) {
+      message =
+          'Você pediu para completar a mesa com robôs. Aguardando a resposta dos outros jogadores.';
+    } else if (canRespond) {
+      message =
+          '${requester?.name ?? 'Outro jogador'} pediu para completar a mesa com robôs. Você aceita?';
+    } else if (localVote != null) {
+      message = 'Sua resposta foi enviada. Aguardando os demais jogadores.';
+    } else {
+      message =
+          '${requester?.name ?? 'Outro jogador'} pediu para completar a mesa com robôs. Aguardando a decisão dos jogadores que já estavam na mesa.';
+    }
+
+    return Stack(
+      key: const ValueKey('dialogo-votacao-robos'),
+      children: [
+        const ModalBarrier(color: Colors.black54, dismissible: false),
+        SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Material(
+                  color: const Color(0xFF123C30),
+                  elevation: 18,
+                  borderRadius: BorderRadius.circular(24),
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.smart_toy_rounded,
+                          color: Color(0xFFFFC857),
+                          size: 44,
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          isRequester || !canRespond
+                              ? 'AGUARDANDO RESPOSTAS'
+                              : 'COMPLETAR COM ROBÔS?',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Color(0xFFFFD46B),
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          message,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                        const SizedBox(height: 18),
+                        Wrap(
+                          alignment: WrapAlignment.center,
+                          spacing: 14,
+                          runSpacing: 14,
+                          children: [
+                            for (final index in vote.participantSeatIndexes)
+                              _FillBotsVotePlayer(
+                                seat: index >= 0 && index < session.seats.length
+                                    ? session.seats[index]
+                                    : null,
+                                status: index == vote.requesterSeatIndex
+                                    ? _FillBotsVoteStatus.requester
+                                    : vote.voteFor(index) == true
+                                        ? _FillBotsVoteStatus.accepted
+                                        : vote.voteFor(index) == false
+                                            ? _FillBotsVoteStatus.refused
+                                            : _FillBotsVoteStatus.pending,
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          '$accepted aceitaram  •  $refused recusaram  •  $pending aguardando',
+                          key: const ValueKey('resumo-votacao-robos'),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: .8),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        LinearProgressIndicator(
+                          key: const ValueKey('tempo-votacao-robos'),
+                          value: remainingMs / 10000,
+                          minHeight: 7,
+                          borderRadius: BorderRadius.circular(4),
+                          color: const Color(0xFFFFC857),
+                          backgroundColor: Colors.white12,
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          '$remainingSeconds ${remainingSeconds == 1 ? 'segundo' : 'segundos'} para responder',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: .7),
+                            fontSize: 12,
+                          ),
+                        ),
+                        if (canRespond) ...[
+                          const SizedBox(height: 20),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  key: const ValueKey('recusar-robos'),
+                                  onPressed: session.submittingFillBotsVote
+                                      ? null
+                                      : () =>
+                                          session.respondToFillBotsVote(false),
+                                  icon: const Icon(Icons.close_rounded),
+                                  label: const Text('NÃO ACEITO'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: const Color(0xFFFF9E80),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: FilledButton.icon(
+                                  key: const ValueKey('aceitar-robos'),
+                                  onPressed: session.submittingFillBotsVote
+                                      ? null
+                                      : () =>
+                                          session.respondToFillBotsVote(true),
+                                  icon: const Icon(Icons.check_rounded),
+                                  label: const Text('ACEITO'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ),
+      ],
+    );
+  }
+}
+
+enum _FillBotsVoteStatus { requester, accepted, refused, pending }
+
+class _FillBotsVotePlayer extends StatelessWidget {
+  const _FillBotsVotePlayer({required this.seat, required this.status});
+
+  final LobbySeat? seat;
+  final _FillBotsVoteStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final (color, icon, label) = switch (status) {
+      _FillBotsVoteStatus.requester => (
+          const Color(0xFFFFC857),
+          Icons.smart_toy_rounded,
+          'Pediu'
+        ),
+      _FillBotsVoteStatus.accepted => (
+          const Color(0xFF67D391),
+          Icons.check_rounded,
+          'Aceitou'
+        ),
+      _FillBotsVoteStatus.refused => (
+          const Color(0xFFFF7D6E),
+          Icons.close_rounded,
+          'Recusou'
+        ),
+      _FillBotsVoteStatus.pending => (
+          Colors.blueGrey,
+          Icons.hourglass_top_rounded,
+          'Aguardando'
+        ),
+    };
+    return SizedBox(
+      width: 72,
+      child: Column(
+        children: [
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              _TablePlayerAvatar(
+                isBot: false,
+                photoUrl: seat?.photoUrl,
+                color: color,
+                radius: 24,
+              ),
+              Positioned(
+                right: -4,
+                bottom: -4,
+                child: CircleAvatar(
+                  radius: 10,
+                  backgroundColor: color,
+                  child: Icon(icon, color: const Color(0xFF123C30), size: 14),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 7),
+          Text(
+            seat?.name ?? 'Jogador',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white, fontSize: 11),
+          ),
+          Text(label, style: TextStyle(color: color, fontSize: 9)),
+        ],
       ),
     );
   }
@@ -790,7 +1085,8 @@ class _ScoreBoard extends StatelessWidget {
     final phone = MediaQuery.sizeOf(context).width < 600;
     if (phone) {
       return Container(
-        height: 98,
+        key: const ValueKey('cabecalho-mesa-mobile'),
+        height: 72,
         padding: const EdgeInsets.fromLTRB(8, 4, 4, 5),
         decoration: const BoxDecoration(
           color: Color(0xFF052D22),
@@ -818,7 +1114,32 @@ class _ScoreBoard extends StatelessWidget {
                     color: const Color(0xFFFFC857),
                     compact: true,
                   ),
-                  const Spacer(),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        _HandWinnerDots(
+                          game: game,
+                          results: game.trickWinners,
+                          compact: true,
+                        ),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            '${game.displayedHandNumber}ª • Vale ${DouradinhaGame.spokenValueForPoints(game.handValue)}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 10,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 4),
                   Tooltip(
                     message: tableSession.errorMessage ??
                         tableSession.connectionLabel,
@@ -848,17 +1169,6 @@ class _ScoreBoard extends StatelessWidget {
                 ],
               ),
             ),
-            Row(
-              children: [
-                _HandWinnerDots(game: game, results: game.trickWinners),
-                const SizedBox(width: 7),
-                Text(
-                  '${game.displayedHandNumber}ª Mão • Vale ${DouradinhaGame.spokenValueForPoints(game.handValue)}',
-                  style: const TextStyle(color: Colors.white70, fontSize: 11),
-                ),
-              ],
-            ),
-            const SizedBox(height: 2),
             Align(
               alignment: Alignment.centerLeft,
               child: Text(
@@ -978,10 +1288,15 @@ class _ScoreBoard extends StatelessWidget {
 }
 
 class _HandWinnerDots extends StatelessWidget {
-  const _HandWinnerDots({required this.game, required this.results});
+  const _HandWinnerDots({
+    required this.game,
+    required this.results,
+    this.compact = false,
+  });
 
   final DouradinhaGame game;
   final List<int?> results;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -1009,8 +1324,8 @@ class _HandWinnerDots extends StatelessWidget {
             child: Semantics(
               label: label,
               child: Container(
-                width: 15,
-                height: 15,
+                width: compact ? 12 : 15,
+                height: compact ? 12 : 15,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
@@ -1020,11 +1335,11 @@ class _HandWinnerDots extends StatelessWidget {
                   ),
                 ),
                 child: wasPlayed && winner == null
-                    ? const Text(
+                    ? Text(
                         '=',
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: 10,
+                          fontSize: compact ? 8 : 10,
                           height: .9,
                           fontWeight: FontWeight.bold,
                         ),

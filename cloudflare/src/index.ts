@@ -12,6 +12,12 @@ import {
   type LobbyTableStatus,
 } from "./lobby";
 import { verifyFirebaseIdToken } from "./firebase_auth";
+import {
+  createFillBotsVote,
+  fillBotsVoteDecision,
+  recordFillBotsVote,
+  type FillBotsVote,
+} from "./fill_bots_vote";
 
 type TablePhase = LobbyTablePhase;
 type SeatKind = "human" | "bot";
@@ -33,6 +39,7 @@ interface SharedTableState {
   gameState: GameState | null;
   nextActionAt: number | null;
   waitingStartAt: number | null;
+  fillBotsVote: FillBotsVote | null;
   updatedAt: number;
 }
 
@@ -288,6 +295,16 @@ export class GameTable extends DurableObject<Env> {
       this.returnToWaitingRoom(table, Date.now());
       await this.saveAndSchedule(table, true);
       this.broadcast(table);
+      return;
+    }
+
+    if (payload.type === "fillBotsVote" && table.phase === "waiting") {
+      const vote = table.fillBotsVote;
+      if (vote === null || typeof payload.accepted !== "boolean") return;
+      if (!recordFillBotsVote(vote, attachment.seatIndex, payload.accepted)) return;
+      this.resolveFillBotsVote(table, Date.now());
+      await this.saveAndSchedule(table, true);
+      this.broadcast(table);
     }
   }
 
@@ -321,7 +338,11 @@ export class GameTable extends DurableObject<Env> {
           seat?.kind === "human" &&
           !activeHumans.has(index) &&
           seat.disconnectedAt !== null &&
-          now - seat.disconnectedAt >= disconnectGraceMs
+          now - seat.disconnectedAt >= disconnectGraceMs &&
+          !(
+            table.fillBotsVote?.participantSeatIndexes.includes(index) &&
+            now < table.fillBotsVote.expiresAt
+          )
         ) {
           table.seats[index] = null;
         }
@@ -329,6 +350,9 @@ export class GameTable extends DurableObject<Env> {
       if (!table.seats.some((seat) => seat?.kind === "human")) {
         await this.clearTable(table.tableNumber);
         return;
+      }
+      if (table.fillBotsVote !== null) {
+        this.resolveFillBotsVote(table, now);
       }
       this.syncWaitingCountdown(table, now, activeHumans);
       table.updatedAt = now;
@@ -450,8 +474,35 @@ export class GameTable extends DurableObject<Env> {
     if (table.phase !== "waiting") {
       return Response.json({ error: "A mesa não está aguardando jogadores." }, { status: 409 });
     }
+    if (table.fillBotsVote !== null) {
+      return Response.json({ error: "Já existe uma votação em andamento." }, { status: 409 });
+    }
 
     const now = Date.now();
+    const participantSeatIndexes = table.seats.flatMap((seat, index) =>
+      seat?.kind === "human" ? [index] : [],
+    );
+    table.fillBotsVote = createFillBotsVote(
+      seatIndex,
+      participantSeatIndexes,
+      now,
+      seatCount,
+    );
+    this.resolveFillBotsVote(table, now);
+    await this.saveAndSchedule(table, true);
+    this.broadcast(table);
+    return Response.json(this.entry(table, seatIndex));
+  }
+
+  private resolveFillBotsVote(table: SharedTableState, now: number): void {
+    const vote = table.fillBotsVote;
+    if (vote === null) return;
+    const decision = fillBotsVoteDecision(vote, now);
+    table.updatedAt = now;
+    if (decision === "pending") return;
+
+    table.fillBotsVote = null;
+    if (decision === "rejected") return;
     for (let index = 0; index < table.seats.length; index += 1) {
       if (table.seats[index] === null) {
         table.seats[index] = {
@@ -465,9 +516,6 @@ export class GameTable extends DurableObject<Env> {
       }
     }
     this.startGame(table);
-    await this.saveAndSchedule(table, true);
-    this.broadcast(table);
-    return Response.json(this.entry(table, seatIndex));
   }
 
   private async canResume(request: Request, tableNumber?: number): Promise<Response> {
@@ -510,6 +558,9 @@ export class GameTable extends DurableObject<Env> {
         disconnectedAt: null,
       };
     } else {
+      if (table.fillBotsVote?.participantSeatIndexes.includes(seatIndex)) {
+        table.fillBotsVote = null;
+      }
       table.seats[seatIndex] = null;
       table.waitingStartAt = null;
     }
@@ -596,6 +647,7 @@ export class GameTable extends DurableObject<Env> {
     table.phase = "playing";
     table.gameState = createInitialGame();
     table.waitingStartAt = null;
+    table.fillBotsVote = null;
     table.updatedAt = Date.now();
     table.nextActionAt = this.nextActionAt(table, this.activeHumanSeats());
   }
@@ -605,6 +657,7 @@ export class GameTable extends DurableObject<Env> {
     table.gameState = null;
     table.nextActionAt = null;
     table.waitingStartAt = null;
+    table.fillBotsVote = null;
     table.seats = table.seats.map((seat) =>
       seat?.kind === "human" ? seat : null,
     );
@@ -620,6 +673,7 @@ export class GameTable extends DurableObject<Env> {
       seats: publicSeats(table),
       gameState: table.gameState,
       waitingStartAt: table.waitingStartAt,
+      fillBotsVote: table.fillBotsVote,
       status: this.status(table),
     };
   }
@@ -648,6 +702,7 @@ export class GameTable extends DurableObject<Env> {
       seats: publicSeats(table),
       gameState: table.gameState,
       waitingStartAt: table.waitingStartAt,
+      fillBotsVote: table.fillBotsVote,
     };
   }
 
@@ -768,6 +823,7 @@ export class GameTable extends DurableObject<Env> {
       table.waitingStartAt = null;
       return;
     }
+    table.fillBotsVote = null;
     table.waitingStartAt ??= now + 5000;
     if (now >= table.waitingStartAt) this.startGame(table);
   }
@@ -781,6 +837,7 @@ export class GameTable extends DurableObject<Env> {
     const stored = await this.ctx.storage.get<SharedTableState>("table");
     if (stored?.version === 2) {
       stored.waitingStartAt ??= null;
+      stored.fillBotsVote ??= null;
       return stored;
     }
     const tableNumber = requestedTableNumber ?? 1;
@@ -793,7 +850,11 @@ export class GameTable extends DurableObject<Env> {
   ): Promise<void> {
     await this.ctx.storage.put("table", table);
     const now = Date.now();
-    const deadlines = [table.nextActionAt, table.waitingStartAt].filter(
+    const deadlines = [
+      table.nextActionAt,
+      table.waitingStartAt,
+      table.fillBotsVote?.expiresAt ?? null,
+    ].filter(
       (value): value is number => value !== null,
     );
     const needsDisconnectedDeadlines =
@@ -851,6 +912,7 @@ function emptyTableState(tableNumber: number): SharedTableState {
     gameState: null,
     nextActionAt: null,
     waitingStartAt: null,
+    fillBotsVote: null,
     updatedAt: Date.now(),
   };
 }

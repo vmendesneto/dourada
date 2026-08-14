@@ -27,6 +27,7 @@ class TableSession extends ChangeNotifier {
       phase = entry!.phase;
       seats = entry!.seats;
       waitingStartAt = entry!.waitingStartAt;
+      fillBotsVote = entry!.fillBotsVote;
     }
   }
 
@@ -52,8 +53,11 @@ class TableSession extends ChangeNotifier {
   LobbyTablePhase phase = LobbyTablePhase.playing;
   List<LobbySeat?> seats = List<LobbySeat?>.filled(6, null);
   DateTime? waitingStartAt;
+  FillBotsVote? fillBotsVote;
   String? errorMessage;
   bool connecting = false;
+  bool requestingFillBotsVote = false;
+  bool submittingFillBotsVote = false;
   bool connected = false;
   bool replacementBotActive = false;
 
@@ -65,6 +69,15 @@ class TableSession extends ChangeNotifier {
       !enabled || (connected && phase == LobbyTablePhase.playing);
   int get playerCount => seats.where((seat) => seat != null).length;
   int get missingPlayers => 6 - playerCount;
+  bool get isFillBotsVoteRequester =>
+      fillBotsVote?.requesterSeatIndex == seatIndex;
+  bool get canRespondToFillBotsVote {
+    final vote = fillBotsVote;
+    return vote != null &&
+        vote.requesterSeatIndex != seatIndex &&
+        vote.participantSeatIndexes.contains(seatIndex) &&
+        vote.voteFor(seatIndex) == null;
+  }
 
   String get connectionLabel {
     if (!enabled) return 'Mesa local';
@@ -92,6 +105,7 @@ class TableSession extends ChangeNotifier {
       return;
     }
     connecting = true;
+    requestingFillBotsVote = true;
     errorMessage = null;
     notifyListeners();
     try {
@@ -112,8 +126,23 @@ class TableSession extends ChangeNotifier {
       errorMessage = error.toString().replaceFirst('Bad state: ', '');
     } finally {
       connecting = false;
+      requestingFillBotsVote = false;
       if (!_disposed) notifyListeners();
     }
+  }
+
+  void respondToFillBotsVote(bool accepted) {
+    if (!canRespondToFillBotsVote ||
+        submittingFillBotsVote ||
+        _channel == null) {
+      return;
+    }
+    submittingFillBotsVote = true;
+    _channel!.sink.add(jsonEncode({
+      'type': 'fillBotsVote',
+      'accepted': accepted,
+    }));
+    notifyListeners();
   }
 
   Future<void> startNewMatch(DouradinhaGame game) async {
@@ -196,6 +225,7 @@ class TableSession extends ChangeNotifier {
     phase = value.phase;
     seats = value.seats;
     waitingStartAt = value.waitingStartAt;
+    fillBotsVote = value.fillBotsVote;
     _configureSeats();
     _restoreRemoteState(value.gameState);
   }
@@ -212,6 +242,8 @@ class TableSession extends ChangeNotifier {
     waitingStartAt = countdownValue is num
         ? DateTime.fromMillisecondsSinceEpoch(countdownValue.toInt())
         : null;
+    fillBotsVote = FillBotsVote.fromJsonValue(payload['fillBotsVote']);
+    submittingFillBotsVote = false;
     _configureSeats();
     _restoreRemoteState(payload['gameState']);
   }
