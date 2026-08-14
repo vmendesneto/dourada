@@ -26,6 +26,7 @@ class TableSession extends ChangeNotifier {
       seatIndex = entry!.seatIndex;
       phase = entry!.phase;
       seats = entry!.seats;
+      fillBotsVotingVersion = entry!.fillBotsVotingVersion;
       waitingStartAt = entry!.waitingStartAt;
       fillBotsVote = entry!.fillBotsVote;
     }
@@ -52,6 +53,7 @@ class TableSession extends ChangeNotifier {
   int seatIndex = 0;
   LobbyTablePhase phase = LobbyTablePhase.playing;
   List<LobbySeat?> seats = List<LobbySeat?>.filled(6, null);
+  int fillBotsVotingVersion = 0;
   DateTime? waitingStartAt;
   FillBotsVote? fillBotsVote;
   String? errorMessage;
@@ -60,6 +62,7 @@ class TableSession extends ChangeNotifier {
   bool submittingFillBotsVote = false;
   bool connected = false;
   bool replacementBotActive = false;
+  String? _reportedShownFillBotsVoteId;
 
   bool get enabled => _serverUrl.isNotEmpty && entry?.online != false;
   bool get applyingRemoteState => _applyingRemoteState;
@@ -74,8 +77,10 @@ class TableSession extends ChangeNotifier {
   bool get canRespondToFillBotsVote {
     final vote = fillBotsVote;
     return vote != null &&
+        vote.expiresAt != null &&
         vote.requesterSeatIndex != seatIndex &&
         vote.participantSeatIndexes.contains(seatIndex) &&
+        vote.shownAtFor(seatIndex) != null &&
         vote.voteFor(seatIndex) == null;
   }
 
@@ -104,6 +109,12 @@ class TableSession extends ChangeNotifier {
     if (!enabled || !waiting || playerToken == null || tableNumber == null) {
       return;
     }
+    if (fillBotsVotingVersion < 2) {
+      errorMessage =
+          'O servidor da mesa precisa ser atualizado antes de iniciar a votação.';
+      notifyListeners();
+      return;
+    }
     connecting = true;
     requestingFillBotsVote = true;
     errorMessage = null;
@@ -113,7 +124,13 @@ class TableSession extends ChangeNotifier {
           .post(
             Uri.parse('$_serverUrl/api/tables/$tableNumber/fill-bots'),
             headers: const {'Content-Type': 'application/json'},
-            body: jsonEncode({'playerToken': playerToken}),
+            body: jsonEncode({
+              'playerToken': playerToken,
+              'humanSeatIndexes': [
+                for (var index = 0; index < seats.length; index++)
+                  if (seats[index] != null && !seats[index]!.isBot) index,
+              ],
+            }),
           )
           .timeout(const Duration(seconds: 12));
       final payload = jsonDecode(response.body) as Map<String, dynamic>;
@@ -140,9 +157,28 @@ class TableSession extends ChangeNotifier {
     submittingFillBotsVote = true;
     _channel!.sink.add(jsonEncode({
       'type': 'fillBotsVote',
+      'voteId': fillBotsVote!.id,
       'accepted': accepted,
     }));
     notifyListeners();
+  }
+
+  void reportFillBotsVoteShown(String voteId) {
+    final vote = fillBotsVote;
+    if (vote == null ||
+        vote.id != voteId ||
+        vote.requesterSeatIndex == seatIndex ||
+        !vote.participantSeatIndexes.contains(seatIndex) ||
+        vote.shownAtFor(seatIndex) != null ||
+        _channel == null ||
+        _reportedShownFillBotsVoteId == voteId) {
+      return;
+    }
+    _reportedShownFillBotsVoteId = voteId;
+    _channel!.sink.add(jsonEncode({
+      'type': 'fillBotsVoteShown',
+      'voteId': voteId,
+    }));
   }
 
   Future<void> startNewMatch(DouradinhaGame game) async {
@@ -224,6 +260,7 @@ class TableSession extends ChangeNotifier {
     seatIndex = value.seatIndex;
     phase = value.phase;
     seats = value.seats;
+    fillBotsVotingVersion = value.fillBotsVotingVersion;
     waitingStartAt = value.waitingStartAt;
     fillBotsVote = value.fillBotsVote;
     _configureSeats();
@@ -232,6 +269,8 @@ class TableSession extends ChangeNotifier {
 
   void _applyRoomPayload(Map<String, dynamic> payload) {
     phase = LobbyTablePhase.values.byName(payload['phase'] as String);
+    final votingVersion = payload['fillBotsVotingVersion'];
+    fillBotsVotingVersion = votingVersion is num ? votingVersion.toInt() : 0;
     seatIndex = payload['seatIndex'] as int? ?? seatIndex;
     seats = (payload['seats'] as List<Object?>)
         .map((value) => value == null
@@ -243,6 +282,9 @@ class TableSession extends ChangeNotifier {
         ? DateTime.fromMillisecondsSinceEpoch(countdownValue.toInt())
         : null;
     fillBotsVote = FillBotsVote.fromJsonValue(payload['fillBotsVote']);
+    if (fillBotsVote?.id != _reportedShownFillBotsVoteId) {
+      _reportedShownFillBotsVoteId = null;
+    }
     submittingFillBotsVote = false;
     _configureSeats();
     _restoreRemoteState(payload['gameState']);
@@ -276,6 +318,7 @@ class TableSession extends ChangeNotifier {
       if (_disposed || channel != _channel) return;
       connected = true;
       replacementBotActive = false;
+      _reportedShownFillBotsVoteId = null;
       _subscription = channel.stream.listen(
         _handleSocketMessage,
         onDone: _handleSocketClosed,

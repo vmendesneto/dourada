@@ -399,6 +399,36 @@ void main() {
     await tester.pump(const Duration(seconds: 12));
   });
 
+  testWidgets('tempo da votação espera o diálogo aparecer para o humano',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(
+      MaterialApp(
+        home: GamePage(
+          entry: _fillBotsVoteEntry(seatIndex: 1, timerStarted: false),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('O tempo de resposta ainda não começou'), findsOneWidget);
+    expect(
+        find.textContaining('Preparando o tempo de resposta'), findsOneWidget);
+    expect(
+      tester
+          .widget<LinearProgressIndicator>(
+            find.byKey(const ValueKey('tempo-votacao-robos')),
+          )
+          .value,
+      isNull,
+    );
+    expect(find.byKey(const ValueKey('aceitar-robos')), findsNothing);
+    expect(find.byKey(const ValueKey('recusar-robos')), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 12));
+  });
+
   testWidgets('retomada escolhe não voltar depois de vinte segundos',
       (tester) async {
     await tester.pumpWidget(const MaterialApp(home: _ResumeDialogHarness()));
@@ -420,7 +450,10 @@ void main() {
   });
 }
 
-TableEntry _fillBotsVoteEntry({required int seatIndex}) {
+TableEntry _fillBotsVoteEntry({
+  required int seatIndex,
+  bool timerStarted = true,
+}) {
   final seats = [
     const LobbySeat(
       index: 0,
@@ -447,11 +480,22 @@ TableEntry _fillBotsVoteEntry({required int seatIndex}) {
     phase: LobbyTablePhase.waiting,
     seats: seats,
     fillBotsVote: FillBotsVote(
+      id: 'vote-1',
       requesterSeatIndex: 0,
       participantSeatIndexes: const [0, 1],
       votes: const [true, null, null, null, null, null],
-      expiresAt: DateTime.now().add(const Duration(seconds: 10)),
+      shownAt: [
+        DateTime.now(),
+        timerStarted ? DateTime.now() : null,
+        null,
+        null,
+        null,
+        null,
+      ],
+      expiresAt:
+          timerStarted ? DateTime.now().add(const Duration(seconds: 10)) : null,
     ),
+    fillBotsVotingVersion: 2,
   );
 }
 

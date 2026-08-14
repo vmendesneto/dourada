@@ -101,21 +101,31 @@ void main() {
         'seatIndex': 2,
         'phase': 'waiting',
         'seats': List<Object?>.filled(6, null),
+        'fillBotsVotingVersion': 2,
         'waitingStartAt': null,
         'fillBotsVote': {
+          'id': 'vote-1',
           'requesterSeatIndex': 0,
           'participantSeatIndexes': [0, 2, 4],
           'votes': [true, null, null, null, false, null],
+          'shownAt': [100, null, null, null, 120, null],
           'expiresAt': 123456789,
         },
       },
     );
 
+    expect(entry.fillBotsVotingVersion, 2);
+    expect(entry.fillBotsVote?.id, 'vote-1');
     expect(entry.fillBotsVote?.requesterSeatIndex, 0);
     expect(entry.fillBotsVote?.participantSeatIndexes, [0, 2, 4]);
     expect(entry.fillBotsVote?.voteFor(0), isTrue);
     expect(entry.fillBotsVote?.voteFor(2), isNull);
     expect(entry.fillBotsVote?.voteFor(4), isFalse);
+    expect(
+      entry.fillBotsVote?.shownAtFor(0),
+      DateTime.fromMillisecondsSinceEpoch(100),
+    );
+    expect(entry.fillBotsVote?.shownAtFor(2), isNull);
     expect(
       entry.fillBotsVote?.expiresAt,
       DateTime.fromMillisecondsSinceEpoch(123456789),

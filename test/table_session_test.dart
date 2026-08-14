@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:dourada/game/douradinha_game.dart';
@@ -101,7 +102,7 @@ void main() {
     final client = MockClient((request) async {
       sentRequest = request;
       return http.Response(
-        '''{"phase":"waiting","seatIndex":0,"seats":[{"index":0,"kind":"human","name":"Ana","team":0,"connected":true},{"index":1,"kind":"human","name":"Beto","team":1,"connected":true},null,null,null,null],"waitingStartAt":null,"gameState":null,"fillBotsVote":{"requesterSeatIndex":0,"participantSeatIndexes":[0,1],"votes":[true,null,null,null,null,null],"expiresAt":2000000000000}}''',
+        '''{"phase":"waiting","seatIndex":0,"seats":[{"index":0,"kind":"human","name":"Ana","team":0,"connected":true},{"index":1,"kind":"human","name":"Beto","team":1,"connected":true},null,null,null,null],"fillBotsVotingVersion":2,"waitingStartAt":null,"gameState":null,"fillBotsVote":{"id":"vote-1","requesterSeatIndex":0,"participantSeatIndexes":[0,1],"votes":[true,null,null,null,null,null],"shownAt":[1000,null,null,null,null,null],"expiresAt":null}}''',
         200,
       );
     });
@@ -114,6 +115,7 @@ void main() {
         seatIndex: 0,
         phase: LobbyTablePhase.waiting,
         seats: seats,
+        fillBotsVotingVersion: 2,
       ),
       client: client,
     );
@@ -121,9 +123,52 @@ void main() {
     await session.fillRemainingWithBots();
 
     expect(sentRequest.url.path, '/api/tables/3/fill-bots');
+    expect(
+      (jsonDecode(sentRequest.body)
+          as Map<String, dynamic>)['humanSeatIndexes'],
+      [0, 1],
+    );
+    expect(session.fillBotsVote?.id, 'vote-1');
     expect(session.fillBotsVote?.requesterSeatIndex, 0);
     expect(session.fillBotsVote?.participantSeatIndexes, [0, 1]);
+    expect(session.fillBotsVote?.expiresAt, isNull);
     expect(session.requestingFillBotsVote, isFalse);
+    session.dispose();
+  });
+
+  test('não envia pedido para servidor sem confirmação de exibição', () async {
+    var requestCount = 0;
+    final client = MockClient((request) async {
+      requestCount += 1;
+      return http.Response('{}', 500);
+    });
+    final session = TableSession(
+      entry: TableEntry(
+        serverUrl: 'https://dourada.example.workers.dev',
+        tableNumber: '3',
+        playerToken: 'token-ana',
+        websocketUrl: 'wss://dourada.example/connect',
+        seatIndex: 0,
+        phase: LobbyTablePhase.waiting,
+        seats: [
+          const LobbySeat(
+            index: 0,
+            kind: 'human',
+            name: 'Ana',
+            team: 0,
+            connected: true,
+          ),
+          ...List<LobbySeat?>.filled(5, null),
+        ],
+      ),
+      client: client,
+    );
+
+    await session.fillRemainingWithBots();
+
+    expect(requestCount, 0);
+    expect(session.errorMessage,
+        contains('servidor da mesa precisa ser atualizado'));
     session.dispose();
   });
 

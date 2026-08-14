@@ -98,6 +98,7 @@ class TableEntry {
     required this.seatIndex,
     required this.phase,
     required this.seats,
+    this.fillBotsVotingVersion = 0,
     this.waitingStartAt,
     this.fillBotsVote,
     this.gameState,
@@ -110,6 +111,7 @@ class TableEntry {
   final int seatIndex;
   final LobbyTablePhase phase;
   final List<LobbySeat?> seats;
+  final int fillBotsVotingVersion;
   final DateTime? waitingStartAt;
   final FillBotsVote? fillBotsVote;
   final Object? gameState;
@@ -131,6 +133,8 @@ class TableEntry {
                   : LobbySeat.fromJson(Map<String, dynamic>.from(seat as Map)),
             )
             .toList(growable: false),
+        fillBotsVotingVersion:
+            (json['fillBotsVotingVersion'] as num?)?.toInt() ?? 0,
         waitingStartAt: _dateTimeFromMilliseconds(json['waitingStartAt']),
         fillBotsVote: FillBotsVote.fromJsonValue(json['fillBotsVote']),
         gameState: json['gameState'],
@@ -139,43 +143,61 @@ class TableEntry {
 
 class FillBotsVote {
   const FillBotsVote({
+    required this.id,
     required this.requesterSeatIndex,
     required this.participantSeatIndexes,
     required this.votes,
+    required this.shownAt,
     required this.expiresAt,
   });
 
+  final String id;
   final int requesterSeatIndex;
   final List<int> participantSeatIndexes;
   final List<bool?> votes;
-  final DateTime expiresAt;
+  final List<DateTime?> shownAt;
+  final DateTime? expiresAt;
 
   bool? voteFor(int seatIndex) =>
       seatIndex >= 0 && seatIndex < votes.length ? votes[seatIndex] : null;
+  DateTime? shownAtFor(int seatIndex) =>
+      seatIndex >= 0 && seatIndex < shownAt.length ? shownAt[seatIndex] : null;
 
   static FillBotsVote? fromJsonValue(Object? value) {
     if (value is! Map) return null;
     final json = Map<String, dynamic>.from(value);
+    final id = json['id'];
     final requester = json['requesterSeatIndex'];
     final participants = json['participantSeatIndexes'];
     final rawVotes = json['votes'];
+    final rawShownAt = json['shownAt'];
     final expires = json['expiresAt'];
-    if (requester is! num ||
+    if (id is! String ||
+        requester is! num ||
         participants is! List ||
         rawVotes is! List ||
-        expires is! num) {
+        rawShownAt is! List ||
+        (expires != null && expires is! num)) {
       return null;
     }
     final participantIndexes =
         participants.whereType<num>().map((index) => index.toInt()).toList();
     if (participantIndexes.length != participants.length) return null;
     return FillBotsVote(
+      id: id,
       requesterSeatIndex: requester.toInt(),
       participantSeatIndexes: participantIndexes,
       votes: rawVotes
           .map<bool?>((vote) => vote is bool ? vote : null)
           .toList(growable: false),
-      expiresAt: DateTime.fromMillisecondsSinceEpoch(expires.toInt()),
+      shownAt: rawShownAt
+          .map<DateTime?>((value) => value is num
+              ? DateTime.fromMillisecondsSinceEpoch(value.toInt())
+              : null)
+          .toList(growable: false),
+      expiresAt: expires is num
+          ? DateTime.fromMillisecondsSinceEpoch(expires.toInt())
+          : null,
     );
   }
 }

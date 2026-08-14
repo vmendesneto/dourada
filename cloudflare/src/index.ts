@@ -18,6 +18,7 @@ import {
   createFillBotsVote,
   fillBotsVoteDecision,
   recordFillBotsVote,
+  recordFillBotsVoteShown,
   type FillBotsVote,
 } from "./fill_bots_vote";
 
@@ -61,6 +62,7 @@ const seatCount = 6;
 const disconnectGraceMs = 5000;
 const humanTurnMs = 15000;
 const botAvatarCount = 10;
+const fillBotsVotingVersion = 2;
 
 const corsHeaders = (request: Request): Record<string, string> => ({
   "Access-Control-Allow-Origin": request.headers.get("Origin") ?? "*",
@@ -156,6 +158,7 @@ export default {
         ok: true,
         service: "dourada-mesas",
         tableLimit: tableCount,
+        fillBotsVotingVersion,
       });
     }
     return json(request, { error: "Rota não encontrada." }, 404);
@@ -300,9 +303,22 @@ export class GameTable extends DurableObject<Env> {
       return;
     }
 
+    if (payload.type === "fillBotsVoteShown" && table.phase === "waiting") {
+      const vote = table.fillBotsVote;
+      if (vote === null || payload.voteId !== vote.id) return;
+      if (!recordFillBotsVoteShown(vote, attachment.seatIndex, Date.now())) return;
+      await this.saveAndSchedule(table, true);
+      this.broadcast(table);
+      return;
+    }
+
     if (payload.type === "fillBotsVote" && table.phase === "waiting") {
       const vote = table.fillBotsVote;
-      if (vote === null || typeof payload.accepted !== "boolean") return;
+      if (
+        vote === null ||
+        payload.voteId !== vote.id ||
+        typeof payload.accepted !== "boolean"
+      ) return;
       if (!recordFillBotsVote(vote, attachment.seatIndex, payload.accepted)) return;
       this.resolveFillBotsVote(table, Date.now());
       await this.saveAndSchedule(table, true);
@@ -343,7 +359,8 @@ export class GameTable extends DurableObject<Env> {
           now - seat.disconnectedAt >= disconnectGraceMs &&
           !(
             table.fillBotsVote?.participantSeatIndexes.includes(index) &&
-            now < table.fillBotsVote.expiresAt
+            (table.fillBotsVote.expiresAt === null ||
+              now < table.fillBotsVote.expiresAt)
           )
         ) {
           table.seats[index] = null;
@@ -465,7 +482,10 @@ export class GameTable extends DurableObject<Env> {
   }
 
   private async fillBots(request: Request, tableNumber?: number): Promise<Response> {
-    const payload = (await request.json().catch(() => ({}))) as { playerToken?: string };
+    const payload = (await request.json().catch(() => ({}))) as {
+      playerToken?: string;
+      humanSeatIndexes?: unknown;
+    };
     const table = await this.load(tableNumber);
     const seatIndex = table.seats.findIndex(
       (seat) => seat?.kind === "human" && seat.token === payload.playerToken,
@@ -484,7 +504,31 @@ export class GameTable extends DurableObject<Env> {
     const participantSeatIndexes = table.seats.flatMap((seat, index) =>
       seat?.kind === "human" ? [index] : [],
     );
+    const clientHumanSeatIndexes = Array.isArray(payload.humanSeatIndexes)
+      ? payload.humanSeatIndexes.filter(
+          (index): index is number => Number.isInteger(index),
+        )
+      : [];
+    if (
+      clientHumanSeatIndexes.length !== participantSeatIndexes.length ||
+      clientHumanSeatIndexes.some(
+        (index, position) => index !== participantSeatIndexes[position],
+      )
+    ) {
+      return Response.json(
+        { error: "A lista de jogadores mudou. Aguarde a sala atualizar." },
+        { status: 409 },
+      );
+    }
+    const activeHumans = this.activeHumanSeats();
+    if (participantSeatIndexes.some((index) => !activeHumans.has(index))) {
+      return Response.json(
+        { error: "Aguarde todos os jogadores humanos estarem conectados." },
+        { status: 409 },
+      );
+    }
     table.fillBotsVote = createFillBotsVote(
+      crypto.randomUUID(),
       seatIndex,
       participantSeatIndexes,
       now,
@@ -628,7 +672,12 @@ export class GameTable extends DurableObject<Env> {
     if (!this.validHuman(table, attachment.seatIndex, attachment.token)) return;
     if (this.activeHumanSeats().has(attachment.seatIndex)) return;
     table.seats[attachment.seatIndex]!.disconnectedAt = Date.now();
-    if (table.phase === "waiting") table.waitingStartAt = null;
+    if (table.phase === "waiting") {
+      table.waitingStartAt = null;
+      if (table.fillBotsVote?.participantSeatIndexes.includes(attachment.seatIndex)) {
+        table.fillBotsVote = null;
+      }
+    }
     if (
       table.phase === "playing" &&
       (table.gameState?.phase === "gameOver" ||
@@ -676,6 +725,7 @@ export class GameTable extends DurableObject<Env> {
       gameState: table.gameState,
       waitingStartAt: table.waitingStartAt,
       fillBotsVote: table.fillBotsVote,
+      fillBotsVotingVersion,
       status: this.status(table),
     };
   }
@@ -705,6 +755,7 @@ export class GameTable extends DurableObject<Env> {
       gameState: table.gameState,
       waitingStartAt: table.waitingStartAt,
       fillBotsVote: table.fillBotsVote,
+      fillBotsVotingVersion,
     };
   }
 
@@ -845,6 +896,13 @@ export class GameTable extends DurableObject<Env> {
     if (stored?.version === 2) {
       stored.waitingStartAt ??= null;
       stored.fillBotsVote ??= null;
+      if (
+        stored.fillBotsVote !== null &&
+        (typeof stored.fillBotsVote.id !== "string" ||
+          !Array.isArray(stored.fillBotsVote.shownAt))
+      ) {
+        stored.fillBotsVote = null;
+      }
       return stored;
     }
     const tableNumber = requestedTableNumber ?? 1;
@@ -869,6 +927,11 @@ export class GameTable extends DurableObject<Env> {
     if (needsDisconnectedDeadlines) {
       for (const seat of table.seats) {
         if (seat?.kind === "human" && seat.disconnectedAt !== null) {
+          const seatIndex = table.seats.indexOf(seat);
+          if (
+            table.fillBotsVote?.participantSeatIndexes.includes(seatIndex) &&
+            table.fillBotsVote.expiresAt === null
+          ) continue;
           deadlines.push(seat.disconnectedAt + disconnectGraceMs);
         }
       }

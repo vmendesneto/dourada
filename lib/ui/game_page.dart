@@ -826,6 +826,14 @@ class _FillBotsVoteOverlay extends StatelessWidget {
       );
     }
 
+    if (vote.requesterSeatIndex != session.seatIndex &&
+        vote.participantSeatIndexes.contains(session.seatIndex) &&
+        vote.shownAtFor(session.seatIndex) == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted) session.reportFillBotsVoteShown(vote.id);
+      });
+    }
+
     final requester = vote.requesterSeatIndex >= 0 &&
             vote.requesterSeatIndex < session.seats.length
         ? session.seats[vote.requesterSeatIndex]
@@ -841,14 +849,20 @@ class _FillBotsVoteOverlay extends StatelessWidget {
     final refused =
         responders.where((index) => vote.voteFor(index) == false).length;
     final pending = responders.length - accepted - refused;
-    final remainingMs = vote.expiresAt
-        .difference(DateTime.now())
-        .inMilliseconds
-        .clamp(0, 10000);
+    final expiresAt = vote.expiresAt;
+    final remainingMs = expiresAt == null
+        ? 10000
+        : expiresAt.difference(DateTime.now()).inMilliseconds.clamp(0, 10000);
     final remainingSeconds = (remainingMs / 1000).ceil();
 
     String message;
-    if (isRequester) {
+    if (expiresAt == null && isRequester) {
+      message =
+          'Pedido enviado. O tempo começará somente depois que a mensagem aparecer para todos os outros jogadores.';
+    } else if (expiresAt == null && canRespond == false && localVote == null) {
+      message =
+          '${requester?.name ?? 'Outro jogador'} pediu para completar a mesa com robôs. Preparando o tempo de resposta...';
+    } else if (isRequester) {
       message =
           'Você pediu para completar a mesa com robôs. Aguardando a resposta dos outros jogadores.';
     } else if (canRespond) {
@@ -937,7 +951,7 @@ class _FillBotsVoteOverlay extends StatelessWidget {
                         const SizedBox(height: 12),
                         LinearProgressIndicator(
                           key: const ValueKey('tempo-votacao-robos'),
-                          value: remainingMs / 10000,
+                          value: expiresAt == null ? null : remainingMs / 10000,
                           minHeight: 7,
                           borderRadius: BorderRadius.circular(4),
                           color: const Color(0xFFFFC857),
@@ -945,7 +959,9 @@ class _FillBotsVoteOverlay extends StatelessWidget {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          '$remainingSeconds ${remainingSeconds == 1 ? 'segundo' : 'segundos'} para responder',
+                          expiresAt == null
+                              ? 'O tempo de resposta ainda não começou'
+                              : '$remainingSeconds ${remainingSeconds == 1 ? 'segundo' : 'segundos'} para responder',
                           style: TextStyle(
                             color: Colors.white.withValues(alpha: .7),
                             fontSize: 12,
