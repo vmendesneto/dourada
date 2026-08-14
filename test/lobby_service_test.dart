@@ -58,6 +58,53 @@ void main() {
     );
   });
 
+  test('entrada rápida prioriza a primeira mesa aguardando', () {
+    LobbyTable table(int number, LobbyTablePhase phase, int players) =>
+        LobbyTable(
+          tableNumber: number,
+          phase: phase,
+          playerCount: players,
+          humanCount: players,
+          botCount: 0,
+          capacity: 6,
+          seats: List<LobbySeat?>.filled(6, null),
+        );
+
+    final selected = selectQuickJoinTable([
+      table(1, LobbyTablePhase.empty, 0),
+      table(2, LobbyTablePhase.playing, 6),
+      table(4, LobbyTablePhase.waiting, 1),
+      table(3, LobbyTablePhase.waiting, 5),
+    ]);
+
+    expect(selected?.tableNumber, 3);
+  });
+
+  test('entrada rápida abre a primeira mesa vazia se ninguém aguarda', () {
+    final selected = selectQuickJoinTable([
+      LobbyTable(
+        tableNumber: 2,
+        phase: LobbyTablePhase.empty,
+        playerCount: 0,
+        humanCount: 0,
+        botCount: 0,
+        capacity: 6,
+        seats: List<LobbySeat?>.filled(6, null),
+      ),
+      LobbyTable(
+        tableNumber: 1,
+        phase: LobbyTablePhase.playing,
+        playerCount: 6,
+        humanCount: 6,
+        botCount: 0,
+        capacity: 6,
+        seats: List<LobbySeat?>.filled(6, null),
+      ),
+    ]);
+
+    expect(selected?.tableNumber, 2);
+  });
+
   test('envia token Firebase e nome ao ocupar uma nova cadeira', () async {
     SharedPreferences.setMockInitialValues({});
     late http.Request sentRequest;

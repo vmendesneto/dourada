@@ -1575,6 +1575,52 @@ class _TablePlayerAvatar extends StatelessWidget {
   }
 }
 
+class _TurnAvatarHighlight extends StatelessWidget {
+  const _TurnAvatarHighlight({
+    super.key,
+    required this.active,
+    required this.color,
+    required this.child,
+  });
+
+  final bool active;
+  final Color color;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedScale(
+      scale: active ? 1.08 : 1,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOutBack,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          boxShadow: active
+              ? [
+                  BoxShadow(
+                    color: color.withValues(alpha: .7),
+                    blurRadius: 12,
+                    spreadRadius: 2,
+                  ),
+                ]
+              : const [],
+        ),
+        foregroundDecoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: active ? color : Colors.transparent,
+            width: active ? 3 : 0,
+          ),
+        ),
+        child: child,
+      ),
+    );
+  }
+}
+
 class _BotSeat extends StatelessWidget {
   const _BotSeat({
     required this.game,
@@ -1909,12 +1955,17 @@ class _HumanControls extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 7),
-                  _TablePlayerAvatar(
-                    key: const ValueKey('avatar-jogador-local'),
-                    isBot: false,
-                    photoUrl: human.photoUrl,
+                  _TurnAvatarHighlight(
+                    key: const ValueKey('animacao-turno-jogador-local'),
+                    active: active,
                     color: teamColor,
-                    radius: 17,
+                    child: _TablePlayerAvatar(
+                      key: const ValueKey('avatar-jogador-local'),
+                      isBot: false,
+                      photoUrl: human.photoUrl,
+                      color: teamColor,
+                      radius: 17,
+                    ),
                   ),
                   const SizedBox(width: 7),
                   Expanded(
@@ -2024,12 +2075,17 @@ class _HumanControls extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                _TablePlayerAvatar(
-                  key: const ValueKey('avatar-jogador-local'),
-                  isBot: false,
-                  photoUrl: human.photoUrl,
+                _TurnAvatarHighlight(
+                  key: const ValueKey('animacao-turno-jogador-local'),
+                  active: active,
                   color: teamColor,
-                  radius: 22,
+                  child: _TablePlayerAvatar(
+                    key: const ValueKey('avatar-jogador-local'),
+                    isBot: false,
+                    photoUrl: human.photoUrl,
+                    color: teamColor,
+                    radius: 22,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(

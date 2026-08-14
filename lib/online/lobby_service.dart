@@ -89,6 +89,17 @@ class LobbyTable {
       );
 }
 
+LobbyTable? selectQuickJoinTable(Iterable<LobbyTable> tables) {
+  final ordered = tables.where((table) => table.canJoin).toList()
+    ..sort((left, right) => left.tableNumber.compareTo(right.tableNumber));
+  for (final phase in [LobbyTablePhase.waiting, LobbyTablePhase.empty]) {
+    for (final table in ordered) {
+      if (table.phase == phase) return table;
+    }
+  }
+  return null;
+}
+
 class TableEntry {
   const TableEntry({
     required this.serverUrl,

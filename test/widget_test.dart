@@ -44,7 +44,45 @@ void main() {
     await tester.pump();
 
     expect(find.byKey(const ValueKey('entrar-em-uma-mesa')), findsOneWidget);
+    expect(find.byKey(const ValueKey('entrar-rapido')), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('entrada rápida escolhe a primeira mesa aguardando',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues({});
+    addTearDown(() => SharedPreferences.setMockInitialValues({}));
+    final service = _HangingCancelLobbyService(
+      tables: [
+        _lobbyTable(1, LobbyTablePhase.empty),
+        _lobbyTable(2, LobbyTablePhase.playing, playerCount: 6),
+        _lobbyTable(3, LobbyTablePhase.waiting, playerCount: 2),
+        _lobbyTable(4, LobbyTablePhase.waiting, playerCount: 1),
+      ],
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LobbyPage(
+          service: service,
+          authService: FakeAuthService(signedIn: true),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('DOURADA'), findsOneWidget);
+    expect(find.text('LOBBY DOURADINHA'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('entrar-rapido')));
+    await tester.pumpAndSettle();
+
+    expect(service.joinedTableNumber, 3);
+    expect(find.byType(GamePage), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets('perfil só altera Firebase ao salvar e permite cancelar',
@@ -243,6 +281,60 @@ void main() {
           .height,
       72,
     );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('anima a foto do humano quando chega a vez dele', (tester) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final savedGame = DouradinhaGame()..currentPlayerIndex = 1;
+    SharedPreferences.setMockInitialValues({
+      'douradinha_partida_em_andamento_v1': jsonEncode(savedGame.toJson()),
+    });
+    addTearDown(() => SharedPreferences.setMockInitialValues({}));
+
+    await tester.pumpWidget(
+      DouradinhaApp(authService: FakeAuthService(signedIn: true)),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
+    await tester.pumpAndSettle();
+
+    final highlight =
+        find.byKey(const ValueKey('animacao-turno-jogador-local'));
+    expect(highlight, findsOneWidget);
+    expect(
+      tester
+          .widget<AnimatedScale>(
+            find.descendant(
+                of: highlight, matching: find.byType(AnimatedScale)),
+          )
+          .scale,
+      1,
+    );
+
+    final dynamic pageState = tester.state(find.byType(GamePage));
+    final dynamic game = pageState.game;
+    game.currentPlayerIndex = game.humanPlayerIndex;
+    game.notifyListeners();
+    await tester.pump();
+
+    final activeScale = tester.widget<AnimatedScale>(
+      find.descendant(of: highlight, matching: find.byType(AnimatedScale)),
+    );
+    final activeContainer = tester.widget<AnimatedContainer>(
+      find.descendant(of: highlight, matching: find.byType(AnimatedContainer)),
+    );
+    final foreground = activeContainer.foregroundDecoration! as BoxDecoration;
+    expect(activeScale.scale, 1.08);
+    expect(activeScale.duration, const Duration(milliseconds: 250));
+    expect(foreground.border!.top.width, 3);
+
+    await tester.pump(const Duration(milliseconds: 250));
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
@@ -463,11 +555,11 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('confirmar-saida-mesa')));
     for (var attempt = 0;
-        attempt < 30 && find.text('LOBBY DOURADINHA').evaluate().isEmpty;
+        attempt < 30 && find.text('DOURADA').evaluate().isEmpty;
         attempt++) {
       await tester.pump(const Duration(milliseconds: 100));
     }
-    expect(find.text('LOBBY DOURADINHA'), findsOneWidget);
+    expect(find.text('DOURADA'), findsOneWidget);
     await tester.pump(const Duration(milliseconds: 500));
     expect(find.byType(GamePage), findsNothing);
   });
@@ -718,28 +810,36 @@ TableEntry _challengeNoticeEntry(bool accepted) {
   );
 }
 
+LobbyTable _lobbyTable(
+  int tableNumber,
+  LobbyTablePhase phase, {
+  int playerCount = 0,
+}) =>
+    LobbyTable(
+      tableNumber: tableNumber,
+      phase: phase,
+      playerCount: playerCount,
+      humanCount: playerCount,
+      botCount: 0,
+      capacity: 6,
+      seats: List<LobbySeat?>.filled(6, null),
+    );
+
 class _HangingCancelLobbyService extends LobbyService {
-  _HangingCancelLobbyService() : super(serverUrl: '') {
+  _HangingCancelLobbyService({List<LobbyTable>? tables})
+      : _tables = tables ??
+            List.generate(
+                10, (index) => _lobbyTable(index + 1, LobbyTablePhase.empty)),
+        super(serverUrl: '') {
     _controller = StreamController<List<LobbyTable>>();
     _controller.onListen = () => _controller.add(_tables);
     _controller.onCancel = () => Completer<void>().future;
   }
 
   late final StreamController<List<LobbyTable>> _controller;
+  final List<LobbyTable> _tables;
   bool joinCalled = false;
-
-  static final _tables = List.generate(
-    10,
-    (index) => LobbyTable(
-      tableNumber: index + 1,
-      phase: LobbyTablePhase.empty,
-      playerCount: 0,
-      humanCount: 0,
-      botCount: 0,
-      capacity: 6,
-      seats: List<LobbySeat?>.filled(6, null),
-    ),
-  );
+  int? joinedTableNumber;
 
   @override
   Stream<List<LobbyTable>> watchTables() => _controller.stream;
@@ -752,6 +852,7 @@ class _HangingCancelLobbyService extends LobbyService {
     String? playerPhotoUrl,
   }) async {
     joinCalled = true;
+    joinedTableNumber = tableNumber;
     return super.joinTable(
       tableNumber,
       firebaseIdToken: firebaseIdToken,

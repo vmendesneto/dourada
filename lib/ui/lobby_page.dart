@@ -51,6 +51,7 @@ class _LobbyPageState extends State<LobbyPage> {
   bool _resumeOfferHandled = false;
   bool _resumeDialogOpen = false;
   bool _authBusy = false;
+  bool _hasLobbySnapshot = false;
   SavedTableSession? _savedSession;
 
   @override
@@ -142,6 +143,7 @@ class _LobbyPageState extends State<LobbyPage> {
     setState(() {
       _tables = tables;
       _error = null;
+      _hasLobbySnapshot = true;
     });
     final savedSession = _savedSession;
     if (_authService.currentUser != null &&
@@ -154,8 +156,10 @@ class _LobbyPageState extends State<LobbyPage> {
 
   void _handleLobbyDisconnected() {
     if (!mounted || !_service.enabled) return;
-    setState(
-        () => _error = 'Conexão com o lobby interrompida. Reconectando...');
+    setState(() {
+      _error = 'Conexão com o lobby interrompida. Reconectando...';
+      _hasLobbySnapshot = false;
+    });
     if (_reconnectTimer?.isActive == true) return;
     _reconnectTimer = Timer(
       const Duration(seconds: 3),
@@ -252,6 +256,23 @@ class _LobbyPageState extends State<LobbyPage> {
     }
   }
 
+  Future<void> _quickEnter() async {
+    if (_openingTable != null || _authBusy || !_hasLobbySnapshot) return;
+    if (_authService.currentUser == null) {
+      await _signIn();
+      return;
+    }
+    final table = selectQuickJoinTable(_tables);
+    if (table == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nenhuma mesa livre no momento.')),
+      );
+      return;
+    }
+    await _enter(table);
+  }
+
   @override
   void dispose() {
     _reconnectTimer?.cancel();
@@ -283,7 +304,7 @@ class _LobbyPageState extends State<LobbyPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('LOBBY DOURADINHA',
+                        Text('DOURADA',
                             style: Theme.of(context)
                                 .textTheme
                                 .titleLarge
@@ -328,6 +349,44 @@ class _LobbyPageState extends State<LobbyPage> {
                 child: Text(_error!,
                     style: const TextStyle(color: Color(0xFFFF9E80))),
               ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 420),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      key: const ValueKey('entrar-rapido'),
+                      onPressed: _openingTable != null ||
+                              _authBusy ||
+                              !_hasLobbySnapshot
+                          ? null
+                          : _quickEnter,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFFE7A93E),
+                        foregroundColor: const Color(0xFF173326),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        textStyle: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                      icon: _openingTable != null || !_hasLobbySnapshot
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.bolt_rounded),
+                      label: Text(
+                        !_hasLobbySnapshot
+                            ? 'CARREGANDO MESAS...'
+                            : _openingTable == null
+                                ? 'ENTRAR RÁPIDO'
+                                : 'ENTRANDO NA MESA $_openingTable...',
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
             Expanded(
               child: _tables.isEmpty
                   ? const Center(child: CircularProgressIndicator())
@@ -915,17 +974,23 @@ class _TableCard extends StatelessWidget {
                     fontSize: 17,
                   )),
               const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: .14),
-                  borderRadius: BorderRadius.circular(20),
+              Flexible(
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: .14),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(status,
+                        style: TextStyle(
+                            color: color,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w900)),
+                  ),
                 ),
-                child: Text(status,
-                    style: TextStyle(
-                        color: color,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w900)),
               ),
             ],
           ),
