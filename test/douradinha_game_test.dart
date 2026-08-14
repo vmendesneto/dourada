@@ -141,10 +141,18 @@ void main() {
       expect(restored.timeoutCountFor(1), 1);
     });
 
-    test('mantém o resultado da mão visível por cinco segundos', () {
+    test('separa as pausas entre mãos e entre partidas', () {
       expect(
-        DouradinhaGame.handResultDisplayDuration,
-        const Duration(seconds: 5),
+        DouradinhaGame.handTransitionDuration,
+        const Duration(seconds: 2),
+      );
+      expect(
+        DouradinhaGame.partidaStartDelay,
+        const Duration(milliseconds: 1500),
+      );
+      expect(
+        DouradinhaGame.betweenPartidasTransitionDuration,
+        const Duration(milliseconds: 3500),
       );
     });
 

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   advanceBot,
+  betweenPartidasTransitionMs,
   cardStrength,
   createInitialGame,
+  handTransitionMs,
   isGameState,
   resolveDisputeWinner,
   resolveTrickWinner,
@@ -124,6 +126,69 @@ describe("motor do robô substituto", () => {
     expect(step.state.playedCards).toEqual([{ playerIndex: 0, card: "3o" }]);
     expect(step.state.currentPlayerIndex).toBe(1);
     expect(step.nextDelayMs).toBe(650);
+  });
+
+  it("aguarda dois segundos depois de concluir uma mão", () => {
+    const game = fixture();
+    game.playerHands = [[], [], [], [], [], ["4p"]];
+    game.currentTrick = [
+      { playerIndex: 0, card: "Qo" },
+      { playerIndex: 1, card: "4o" },
+      { playerIndex: 2, card: "5o" },
+      { playerIndex: 3, card: "6o" },
+      { playerIndex: 4, card: "7e" },
+    ];
+    game.playedCards = [...game.currentTrick];
+    game.currentPlayerIndex = 5;
+
+    const step = advanceBot(game);
+
+    expect(step.state.awaitingNextTrick).toBe(true);
+    expect(step.nextDelayMs).toBe(handTransitionMs);
+    expect(handTransitionMs).toBe(2000);
+  });
+
+  it("aguarda três segundos e meio entre partidas da mesma queda", () => {
+    const game = fixture();
+    game.trickWinners = [0];
+    game.playerHands = [[], [], [], [], [], ["4p"]];
+    game.currentTrick = [
+      { playerIndex: 0, card: "Qo" },
+      { playerIndex: 1, card: "4o" },
+      { playerIndex: 2, card: "5o" },
+      { playerIndex: 3, card: "6o" },
+      { playerIndex: 4, card: "7e" },
+    ];
+    game.playedCards = [...game.currentTrick];
+    game.currentPlayerIndex = 5;
+
+    const step = advanceBot(game);
+
+    expect(step.state.phase).toBe("handFinished");
+    expect(step.state.matchWinner).toBeNull();
+    expect(step.nextDelayMs).toBe(betweenPartidasTransitionMs);
+    expect(betweenPartidasTransitionMs).toBe(3500);
+  });
+
+  it("não soma a pausa de nova partida quando a queda terminou", () => {
+    const game = fixture();
+    game.scores[0] = 10;
+    game.trickWinners = [0];
+    game.playerHands = [[], [], [], [], [], ["4p"]];
+    game.currentTrick = [
+      { playerIndex: 0, card: "Qo" },
+      { playerIndex: 1, card: "4o" },
+      { playerIndex: 2, card: "5o" },
+      { playerIndex: 3, card: "6o" },
+      { playerIndex: 4, card: "7e" },
+    ];
+    game.playedCards = [...game.currentTrick];
+    game.currentPlayerIndex = 5;
+
+    const step = advanceBot(game);
+
+    expect(step.state.matchWinner).toBe(0);
+    expect(step.nextDelayMs).toBe(handTransitionMs);
   });
 
   it("mantém Nós relativo à equipe do usuário", () => {

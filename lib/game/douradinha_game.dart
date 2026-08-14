@@ -145,7 +145,9 @@ class Challenge {
 }
 
 class DouradinhaGame extends ChangeNotifier {
-  static const handResultDisplayDuration = Duration(seconds: 5);
+  static const handTransitionDuration = Duration(seconds: 2);
+  static const partidaStartDelay = Duration(milliseconds: 1500);
+  static const betweenPartidasTransitionDuration = Duration(milliseconds: 3500);
   static const challengeNoticeDuration = Duration(seconds: 2);
 
   DouradinhaGame({Random? random, this.humanPlayerIndex = 0})

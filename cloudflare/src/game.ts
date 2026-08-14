@@ -51,6 +51,11 @@ export interface BotStep {
   nextDelayMs: number | null;
 }
 
+export const handTransitionMs = 2000;
+export const partidaStartDelayMs = 1500;
+export const betweenPartidasTransitionMs =
+  handTransitionMs + partidaStartDelayMs;
+
 const ranks = ["4", "5", "6", "7", "Q", "J", "K", "A", "2", "3"];
 const suits = ["o", "e", "c", "p"];
 
@@ -213,9 +218,12 @@ export function advanceBot(state: GameState): BotStep {
   const card = chooseBotCard(game, playerIndex);
   if (card === null) return { state: game, nextDelayMs: null };
   playCard(game, playerIndex, card);
-  const delay =
-    (game as GameState).phase === "handFinished" || game.awaitingNextTrick
-      ? 5000
+  const delay = game.awaitingNextTrick
+    ? handTransitionMs
+    : (game as GameState).phase === "handFinished"
+      ? game.matchWinner === null
+        ? betweenPartidasTransitionMs
+        : handTransitionMs
       : 650;
   return { state: game, nextDelayMs: delay };
 }

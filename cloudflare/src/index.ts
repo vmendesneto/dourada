@@ -1,6 +1,8 @@
 import {
   advanceBot,
+  betweenPartidasTransitionMs,
   createInitialGame,
+  handTransitionMs,
   isGameState,
   pendingTenTeam,
   type GameState,
@@ -785,11 +787,16 @@ export class GameTable extends DurableObject<Env> {
         return now + engineDelayMs;
       }
     }
-    if (
-      game.phase === "handFinished" ||
-      game.awaitingNextTrick ||
-      game.challengeNotice !== null
-    ) {
+    if (game.awaitingNextTrick) {
+      return now + handTransitionMs;
+    }
+    if (game.phase === "handFinished") {
+      return now +
+        (game.matchWinner === null
+          ? betweenPartidasTransitionMs
+          : handTransitionMs);
+    }
+    if (game.challengeNotice !== null) {
       return now + 5000;
     }
     const expectedHuman = this.expectedHumanSeat(table);
