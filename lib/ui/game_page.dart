@@ -22,7 +22,6 @@ class GamePage extends StatefulWidget {
 
 class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   static const _savedGameKey = 'douradinha_partida_em_andamento_v1';
-  static const _botActionDelay = Duration(seconds: 2);
 
   late final DouradinhaGame game;
   late final TableSession tableSession;
@@ -416,13 +415,13 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       delay = DouradinhaGame.handTransitionDuration;
       action = game.beginNextTrick;
     } else if (game.botTenDecisionPending) {
-      delay = _botActionDelay;
+      delay = const Duration(milliseconds: 900);
       action = game.resolveBotTenHand;
     } else if (game.pendingChallenge != null) {
-      delay = _botActionDelay;
+      delay = const Duration(milliseconds: 900);
       action = game.resolveBotChallenge;
     } else if (game.currentPlayerIndex > 0) {
-      delay = _botActionDelay;
+      delay = const Duration(milliseconds: 650);
       action = game.takeBotTurn;
     } else {
       return;
@@ -899,7 +898,299 @@ class _WaitingRoomState extends State<_WaitingRoom> {
   }
 }
 
+class _FillBotsVoteOverlay extends StatelessWidget {
+  const _FillBotsVoteOverlay({required this.session});
+
+  final TableSession session;
+
+  @override
+  Widget build(BuildContext context) {
+    final vote = session.fillBotsVote;
+    if (vote == null) {
+      return const Stack(
+        children: [
+          ModalBarrier(color: Colors.black54, dismissible: false),
+          Center(
+            child: Card(
+              color: Color(0xFF123C30),
+              child: Padding(
+                padding: EdgeInsets.all(28),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(color: Color(0xFFFFC857)),
+                    SizedBox(height: 18),
+                    Text(
+                      'AGUARDANDO RESPOSTAS',
+                      style: TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                    SizedBox(height: 8),
+                    Text('Enviando seu pedido aos outros jogadores...'),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (vote.requesterSeatIndex != session.seatIndex &&
+        vote.participantSeatIndexes.contains(session.seatIndex) &&
+        vote.shownAtFor(session.seatIndex) == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted) session.reportFillBotsVoteShown(vote.id);
+      });
+    }
+
+    final requester = vote.requesterSeatIndex >= 0 &&
+            vote.requesterSeatIndex < session.seats.length
+        ? session.seats[vote.requesterSeatIndex]
+        : null;
+    final isRequester = vote.requesterSeatIndex == session.seatIndex;
+    final localVote = vote.voteFor(session.seatIndex);
+    final canRespond = session.canRespondToFillBotsVote;
+    final responders = vote.participantSeatIndexes
+        .where((index) => index != vote.requesterSeatIndex)
+        .toList(growable: false);
+    final accepted =
+        responders.where((index) => vote.voteFor(index) == true).length;
+    final refused =
+        responders.where((index) => vote.voteFor(index) == false).length;
+    final pending = responders.length - accepted - refused;
+    final expiresAt = vote.expiresAt;
+    final remainingMs = expiresAt == null
+        ? 10000
+        : expiresAt.difference(DateTime.now()).inMilliseconds.clamp(0, 10000);
+    final remainingSeconds = (remainingMs / 1000).ceil();
+
+    String message;
+    if (expiresAt == null && isRequester) {
+      message =
+          'Pedido enviado. O tempo começará somente depois que a mensagem aparecer para todos os outros jogadores.';
+    } else if (expiresAt == null && canRespond == false && localVote == null) {
+      message =
+          '${requester?.name ?? 'Outro jogador'} pediu para completar a mesa com robôs. Preparando o tempo de resposta...';
+    } else if (isRequester) {
+      message =
+          'Você pediu para completar a mesa com robôs. Aguardando a resposta dos outros jogadores.';
+    } else if (canRespond) {
+      message =
+          '${requester?.name ?? 'Outro jogador'} pediu para completar a mesa com robôs. Você aceita?';
+    } else if (localVote != null) {
+      message = 'Sua resposta foi enviada. Aguardando os demais jogadores.';
+    } else {
+      message =
+          '${requester?.name ?? 'Outro jogador'} pediu para completar a mesa com robôs. Aguardando a decisão dos jogadores que já estavam na mesa.';
+    }
+
+    return Stack(
+      key: const ValueKey('dialogo-votacao-robos'),
+      children: [
+        const ModalBarrier(color: Colors.black54, dismissible: false),
+        SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Material(
+                  color: const Color(0xFF123C30),
+                  elevation: 18,
+                  borderRadius: BorderRadius.circular(24),
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.smart_toy_rounded,
+                          color: Color(0xFFFFC857),
+                          size: 44,
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          isRequester || !canRespond
+                              ? 'AGUARDANDO RESPOSTAS'
+                              : 'COMPLETAR COM ROBÔS?',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Color(0xFFFFD46B),
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          message,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                        const SizedBox(height: 18),
+                        Wrap(
+                          alignment: WrapAlignment.center,
+                          spacing: 14,
+                          runSpacing: 14,
+                          children: [
+                            for (final index in vote.participantSeatIndexes)
+                              _FillBotsVotePlayer(
+                                seat: index >= 0 && index < session.seats.length
+                                    ? session.seats[index]
+                                    : null,
+                                status: index == vote.requesterSeatIndex
+                                    ? _FillBotsVoteStatus.requester
+                                    : vote.voteFor(index) == true
+                                        ? _FillBotsVoteStatus.accepted
+                                        : vote.voteFor(index) == false
+                                            ? _FillBotsVoteStatus.refused
+                                            : _FillBotsVoteStatus.pending,
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          '$accepted aceitaram  •  $refused recusaram  •  $pending aguardando',
+                          key: const ValueKey('resumo-votacao-robos'),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: .8),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        LinearProgressIndicator(
+                          key: const ValueKey('tempo-votacao-robos'),
+                          value: expiresAt == null ? null : remainingMs / 10000,
+                          minHeight: 7,
+                          borderRadius: BorderRadius.circular(4),
+                          color: const Color(0xFFFFC857),
+                          backgroundColor: Colors.white12,
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          expiresAt == null
+                              ? 'O tempo de resposta ainda não começou'
+                              : '$remainingSeconds ${remainingSeconds == 1 ? 'segundo' : 'segundos'} para responder',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: .7),
+                            fontSize: 12,
+                          ),
+                        ),
+                        if (canRespond) ...[
+                          const SizedBox(height: 20),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  key: const ValueKey('recusar-robos'),
+                                  onPressed: session.submittingFillBotsVote
+                                      ? null
+                                      : () =>
+                                          session.respondToFillBotsVote(false),
+                                  icon: const Icon(Icons.close_rounded),
+                                  label: const Text('NÃO ACEITO'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: const Color(0xFFFF9E80),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: FilledButton.icon(
+                                  key: const ValueKey('aceitar-robos'),
+                                  onPressed: session.submittingFillBotsVote
+                                      ? null
+                                      : () =>
+                                          session.respondToFillBotsVote(true),
+                                  icon: const Icon(Icons.check_rounded),
+                                  label: const Text('ACEITO'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 enum _FillBotsVoteStatus { requester, accepted, refused, pending }
+
+class _FillBotsVotePlayer extends StatelessWidget {
+  const _FillBotsVotePlayer({required this.seat, required this.status});
+
+  final LobbySeat? seat;
+  final _FillBotsVoteStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final (color, icon, label) = switch (status) {
+      _FillBotsVoteStatus.requester => (
+          const Color(0xFFFFC857),
+          Icons.smart_toy_rounded,
+          'Pediu'
+        ),
+      _FillBotsVoteStatus.accepted => (
+          const Color(0xFF67D391),
+          Icons.check_rounded,
+          'Aceitou'
+        ),
+      _FillBotsVoteStatus.refused => (
+          const Color(0xFFFF7D6E),
+          Icons.close_rounded,
+          'Recusou'
+        ),
+      _FillBotsVoteStatus.pending => (
+          Colors.blueGrey,
+          Icons.hourglass_top_rounded,
+          'Aguardando'
+        ),
+    };
+    return SizedBox(
+      width: 72,
+      child: Column(
+        children: [
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              _TablePlayerAvatar(
+                isBot: false,
+                photoUrl: seat?.photoUrl,
+                color: color,
+                radius: 24,
+              ),
+              Positioned(
+                right: -4,
+                bottom: -4,
+                child: CircleAvatar(
+                  radius: 10,
+                  backgroundColor: color,
+                  child: Icon(icon, color: const Color(0xFF123C30), size: 14),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 7),
+          Text(
+            seat?.name ?? 'Jogador',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white, fontSize: 11),
+          ),
+          Text(label, style: TextStyle(color: color, fontSize: 9)),
+        ],
+      ),
+    );
+  }
+}
 
 class _ScoreBoard extends StatelessWidget {
   const _ScoreBoard({
@@ -2534,6 +2825,8 @@ class _HandResultProgressState extends State<HandResultProgress>
     _controller = AnimationController(
       vsync: this,
       duration: widget.duration,
+      // Esta barra é um relógio, não um efeito decorativo. Ela precisa
+      // durar cinco segundos mesmo quando o navegador reduz animações.
       animationBehavior: AnimationBehavior.preserve,
     )..forward(from: 0);
   }
