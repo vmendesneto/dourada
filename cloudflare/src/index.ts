@@ -978,7 +978,7 @@ export class GameTable extends DurableObject<Env> {
     if (engineDelayMs !== undefined && engineDelayMs !== null) {
       const expectedHuman = this.expectedHumanSeat(table);
       if (expectedHuman === null || !activeHumans.has(expectedHuman)) {
-        return now + engineDelayMs;
+        return now + Math.max(engineDelayMs, 2000);
       }
     }
     if (game.awaitingNextTrick) {
@@ -1004,7 +1004,7 @@ export class GameTable extends DurableObject<Env> {
       const disconnectedAt = table.seats[expectedHuman]?.disconnectedAt ?? now;
       return disconnectedAt + disconnectGraceMs;
     }
-    return now + 650;
+    return now + 2000;
   }
 
   private allHumansPastGrace(table: SharedTableState, now: number): boolean {
