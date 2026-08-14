@@ -73,6 +73,7 @@ const tableCount = 10;
 const seatCount = 6;
 const disconnectGraceMs = 5000;
 const humanTurnMs = 15000;
+const challengeNoticeMs = 2000;
 const botAvatarCount = 10;
 const fillBotsVotingVersion = 2;
 const challengeVotingVersion = 1;
@@ -977,7 +978,7 @@ export class GameTable extends DurableObject<Env> {
           : handTransitionMs);
     }
     if (game.challengeNotice !== null) {
-      return now + 5000;
+      return now + challengeNoticeMs;
     }
     if (game.pendingChallenge !== null && table.challengeVote !== null) {
       return table.challengeVote.expiresAt;

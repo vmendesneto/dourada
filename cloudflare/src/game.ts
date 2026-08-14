@@ -261,23 +261,26 @@ export function acceptPendingChallenge(game: GameState): boolean {
   if (challenge === null) return false;
   game.handValue = challenge.requestedValue;
   game.pendingChallenge = null;
-  game.challengeNotice = null;
-  game.challengeNoticeAccepted = false;
-  setStatus(
-    game,
-    `${teamAction(game, challenge.targetTeam, "aceitamos", "aceitaram")} o desafio.`,
-  );
+  const message =
+    `${teamAction(game, challenge.targetTeam, "aceitamos", "aceitaram")} o desafio.`;
+  game.challengeNotice = message;
+  game.challengeNoticeAccepted = true;
+  setStatus(game, message);
   return true;
 }
 
 export function foldPendingChallenge(game: GameState): boolean {
   const challenge = game.pendingChallenge;
   if (challenge === null) return false;
+  const message =
+    `${teamAction(game, challenge.targetTeam, "corremos", "correram")} do desafio.`;
   finishHand(
     game,
     challenge.challengerTeam,
-    `${teamAction(game, challenge.targetTeam, "corremos", "correram")} do desafio.`,
+    message,
   );
+  game.challengeNotice = message;
+  game.challengeNoticeAccepted = false;
   return true;
 }
 

@@ -279,6 +279,33 @@ void main() {
     await tester.pump(const Duration(seconds: 12));
   });
 
+  testWidgets('mostra a imagem da resposta para todos na mesa', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+
+    await tester.pumpWidget(
+      MaterialApp(home: GamePage(entry: _challengeNoticeEntry(true))),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byKey(const ValueKey('imagem-desafio-aceito')), findsOneWidget);
+    expect(find.byKey(const ValueKey('imagem-desafio-correu')), findsNothing);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 12));
+    await tester.pumpWidget(
+      MaterialApp(home: GamePage(entry: _challengeNoticeEntry(false))),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byKey(const ValueKey('imagem-desafio-correu')), findsOneWidget);
+    expect(find.byKey(const ValueKey('imagem-desafio-aceito')), findsNothing);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 12));
+  });
+
   testWidgets('esconde a carta na mão e mantém o verso ao descartá-la',
       (tester) async {
     final savedGame = DouradinhaGame()..currentPlayerIndex = 0;
@@ -585,6 +612,24 @@ TableEntry _challengeVoteEntry() {
       participantSeatIndexes: [0, 2],
       votes: [null, null, ChallengeVoteChoice.fold, null, null, null],
     ),
+    gameState: game.toJson(),
+  );
+}
+
+TableEntry _challengeNoticeEntry(bool accepted) {
+  final game = DouradinhaGame()
+    ..challengeNotice = accepted
+        ? 'O trio adversário aceitou o desafio.'
+        : 'O trio adversário correu do desafio.'
+    ..challengeNoticeAccepted = accepted;
+  return TableEntry(
+    serverUrl: 'http://127.0.0.1:1',
+    tableNumber: '1',
+    playerToken: 'token-0',
+    websocketUrl: 'ws://127.0.0.1:1/connect',
+    seatIndex: 0,
+    phase: LobbyTablePhase.playing,
+    seats: List<LobbySeat?>.filled(6, null),
     gameState: game.toJson(),
   );
 }

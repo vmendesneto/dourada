@@ -238,12 +238,16 @@ describe("motor do robô substituto", () => {
     expect(acceptPendingChallenge(accepted)).toBe(true);
     expect(accepted.handValue).toBe(2);
     expect(accepted.pendingChallenge).toBeNull();
+    expect(accepted.challengeNoticeAccepted).toBe(true);
+    expect(accepted.challengeNotice).toContain("aceitamos o desafio");
 
     const folded = structuredClone(challenged);
     expect(foldPendingChallenge(folded)).toBe(true);
     expect(folded.phase).toBe("handFinished");
     expect(folded.scores).toEqual([0, 2]);
     expect(folded.statusMessage).toContain("corremos do desafio");
+    expect(folded.challengeNoticeAccepted).toBe(false);
+    expect(folded.challengeNotice).toContain("corremos do desafio");
 
     const raised = structuredClone(challenged);
     expect(raisePendingChallenge(raised, 4)).toBe(true);

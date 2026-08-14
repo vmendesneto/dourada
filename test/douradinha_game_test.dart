@@ -602,6 +602,26 @@ void main() {
       expect(resolvedGame.challengeNotice, isNull);
     });
 
+    test('mostra a resposta quando o trio humano aceita ou corre', () {
+      Challenge challenge() => const Challenge(
+            challengerTeam: 1,
+            challengerPlayer: 1,
+            targetTeam: 0,
+            requestedValue: 2,
+            responderPlayer: 0,
+          );
+
+      final accepted = DouradinhaGame()..pendingChallenge = challenge();
+      accepted.acceptHumanChallenge();
+      expect(accepted.challengeNoticeAccepted, isTrue);
+      expect(accepted.challengeNotice, contains('aceitou'));
+
+      final folded = DouradinhaGame()..pendingChallenge = challenge();
+      folded.foldHumanChallenge();
+      expect(folded.challengeNoticeAccepted, isFalse);
+      expect(folded.challengeNotice, contains('correu'));
+    });
+
     test('reserva ao humano todas as decisões de aposta do seu trio', () {
       expect(DouradinhaGame.botCanDecideChallengeForTeam(0), isFalse);
       expect(DouradinhaGame.botCanDecideChallengeForTeam(1), isTrue);

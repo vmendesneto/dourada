@@ -67,6 +67,7 @@ flutter:
     - assets/images/cartas/
     - assets/images/avatar/robos/
     - assets/images/avatar/humanos/
+    - assets/images/challenge/
     - assets/gifs/
   #   - images/a_dot_ham.jpeg
 

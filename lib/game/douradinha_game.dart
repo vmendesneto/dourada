@@ -1058,16 +1058,20 @@ class DouradinhaGame extends ChangeNotifier {
     if (!humanMustAnswerChallenge) return;
     _acceptChallenge(
       'Seu trio aceitou: agora vale ${spokenValueForPoints(pendingChallenge!.requestedValue)}.',
+      showNotice: true,
     );
   }
 
   void foldHumanChallenge() {
     if (!humanMustAnswerChallenge) return;
     final challenge = pendingChallenge!;
+    const message = 'Seu trio correu do desafio.';
+    challengeNotice = message;
+    challengeNoticeAccepted = false;
     _finishHand(
       challenge.challengerTeam,
       points: handValue,
-      reason: 'Seu trio correu do desafio.',
+      reason: message,
     );
   }
 

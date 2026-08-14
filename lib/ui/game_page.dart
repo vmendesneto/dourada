@@ -32,6 +32,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   Timer? _challengeNoticeTimer;
   Timer? _challengeAnimationTimer;
   bool _automationScheduled = false;
+  bool _challengeNoticeVisible = false;
   String? _scheduledChallengeNotice;
   final List<({String id, int playerIndex, int requestedValue})>
       _challengeAnimationQueue = [];
@@ -106,6 +107,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   void _onGameChanged() {
     if (!mounted) return;
     if (_restoringGame) {
+      _challengeNoticeVisible = game.challengeNotice != null;
       setState(() {});
       return;
     }
@@ -237,18 +239,22 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       _challengeNoticeTimer?.cancel();
       _challengeNoticeTimer = null;
       _scheduledChallengeNotice = null;
+      _challengeNoticeVisible = false;
       return;
     }
-    if (_scheduledChallengeNotice == notice &&
-        _challengeNoticeTimer?.isActive == true) {
-      return;
-    }
+    if (_scheduledChallengeNotice == notice) return;
     _challengeNoticeTimer?.cancel();
     _scheduledChallengeNotice = notice;
+    _challengeNoticeVisible = true;
     _challengeNoticeTimer = Timer(
       DouradinhaGame.challengeNoticeDuration,
       () {
-        if (mounted) game.clearChallengeNotice();
+        if (!mounted) return;
+        if (tableSession.enabled) {
+          setState(() => _challengeNoticeVisible = false);
+        } else {
+          game.clearChallengeNotice();
+        }
       },
     );
   }
@@ -566,7 +572,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
               ),
             if (game.humanTenDecisionPending)
               Positioned.fill(child: _TenHandOverlay(game: game)),
-            if (game.challengeNotice != null)
+            if (game.challengeNotice != null && _challengeNoticeVisible)
               Positioned.fill(child: _ChallengeNoticeOverlay(game: game)),
             if (challengeAnimation != null)
               Positioned.fill(
@@ -2579,20 +2585,19 @@ class _ChallengeNoticeOverlay extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    accepted ? Icons.check_circle : Icons.directions_run,
-                    color: color,
-                    size: 42,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    accepted ? 'DESAFIO ACEITO' : 'ELES CORRERAM',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 21,
-                      fontWeight: FontWeight.w900,
+                  Image.asset(
+                    accepted
+                        ? 'assets/images/challenge/aceito.png'
+                        : 'assets/images/challenge/correu.png',
+                    key: ValueKey(
+                      accepted
+                          ? 'imagem-desafio-aceito'
+                          : 'imagem-desafio-correu',
                     ),
+                    width: 210,
+                    height: 210,
+                    fit: BoxFit.contain,
+                    semanticLabel: accepted ? 'Desafio aceito' : 'Trio correu',
                   ),
                   const SizedBox(height: 6),
                   Text(
