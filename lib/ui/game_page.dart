@@ -558,7 +558,12 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
               child: const _ManilhasButton(),
             ),
             if (game.humanMustAnswerChallenge)
-              Positioned.fill(child: _ChallengeOverlay(game: game)),
+              Positioned.fill(
+                child: _ChallengeOverlay(
+                  game: game,
+                  tableSession: tableSession,
+                ),
+              ),
             if (game.humanTenDecisionPending)
               Positioned.fill(child: _TenHandOverlay(game: game)),
             if (game.challengeNotice != null)
@@ -2316,64 +2321,238 @@ class _CardBack extends StatelessWidget {
 }
 
 class _ChallengeOverlay extends StatelessWidget {
-  const _ChallengeOverlay({required this.game});
+  const _ChallengeOverlay({
+    required this.game,
+    required this.tableSession,
+  });
 
   final DouradinhaGame game;
+  final TableSession tableSession;
 
   @override
   Widget build(BuildContext context) {
     final challenge = game.pendingChallenge!;
+    final online = tableSession.enabled;
+    final vote = tableSession.challengeVote;
+    final localVote = tableSession.localChallengeVote;
+    final canRespond = !online || tableSession.canRespondToChallengeVote;
+
+    void respond(ChallengeVoteChoice choice) {
+      if (online) {
+        tableSession.respondToChallengeVote(choice);
+        return;
+      }
+      switch (choice) {
+        case ChallengeVoteChoice.accept:
+          game.acceptHumanChallenge();
+        case ChallengeVoteChoice.fold:
+          game.foldHumanChallenge();
+        case ChallengeVoteChoice.raise:
+          game.raiseHumanChallenge();
+      }
+    }
+
+    String instructions() {
+      if (!online) return 'Eles desafiaram o seu trio.';
+      if (tableSession.challengeVotingVersion < 1) {
+        return 'O servidor da mesa precisa ser atualizado para receber a decisão do trio.';
+      }
+      if (vote == null) return 'Sincronizando a decisão do trio...';
+      if (localVote == ChallengeVoteChoice.fold) {
+        return 'Você correu. Aguardando os outros humanos do trio.';
+      }
+      return 'Um aceite ou aumento decide. Sem isso, o trio corre ao fim do tempo.';
+    }
+
     return ColoredBox(
       color: Colors.black54,
       child: Center(
-        child: Card(
-          color: const Color(0xFF123C30),
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.campaign, color: Color(0xFFFFC857), size: 36),
-                Text(
-                  DouradinhaGame.challengeLabelForPoints(
-                    challenge.requestedValue,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Card(
+            color: const Color(0xFF123C30),
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.campaign,
+                      color: Color(0xFFFFC857), size: 36),
+                  Text(
+                    DouradinhaGame.challengeLabelForPoints(
+                      challenge.requestedValue,
+                    ),
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w900),
                   ),
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.w900),
-                ),
-                const SizedBox(height: 4),
-                const Text('Eles desafiaram o seu trio.',
-                    style: TextStyle(color: Colors.white70)),
-                const SizedBox(height: 14),
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    OutlinedButton(
-                        onPressed: game.foldHumanChallenge,
-                        child: const Text('CORRER')),
-                    FilledButton(
-                        onPressed: game.acceptHumanChallenge,
-                        child: const Text('ACEITAR')),
-                    if (challenge.requestedValue < 6) ...[
-                      FilledButton.tonal(
-                        onPressed: game.raiseHumanChallenge,
-                        child: Text(DouradinhaGame.challengeLabelForPoints(
-                          DouradinhaGame.nextChallengeAfter(
-                            challenge.requestedValue,
-                          )!,
-                        )),
-                      ),
-                    ],
+                  const SizedBox(height: 4),
+                  Text(
+                    instructions(),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                  if (online && vote != null) ...[
+                    const SizedBox(height: 10),
+                    _ChallengeResponseCountdown(vote: vote),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (final seatIndex in vote.participantSeatIndexes)
+                          _ChallengeVoteStatus(
+                            seat: seatIndex >= 0 &&
+                                    seatIndex < tableSession.seats.length
+                                ? tableSession.seats[seatIndex]
+                                : null,
+                            choice: vote.voteFor(seatIndex),
+                          ),
+                      ],
+                    ),
                   ],
-                ),
-              ],
+                  const SizedBox(height: 14),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton(
+                          key: const ValueKey('correr-desafio'),
+                          onPressed: canRespond
+                              ? () => respond(ChallengeVoteChoice.fold)
+                              : null,
+                          child: const Text('CORRER')),
+                      FilledButton(
+                          key: const ValueKey('aceitar-desafio'),
+                          onPressed: canRespond
+                              ? () => respond(ChallengeVoteChoice.accept)
+                              : null,
+                          child: const Text('ACEITAR')),
+                      if (challenge.requestedValue < 6) ...[
+                        FilledButton.tonal(
+                          key: const ValueKey('aumentar-desafio'),
+                          onPressed: canRespond
+                              ? () => respond(ChallengeVoteChoice.raise)
+                              : null,
+                          child: Text(DouradinhaGame.challengeLabelForPoints(
+                            DouradinhaGame.nextChallengeAfter(
+                              challenge.requestedValue,
+                            )!,
+                          )),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _ChallengeResponseCountdown extends StatelessWidget {
+  const _ChallengeResponseCountdown({required this.vote});
+
+  final TeamChallengeVote vote;
+
+  @override
+  Widget build(BuildContext context) {
+    final remaining = vote.expiresAt.difference(DateTime.now());
+    final remainingMs = remaining.inMilliseconds.clamp(
+      0,
+      TeamChallengeVote.responseTimeout.inMilliseconds,
+    );
+    final initialProgress =
+        remainingMs / TeamChallengeVote.responseTimeout.inMilliseconds;
+    return SizedBox(
+      width: 230,
+      child: TweenAnimationBuilder<double>(
+        key: ValueKey('challenge-countdown-${vote.id}'),
+        tween: Tween(begin: initialProgress, end: 0),
+        duration: Duration(milliseconds: remainingMs),
+        builder: (context, progress, child) {
+          final seconds =
+              (progress * TeamChallengeVote.responseTimeout.inSeconds).ceil();
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '$seconds s para responder',
+                key: const ValueKey('tempo-resposta-desafio'),
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 4),
+              LinearProgressIndicator(
+                value: progress,
+                minHeight: 4,
+                borderRadius: BorderRadius.circular(4),
+                color: const Color(0xFFFFC857),
+                backgroundColor: Colors.white12,
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ChallengeVoteStatus extends StatelessWidget {
+  const _ChallengeVoteStatus({required this.seat, required this.choice});
+
+  final LobbySeat? seat;
+  final ChallengeVoteChoice? choice;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (choice) {
+      ChallengeVoteChoice.accept => const Color(0xFF63E6A5),
+      ChallengeVoteChoice.fold => const Color(0xFFFF6B6B),
+      ChallengeVoteChoice.raise => const Color(0xFFFFC857),
+      null => Colors.white54,
+    };
+    final label = switch (choice) {
+      ChallengeVoteChoice.accept => 'Aceitou',
+      ChallengeVoteChoice.fold => 'Correu',
+      ChallengeVoteChoice.raise => 'Aumentou',
+      null => 'Aguardando',
+    };
+    return Container(
+      padding: const EdgeInsets.fromLTRB(5, 4, 8, 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .12),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: color.withValues(alpha: .55)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _TablePlayerAvatar(
+            isBot: false,
+            photoUrl: seat?.photoUrl,
+            color: color,
+            radius: 11,
+          ),
+          const SizedBox(width: 5),
+          Text(
+            '${seat?.name ?? 'Jogador'} • $label',
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }

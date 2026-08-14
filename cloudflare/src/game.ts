@@ -167,7 +167,27 @@ export function isGameState(value: unknown): value is GameState {
     hasLegalHiddenDiscards(state.currentTrick, state.scores) &&
     Array.isArray(state.playedCards) &&
     Array.isArray(state.trickWinners) &&
+    (state.pendingChallenge === null ||
+      isChallengeState(state.pendingChallenge)) &&
     ["playing", "handFinished", "gameOver"].includes(state.phase ?? "")
+  );
+}
+
+function isChallengeState(value: unknown): value is ChallengeState {
+  if (value === null || typeof value !== "object") return false;
+  const challenge = value as Partial<ChallengeState>;
+  return (
+    (challenge.challengerTeam === 0 || challenge.challengerTeam === 1) &&
+    (challenge.targetTeam === 0 || challenge.targetTeam === 1) &&
+    challenge.targetTeam !== challenge.challengerTeam &&
+    [2, 3, 4, 6].includes(challenge.requestedValue ?? -1) &&
+    Number.isInteger(challenge.responderPlayer) &&
+    (challenge.responderPlayer ?? -1) >= 0 &&
+    (challenge.responderPlayer ?? 6) < 6 &&
+    (challenge.challengerPlayer === undefined ||
+      (Number.isInteger(challenge.challengerPlayer) &&
+        challenge.challengerPlayer >= 0 &&
+        challenge.challengerPlayer < 6))
   );
 }
 
@@ -236,9 +256,9 @@ export function pendingTenTeam(game: GameState): number | null {
   return null;
 }
 
-function acceptPendingChallenge(game: GameState): void {
+export function acceptPendingChallenge(game: GameState): boolean {
   const challenge = game.pendingChallenge;
-  if (challenge === null) return;
+  if (challenge === null) return false;
   game.handValue = challenge.requestedValue;
   game.pendingChallenge = null;
   game.challengeNotice = null;
@@ -247,6 +267,51 @@ function acceptPendingChallenge(game: GameState): void {
     game,
     `${teamAction(game, challenge.targetTeam, "aceitamos", "aceitaram")} o desafio.`,
   );
+  return true;
+}
+
+export function foldPendingChallenge(game: GameState): boolean {
+  const challenge = game.pendingChallenge;
+  if (challenge === null) return false;
+  finishHand(
+    game,
+    challenge.challengerTeam,
+    `${teamAction(game, challenge.targetTeam, "corremos", "correram")} do desafio.`,
+  );
+  return true;
+}
+
+export function raisePendingChallenge(
+  game: GameState,
+  playerIndex: number,
+): boolean {
+  const challenge = game.pendingChallenge;
+  if (
+    challenge === null ||
+    playerIndex < 0 ||
+    playerIndex >= 6 ||
+    playerIndex % 2 !== challenge.targetTeam
+  ) {
+    return false;
+  }
+  const requestedValue = nextChallengeAfter(challenge.requestedValue);
+  if (requestedValue === null) return false;
+
+  const raisingTeam = challenge.targetTeam;
+  game.handValue = challenge.requestedValue;
+  game.lastChallengeTeam = raisingTeam;
+  game.pendingChallenge = {
+    challengerTeam: raisingTeam,
+    challengerPlayer: playerIndex,
+    targetTeam: 1 - raisingTeam,
+    requestedValue,
+    responderPlayer: nextPlayerOnTeam(playerIndex, 1 - raisingTeam),
+  };
+  setStatus(
+    game,
+    `${teamAction(game, raisingTeam, "pedimos", "pediram")} ${challengeLabelForPoints(requestedValue)}`,
+  );
+  return true;
 }
 
 function chooseBotCard(game: GameState, playerIndex: number): string | null {
@@ -376,7 +441,11 @@ function beginNextTrick(game: GameState): void {
   setStatus(game, `Robô ${game.currentPlayerIndex} começa a próxima mão.`);
 }
 
-function finishHand(game: GameState, winningTeam: number): void {
+function finishHand(
+  game: GameState,
+  winningTeam: number,
+  reason?: string,
+): void {
   const points = scorePoints(game.handValue);
   game.pendingChallenge = null;
   game.awaitingNextTrick = false;
@@ -385,7 +454,12 @@ function finishHand(game: GameState, winningTeam: number): void {
   game.lastHandPoints = points;
   if (game.scores[winningTeam] >= 12) game.matchWinner = winningTeam;
   game.phase = "handFinished";
-  setStatus(game, `${teamScored(game, winningTeam, points)}`);
+  setStatus(
+    game,
+    reason
+      ? `${reason} ${teamScored(game, winningTeam, points)}`
+      : teamScored(game, winningTeam, points),
+  );
 }
 
 function dealHand(game: GameState): void {
@@ -445,6 +519,32 @@ function shuffle<T>(values: T[]): T[] {
 function hiddenPlaysForTeam(plays: PlayedCardState[], team: number): number {
   return plays.filter((play) => play.hidden && play.playerIndex % 2 === team)
     .length;
+}
+
+function nextChallengeAfter(currentValue: number): number | null {
+  return (
+    ({ 1: 2, 2: 3, 3: 4, 4: 6 } as Record<number, number>)[currentValue] ??
+    null
+  );
+}
+
+function spokenValueForPoints(points: number): number {
+  return (
+    ({ 2: 4, 3: 6, 4: 9, 6: 12 } as Record<number, number>)[points] ??
+    points * 2
+  );
+}
+
+function challengeLabelForPoints(points: number): string {
+  return points === 2 ? "TRUCO!" : `VALE ${spokenValueForPoints(points)}!`;
+}
+
+function nextPlayerOnTeam(from: number, team: number): number {
+  for (let offset = 1; offset < 6; offset += 1) {
+    const candidate = (from + offset) % 6;
+    if (candidate % 2 === team) return candidate;
+  }
+  return 0;
 }
 
 function hasLegalHiddenDiscards(

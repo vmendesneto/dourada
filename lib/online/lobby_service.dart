@@ -99,8 +99,10 @@ class TableEntry {
     required this.phase,
     required this.seats,
     this.fillBotsVotingVersion = 0,
+    this.challengeVotingVersion = 0,
     this.waitingStartAt,
     this.fillBotsVote,
+    this.challengeVote,
     this.gameState,
   });
 
@@ -112,8 +114,10 @@ class TableEntry {
   final LobbyTablePhase phase;
   final List<LobbySeat?> seats;
   final int fillBotsVotingVersion;
+  final int challengeVotingVersion;
   final DateTime? waitingStartAt;
   final FillBotsVote? fillBotsVote;
+  final TeamChallengeVote? challengeVote;
   final Object? gameState;
 
   bool get online => serverUrl.isNotEmpty;
@@ -135,8 +139,11 @@ class TableEntry {
             .toList(growable: false),
         fillBotsVotingVersion:
             (json['fillBotsVotingVersion'] as num?)?.toInt() ?? 0,
+        challengeVotingVersion:
+            (json['challengeVotingVersion'] as num?)?.toInt() ?? 0,
         waitingStartAt: _dateTimeFromMilliseconds(json['waitingStartAt']),
         fillBotsVote: FillBotsVote.fromJsonValue(json['fillBotsVote']),
+        challengeVote: TeamChallengeVote.fromJsonValue(json['challengeVote']),
         gameState: json['gameState'],
       );
 }
@@ -198,6 +205,83 @@ class FillBotsVote {
       expiresAt: expires is num
           ? DateTime.fromMillisecondsSinceEpoch(expires.toInt())
           : null,
+    );
+  }
+}
+
+enum ChallengeVoteChoice {
+  accept('accept'),
+  fold('fold'),
+  raise('raise');
+
+  const ChallengeVoteChoice(this.wireValue);
+
+  final String wireValue;
+
+  static ChallengeVoteChoice? fromWireValue(Object? value) {
+    for (final choice in values) {
+      if (choice.wireValue == value) return choice;
+    }
+    return null;
+  }
+}
+
+class TeamChallengeVote {
+  static const responseTimeout = Duration(seconds: 15);
+
+  const TeamChallengeVote({
+    required this.id,
+    required this.targetTeam,
+    required this.requestedValue,
+    required this.challengerPlayer,
+    required this.expiresAt,
+    required this.participantSeatIndexes,
+    required this.votes,
+  });
+
+  final String id;
+  final int targetTeam;
+  final int requestedValue;
+  final int challengerPlayer;
+  final DateTime expiresAt;
+  final List<int> participantSeatIndexes;
+  final List<ChallengeVoteChoice?> votes;
+
+  ChallengeVoteChoice? voteFor(int seatIndex) =>
+      seatIndex >= 0 && seatIndex < votes.length ? votes[seatIndex] : null;
+
+  static TeamChallengeVote? fromJsonValue(Object? value) {
+    if (value is! Map) return null;
+    final json = Map<String, dynamic>.from(value);
+    final id = json['id'];
+    final targetTeam = json['targetTeam'];
+    final requestedValue = json['requestedValue'];
+    final challengerPlayer = json['challengerPlayer'];
+    final expiresAt = _dateTimeFromMilliseconds(json['expiresAt']);
+    final participants = json['participantSeatIndexes'];
+    final rawVotes = json['votes'];
+    if (id is! String ||
+        targetTeam is! num ||
+        requestedValue is! num ||
+        challengerPlayer is! num ||
+        expiresAt == null ||
+        participants is! List ||
+        rawVotes is! List) {
+      return null;
+    }
+    final participantIndexes =
+        participants.whereType<num>().map((index) => index.toInt()).toList();
+    if (participantIndexes.length != participants.length) return null;
+    return TeamChallengeVote(
+      id: id,
+      targetTeam: targetTeam.toInt(),
+      requestedValue: requestedValue.toInt(),
+      challengerPlayer: challengerPlayer.toInt(),
+      expiresAt: expiresAt,
+      participantSeatIndexes: participantIndexes,
+      votes: rawVotes
+          .map<ChallengeVoteChoice?>(ChallengeVoteChoice.fromWireValue)
+          .toList(growable: false),
     );
   }
 }

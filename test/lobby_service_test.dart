@@ -91,7 +91,7 @@ void main() {
     service.dispose();
   });
 
-  test('decodifica a votação para completar a mesa com robôs', () {
+  test('decodifica as votações enviadas pela mesa', () {
     final entry = TableEntry.fromJson(
       'https://dourada.example.workers.dev',
       {
@@ -102,6 +102,7 @@ void main() {
         'phase': 'waiting',
         'seats': List<Object?>.filled(6, null),
         'fillBotsVotingVersion': 2,
+        'challengeVotingVersion': 1,
         'waitingStartAt': null,
         'fillBotsVote': {
           'id': 'vote-1',
@@ -111,10 +112,20 @@ void main() {
           'shownAt': [100, null, null, null, 120, null],
           'expiresAt': 123456789,
         },
+        'challengeVote': {
+          'id': 'challenge-1',
+          'targetTeam': 0,
+          'requestedValue': 3,
+          'challengerPlayer': 1,
+          'expiresAt': 223456789,
+          'participantSeatIndexes': [0, 2, 4],
+          'votes': [null, null, 'fold', null, null, null],
+        },
       },
     );
 
     expect(entry.fillBotsVotingVersion, 2);
+    expect(entry.challengeVotingVersion, 1);
     expect(entry.fillBotsVote?.id, 'vote-1');
     expect(entry.fillBotsVote?.requesterSeatIndex, 0);
     expect(entry.fillBotsVote?.participantSeatIndexes, [0, 2, 4]);
@@ -130,6 +141,14 @@ void main() {
       entry.fillBotsVote?.expiresAt,
       DateTime.fromMillisecondsSinceEpoch(123456789),
     );
+    expect(entry.challengeVote?.id, 'challenge-1');
+    expect(entry.challengeVote?.participantSeatIndexes, [0, 2, 4]);
+    expect(
+      entry.challengeVote?.expiresAt,
+      DateTime.fromMillisecondsSinceEpoch(223456789),
+    );
+    expect(entry.challengeVote?.voteFor(0), isNull);
+    expect(entry.challengeVote?.voteFor(2), ChallengeVoteChoice.fold);
   });
 
   test('usa nome e foto do perfil na mesa local', () async {

@@ -247,6 +247,38 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('todos os humanos do trio veem a decisão conjunta do desafio',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues({});
+
+    await tester.pumpWidget(
+      MaterialApp(home: GamePage(entry: _challengeVoteEntry())),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('TRUCO!'), findsWidgets);
+    expect(
+      find.textContaining('o trio corre ao fim do tempo'),
+      findsOneWidget,
+    );
+    expect(
+        find.byKey(const ValueKey('tempo-resposta-desafio')), findsOneWidget);
+    expect(find.text('Ana • Aguardando'), findsOneWidget);
+    expect(find.text('Carla • Correu'), findsOneWidget);
+    expect(find.byKey(const ValueKey('aceitar-desafio')), findsOneWidget);
+    expect(find.byKey(const ValueKey('correr-desafio')), findsOneWidget);
+    expect(find.byKey(const ValueKey('aumentar-desafio')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 12));
+  });
+
   testWidgets('esconde a carta na mão e mantém o verso ao descartá-la',
       (tester) async {
     final savedGame = DouradinhaGame()..currentPlayerIndex = 0;
@@ -496,6 +528,64 @@ TableEntry _fillBotsVoteEntry({
           timerStarted ? DateTime.now().add(const Duration(seconds: 10)) : null,
     ),
     fillBotsVotingVersion: 2,
+  );
+}
+
+TableEntry _challengeVoteEntry() {
+  final game = DouradinhaGame(humanPlayerIndex: 0)
+    ..currentPlayerIndex = 1
+    ..pendingChallenge = const Challenge(
+      challengerTeam: 1,
+      challengerPlayer: 1,
+      targetTeam: 0,
+      requestedValue: 2,
+      responderPlayer: 2,
+    )
+    ..statusMessage = 'Beto pediu TRUCO!';
+  game.history.insert(0, game.statusMessage);
+  final seats = <LobbySeat?>[
+    const LobbySeat(
+      index: 0,
+      kind: 'human',
+      name: 'Ana',
+      team: 0,
+      connected: true,
+    ),
+    const LobbySeat(
+      index: 1,
+      kind: 'human',
+      name: 'Beto',
+      team: 1,
+      connected: true,
+    ),
+    const LobbySeat(
+      index: 2,
+      kind: 'human',
+      name: 'Carla',
+      team: 0,
+      connected: true,
+    ),
+    ...List<LobbySeat?>.filled(3, null),
+  ];
+  return TableEntry(
+    serverUrl: 'http://127.0.0.1:1',
+    tableNumber: '1',
+    playerToken: 'token-0',
+    websocketUrl: 'ws://127.0.0.1:1/connect',
+    seatIndex: 0,
+    phase: LobbyTablePhase.playing,
+    seats: seats,
+    challengeVotingVersion: 1,
+    challengeVote: TeamChallengeVote(
+      id: 'challenge-1',
+      targetTeam: 0,
+      requestedValue: 2,
+      challengerPlayer: 1,
+      expiresAt: DateTime.now().add(const Duration(seconds: 15)),
+      participantSeatIndexes: [0, 2],
+      votes: [null, null, ChallengeVoteChoice.fold, null, null, null],
+    ),
+    gameState: game.toJson(),
   );
 }
 

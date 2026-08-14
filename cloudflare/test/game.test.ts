@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  acceptPendingChallenge,
   advanceBot,
   betweenPartidasTransitionMs,
   cardStrength,
   createInitialGame,
+  foldPendingChallenge,
   handTransitionMs,
   isGameState,
+  raisePendingChallenge,
   resolveDisputeWinner,
   resolveTrickWinner,
   scorePoints,
@@ -120,6 +123,19 @@ describe("motor do robô substituto", () => {
     expect(isGameState(tenHand)).toBe(false);
   });
 
+  it("rejeita desafio com trio, valor ou jogador inválido", () => {
+    const game = fixture();
+    game.pendingChallenge = {
+      challengerTeam: 0,
+      challengerPlayer: 7,
+      targetTeam: 0,
+      requestedValue: 5,
+      responderPlayer: -1,
+    };
+
+    expect(isGameState(game)).toBe(false);
+  });
+
   it("joga automaticamente pela cadeira humana ausente", () => {
     const step = advanceBot(fixture());
     expect(step.state.playerHands[0]).toHaveLength(0);
@@ -206,5 +222,38 @@ describe("motor do robô substituto", () => {
     expect(advanceBot(theirs).state.statusMessage).toBe(
       "Eles venceram a partida!",
     );
+  });
+
+  it("aplica no servidor aceitar, correr e aumentar", () => {
+    const challenged = fixture();
+    challenged.pendingChallenge = {
+      challengerTeam: 1,
+      challengerPlayer: 1,
+      targetTeam: 0,
+      requestedValue: 2,
+      responderPlayer: 2,
+    };
+
+    const accepted = structuredClone(challenged);
+    expect(acceptPendingChallenge(accepted)).toBe(true);
+    expect(accepted.handValue).toBe(2);
+    expect(accepted.pendingChallenge).toBeNull();
+
+    const folded = structuredClone(challenged);
+    expect(foldPendingChallenge(folded)).toBe(true);
+    expect(folded.phase).toBe("handFinished");
+    expect(folded.scores).toEqual([0, 2]);
+    expect(folded.statusMessage).toContain("corremos do desafio");
+
+    const raised = structuredClone(challenged);
+    expect(raisePendingChallenge(raised, 4)).toBe(true);
+    expect(raised.handValue).toBe(2);
+    expect(raised.pendingChallenge).toEqual({
+      challengerTeam: 0,
+      challengerPlayer: 4,
+      targetTeam: 1,
+      requestedValue: 3,
+      responderPlayer: 5,
+    });
   });
 });

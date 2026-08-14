@@ -1,10 +1,13 @@
 import {
+  acceptPendingChallenge,
   advanceBot,
   betweenPartidasTransitionMs,
   createInitialGame,
+  foldPendingChallenge,
   handTransitionMs,
   isGameState,
   pendingTenTeam,
+  raisePendingChallenge,
   type GameState,
 } from "./game";
 import { DurableObject } from "cloudflare:workers";
@@ -21,6 +24,14 @@ import {
   recordFillBotsVoteShown,
   type FillBotsVote,
 } from "./fill_bots_vote";
+import {
+  challengeVoteDecision,
+  createChallengeVote,
+  recordChallengeVote,
+  removeChallengeVoteParticipant,
+  type ChallengeVote,
+  type ChallengeVoteChoice,
+} from "./challenge_vote";
 
 type TablePhase = LobbyTablePhase;
 type SeatKind = "human" | "bot";
@@ -43,6 +54,7 @@ interface SharedTableState {
   nextActionAt: number | null;
   waitingStartAt: number | null;
   fillBotsVote: FillBotsVote | null;
+  challengeVote: ChallengeVote | null;
   updatedAt: number;
 }
 
@@ -63,6 +75,7 @@ const disconnectGraceMs = 5000;
 const humanTurnMs = 15000;
 const botAvatarCount = 10;
 const fillBotsVotingVersion = 2;
+const challengeVotingVersion = 1;
 
 const corsHeaders = (request: Request): Record<string, string> => ({
   "Access-Control-Allow-Origin": request.headers.get("Origin") ?? "*",
@@ -159,6 +172,7 @@ export default {
         service: "dourada-mesas",
         tableLimit: tableCount,
         fillBotsVotingVersion,
+        challengeVotingVersion,
       });
     }
     return json(request, { error: "Rota não encontrada." }, 404);
@@ -289,8 +303,37 @@ export class GameTable extends DurableObject<Env> {
         return;
       }
       table.gameState = payload.gameState;
+      this.ensureChallengeVote(table);
       table.updatedAt = Date.now();
       table.nextActionAt = this.nextActionAt(table, this.activeHumanSeats());
+      await this.saveAndSchedule(table);
+      this.broadcast(table);
+      return;
+    }
+
+    if (payload.type === "challengeVote" && table.phase === "playing") {
+      const vote = table.challengeVote;
+      const game = table.gameState;
+      const choice = payload.choice;
+      if (
+        vote === null ||
+        game === null ||
+        game.pendingChallenge === null ||
+        payload.voteId !== vote.id ||
+        !isChallengeVoteChoice(choice) ||
+        (choice === "raise" && game.pendingChallenge.requestedValue >= 6)
+      ) {
+        return;
+      }
+      const now = Date.now();
+      if (now >= vote.expiresAt) {
+        this.resolveChallengeVote(table, attachment.seatIndex, now);
+        await this.saveAndSchedule(table);
+        this.broadcast(table);
+        return;
+      }
+      if (!recordChallengeVote(vote, attachment.seatIndex, choice)) return;
+      this.resolveChallengeVote(table, attachment.seatIndex, now);
       await this.saveAndSchedule(table);
       this.broadcast(table);
       return;
@@ -402,18 +445,28 @@ export class GameTable extends DurableObject<Env> {
       return;
     }
 
-    const expectedSeat = this.expectedHumanSeat(table);
-    if (expectedSeat !== null && !activeHumans.has(expectedSeat)) {
-      const disconnectedAt = table.seats[expectedSeat]?.disconnectedAt ?? now;
-      table.nextActionAt = Math.min(
-        table.nextActionAt ?? disconnectedAt + disconnectGraceMs,
-        disconnectedAt + disconnectGraceMs,
-      );
+    if (table.challengeVote !== null && now >= table.challengeVote.expiresAt) {
+      this.resolveChallengeVote(table, -1, now);
+      await this.saveAndSchedule(table);
+      this.broadcast(table);
+      return;
+    }
+
+    if (game.pendingChallenge === null) {
+      const expectedSeat = this.expectedHumanSeat(table);
+      if (expectedSeat !== null && !activeHumans.has(expectedSeat)) {
+        const disconnectedAt = table.seats[expectedSeat]?.disconnectedAt ?? now;
+        table.nextActionAt = Math.min(
+          table.nextActionAt ?? disconnectedAt + disconnectGraceMs,
+          disconnectedAt + disconnectGraceMs,
+        );
+      }
     }
 
     if (table.nextActionAt !== null && now >= table.nextActionAt) {
       const step = advanceBot(game);
       table.gameState = step.state;
+      this.ensureChallengeVote(table);
       table.updatedAt = now;
       if (step.state.phase === "gameOver" && activeHumans.size === 0) {
         await this.clearTable(table.tableNumber);
@@ -564,6 +617,71 @@ export class GameTable extends DurableObject<Env> {
     this.startGame(table);
   }
 
+  private ensureChallengeVote(table: SharedTableState): void {
+    const challenge = table.gameState?.pendingChallenge;
+    if (challenge == null) {
+      table.challengeVote = null;
+      return;
+    }
+    const challengerPlayer =
+      challenge.challengerPlayer ?? (challenge.responderPlayer + seatCount - 1) % seatCount;
+    const current = table.challengeVote;
+    if (
+      current !== null &&
+      current.targetTeam === challenge.targetTeam &&
+      current.requestedValue === challenge.requestedValue &&
+      current.challengerPlayer === challengerPlayer
+    ) {
+      return;
+    }
+    const participants = table.seats.flatMap((seat, seatIndex) =>
+      seat?.kind === "human" && seatIndex % 2 === challenge.targetTeam
+        ? [seatIndex]
+        : [],
+    );
+    table.challengeVote = participants.length === 0
+      ? null
+      : createChallengeVote(
+          crypto.randomUUID(),
+          challenge.targetTeam,
+          challenge.requestedValue,
+          challengerPlayer,
+          participants,
+          Date.now(),
+          seatCount,
+        );
+  }
+
+  private resolveChallengeVote(
+    table: SharedTableState,
+    decidingSeatIndex: number,
+    now: number,
+  ): void {
+    const vote = table.challengeVote;
+    const game = table.gameState;
+    if (vote === null || game?.pendingChallenge == null) return;
+    const decision = challengeVoteDecision(vote, now);
+    table.updatedAt = now;
+    if (decision === "pending") {
+      if (vote.participantSeatIndexes.length === 0) {
+        table.challengeVote = null;
+        table.nextActionAt = this.nextActionAt(table, this.activeHumanSeats());
+      }
+      return;
+    }
+
+    if (decision === "raise") {
+      raisePendingChallenge(game, decidingSeatIndex);
+    } else if (decision === "accept") {
+      acceptPendingChallenge(game);
+    } else {
+      foldPendingChallenge(game);
+    }
+    table.challengeVote = null;
+    this.ensureChallengeVote(table);
+    table.nextActionAt = this.nextActionAt(table, this.activeHumanSeats());
+  }
+
   private async canResume(request: Request, tableNumber?: number): Promise<Response> {
     const payload = (await request.json().catch(() => ({}))) as {
       playerToken?: string;
@@ -603,6 +721,12 @@ export class GameTable extends DurableObject<Env> {
         joinedAt: now,
         disconnectedAt: null,
       };
+      if (
+        table.challengeVote !== null &&
+        removeChallengeVoteParticipant(table.challengeVote, seatIndex)
+      ) {
+        this.resolveChallengeVote(table, seatIndex, now);
+      }
     } else {
       if (table.fillBotsVote?.participantSeatIndexes.includes(seatIndex)) {
         table.fillBotsVote = null;
@@ -681,13 +805,12 @@ export class GameTable extends DurableObject<Env> {
     if (
       table.phase === "playing" &&
       (table.gameState?.phase === "gameOver" ||
+        table.challengeVote?.participantSeatIndexes.includes(
+          attachment.seatIndex,
+        ) ||
         this.expectedHumanSeat(table) === attachment.seatIndex)
     ) {
-      const disconnectedDeadline = Date.now() + disconnectGraceMs;
-      table.nextActionAt = Math.min(
-        table.nextActionAt ?? disconnectedDeadline,
-        disconnectedDeadline,
-      );
+      table.nextActionAt = this.nextActionAt(table, this.activeHumanSeats());
     }
     table.updatedAt = Date.now();
     await this.saveAndSchedule(table, true);
@@ -699,6 +822,7 @@ export class GameTable extends DurableObject<Env> {
     table.gameState = createInitialGame();
     table.waitingStartAt = null;
     table.fillBotsVote = null;
+    table.challengeVote = null;
     table.updatedAt = Date.now();
     table.nextActionAt = this.nextActionAt(table, this.activeHumanSeats());
   }
@@ -709,6 +833,7 @@ export class GameTable extends DurableObject<Env> {
     table.nextActionAt = null;
     table.waitingStartAt = null;
     table.fillBotsVote = null;
+    table.challengeVote = null;
     table.seats = table.seats.map((seat) =>
       seat?.kind === "human" ? seat : null,
     );
@@ -726,6 +851,8 @@ export class GameTable extends DurableObject<Env> {
       waitingStartAt: table.waitingStartAt,
       fillBotsVote: table.fillBotsVote,
       fillBotsVotingVersion,
+      challengeVote: table.challengeVote,
+      challengeVotingVersion,
       status: this.status(table),
     };
   }
@@ -756,6 +883,8 @@ export class GameTable extends DurableObject<Env> {
       waitingStartAt: table.waitingStartAt,
       fillBotsVote: table.fillBotsVote,
       fillBotsVotingVersion,
+      challengeVote: table.challengeVote,
+      challengeVotingVersion,
     };
   }
 
@@ -816,7 +945,7 @@ export class GameTable extends DurableObject<Env> {
     if (!game) return false;
     if (game.challengeNotice !== null) return true;
     if (game.pendingChallenge !== null) {
-      return seatIndex % 2 === game.pendingChallenge.targetTeam;
+      return false;
     }
     const tenTeam = pendingTenTeam(game);
     if (tenTeam !== null) return seatIndex % 2 === tenTeam;
@@ -849,6 +978,9 @@ export class GameTable extends DurableObject<Env> {
     }
     if (game.challengeNotice !== null) {
       return now + 5000;
+    }
+    if (game.pendingChallenge !== null && table.challengeVote !== null) {
+      return table.challengeVote.expiresAt;
     }
     const expectedHuman = this.expectedHumanSeat(table);
     if (expectedHuman !== null && activeHumans.has(expectedHuman)) {
@@ -896,6 +1028,7 @@ export class GameTable extends DurableObject<Env> {
     if (stored?.version === 2) {
       stored.waitingStartAt ??= null;
       stored.fillBotsVote ??= null;
+      stored.challengeVote ??= null;
       if (
         stored.fillBotsVote !== null &&
         (typeof stored.fillBotsVote.id !== "string" ||
@@ -903,6 +1036,15 @@ export class GameTable extends DurableObject<Env> {
       ) {
         stored.fillBotsVote = null;
       }
+      if (
+        stored.challengeVote !== null &&
+        (typeof stored.challengeVote.id !== "string" ||
+          typeof stored.challengeVote.expiresAt !== "number" ||
+          !Number.isFinite(stored.challengeVote.expiresAt))
+      ) {
+        stored.challengeVote = null;
+      }
+      this.ensureChallengeVote(stored);
       return stored;
     }
     const tableNumber = requestedTableNumber ?? 1;
@@ -919,6 +1061,7 @@ export class GameTable extends DurableObject<Env> {
       table.nextActionAt,
       table.waitingStartAt,
       table.fillBotsVote?.expiresAt ?? null,
+      table.challengeVote?.expiresAt ?? null,
     ].filter(
       (value): value is number => value !== null,
     );
@@ -983,6 +1126,7 @@ function emptyTableState(tableNumber: number): SharedTableState {
     nextActionAt: null,
     waitingStartAt: null,
     fillBotsVote: null,
+    challengeVote: null,
     updatedAt: Date.now(),
   };
 }
@@ -1066,4 +1210,8 @@ function parseRecord(value: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function isChallengeVoteChoice(value: unknown): value is ChallengeVoteChoice {
+  return value === "accept" || value === "fold" || value === "raise";
 }

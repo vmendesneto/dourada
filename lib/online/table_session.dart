@@ -27,8 +27,10 @@ class TableSession extends ChangeNotifier {
       phase = entry!.phase;
       seats = entry!.seats;
       fillBotsVotingVersion = entry!.fillBotsVotingVersion;
+      challengeVotingVersion = entry!.challengeVotingVersion;
       waitingStartAt = entry!.waitingStartAt;
       fillBotsVote = entry!.fillBotsVote;
+      challengeVote = entry!.challengeVote;
     }
   }
 
@@ -54,12 +56,15 @@ class TableSession extends ChangeNotifier {
   LobbyTablePhase phase = LobbyTablePhase.playing;
   List<LobbySeat?> seats = List<LobbySeat?>.filled(6, null);
   int fillBotsVotingVersion = 0;
+  int challengeVotingVersion = 0;
   DateTime? waitingStartAt;
   FillBotsVote? fillBotsVote;
+  TeamChallengeVote? challengeVote;
   String? errorMessage;
   bool connecting = false;
   bool requestingFillBotsVote = false;
   bool submittingFillBotsVote = false;
+  bool submittingChallengeVote = false;
   bool connected = false;
   bool replacementBotActive = false;
   String? _reportedShownFillBotsVoteId;
@@ -83,6 +88,21 @@ class TableSession extends ChangeNotifier {
         vote.shownAtFor(seatIndex) != null &&
         vote.voteFor(seatIndex) == null;
   }
+
+  bool get canRespondToChallengeVote {
+    final vote = challengeVote;
+    return enabled &&
+        challengeVotingVersion >= 1 &&
+        vote != null &&
+        DateTime.now().isBefore(vote.expiresAt) &&
+        vote.participantSeatIndexes.contains(seatIndex) &&
+        vote.voteFor(seatIndex) == null &&
+        !submittingChallengeVote &&
+        _channel != null;
+  }
+
+  ChallengeVoteChoice? get localChallengeVote =>
+      challengeVote?.voteFor(seatIndex);
 
   String get connectionLabel {
     if (!enabled) return 'Mesa local';
@@ -181,6 +201,18 @@ class TableSession extends ChangeNotifier {
     }));
   }
 
+  void respondToChallengeVote(ChallengeVoteChoice choice) {
+    final vote = challengeVote;
+    if (!canRespondToChallengeVote || vote == null) return;
+    submittingChallengeVote = true;
+    _channel!.sink.add(jsonEncode({
+      'type': 'challengeVote',
+      'voteId': vote.id,
+      'choice': choice.wireValue,
+    }));
+    notifyListeners();
+  }
+
   Future<void> startNewMatch(DouradinhaGame game) async {
     if (!enabled) {
       final preferences = _preferences;
@@ -261,8 +293,10 @@ class TableSession extends ChangeNotifier {
     phase = value.phase;
     seats = value.seats;
     fillBotsVotingVersion = value.fillBotsVotingVersion;
+    challengeVotingVersion = value.challengeVotingVersion;
     waitingStartAt = value.waitingStartAt;
     fillBotsVote = value.fillBotsVote;
+    challengeVote = value.challengeVote;
     _configureSeats();
     _restoreRemoteState(value.gameState);
   }
@@ -271,6 +305,9 @@ class TableSession extends ChangeNotifier {
     phase = LobbyTablePhase.values.byName(payload['phase'] as String);
     final votingVersion = payload['fillBotsVotingVersion'];
     fillBotsVotingVersion = votingVersion is num ? votingVersion.toInt() : 0;
+    final challengeVersion = payload['challengeVotingVersion'];
+    challengeVotingVersion =
+        challengeVersion is num ? challengeVersion.toInt() : 0;
     seatIndex = payload['seatIndex'] as int? ?? seatIndex;
     seats = (payload['seats'] as List<Object?>)
         .map((value) => value == null
@@ -282,10 +319,12 @@ class TableSession extends ChangeNotifier {
         ? DateTime.fromMillisecondsSinceEpoch(countdownValue.toInt())
         : null;
     fillBotsVote = FillBotsVote.fromJsonValue(payload['fillBotsVote']);
+    challengeVote = TeamChallengeVote.fromJsonValue(payload['challengeVote']);
     if (fillBotsVote?.id != _reportedShownFillBotsVoteId) {
       _reportedShownFillBotsVoteId = null;
     }
     submittingFillBotsVote = false;
+    submittingChallengeVote = false;
     _configureSeats();
     _restoreRemoteState(payload['gameState']);
   }
