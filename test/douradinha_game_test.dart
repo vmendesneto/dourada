@@ -373,6 +373,64 @@ void main() {
       expect(DouradinhaGame.scorePointsForHandValue(6), 12);
     });
 
+    test('associa cada pedido ao gif que toca uma única vez', () {
+      expect(
+        DouradinhaGame.challengeAnimationDuration,
+        const Duration(milliseconds: 2780),
+      );
+      expect(
+        DouradinhaGame.challengeGifAssetForPoints(2),
+        'assets/gifs/truco.gif',
+      );
+      expect(
+        DouradinhaGame.challengeGifAssetForPoints(3),
+        'assets/gifs/vale_6.gif',
+      );
+      expect(
+        DouradinhaGame.challengeGifAssetForPoints(4),
+        'assets/gifs/vale_9.gif',
+      );
+      expect(
+        DouradinhaGame.challengeGifAssetForPoints(6),
+        'assets/gifs/vale_12.gif',
+      );
+      expect(DouradinhaGame.challengeGifAssetForPoints(5), isNull);
+    });
+
+    test('registra e restaura o jogador que fez o pedido', () {
+      final original = DouradinhaGame(random: Random(18));
+      original.currentPlayerIndex = original.humanPlayerIndex;
+      original.trickLeaderIndex = original.humanPlayerIndex;
+
+      original.requestHumanChallenge();
+
+      expect(original.pendingChallenge?.challengerPlayer, 0);
+      final restored = DouradinhaGame(random: Random(19));
+      expect(
+        restored.restoreState(
+          Map<String, dynamic>.from(
+            jsonDecode(jsonEncode(original.toJson())) as Map,
+          ),
+        ),
+        isTrue,
+      );
+      expect(restored.pendingChallenge?.challengerPlayer, 0);
+
+      restored
+        ..handValue = 2
+        ..lastChallengeTeam = 1
+        ..pendingChallenge = const Challenge(
+          challengerTeam: 1,
+          challengerPlayer: 5,
+          targetTeam: 0,
+          requestedValue: 2,
+          responderPlayer: 0,
+        );
+      restored.raiseHumanChallenge();
+      expect(restored.pendingChallenge?.challengerPlayer, 0);
+      expect(restored.pendingChallenge?.requestedValue, 3);
+    });
+
     test('dez pontos representam cinco pedrinhas e ativam a mão de dez', () {
       final game = DouradinhaGame(random: Random(13));
       game.scores[0] = 10;

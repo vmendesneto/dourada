@@ -30,8 +30,14 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   Timer? _automationTimer;
   Timer? _turnTicker;
   Timer? _challengeNoticeTimer;
+  Timer? _challengeAnimationTimer;
   bool _automationScheduled = false;
   String? _scheduledChallengeNotice;
+  final List<({String id, int playerIndex, int requestedValue})>
+      _challengeAnimationQueue = [];
+  final Set<String> _shownChallengeAnimations = {};
+  ({String id, int playerIndex, int requestedValue})? _activeChallengeAnimation;
+  int _lastObservedHistoryLength = 0;
   int? _clockPlayerIndex;
   DateTime? _turnDeadline;
   int _turnLimitSeconds = 15;
@@ -72,6 +78,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     _automationTimer?.cancel();
     _turnTicker?.cancel();
     _challengeNoticeTimer?.cancel();
+    _challengeAnimationTimer?.cancel();
     tableSession
       ..removeListener(_onTableSessionChanged)
       ..dispose();
@@ -103,6 +110,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       return;
     }
     _syncChallengeNotice();
+    _syncChallengeAnimation();
     _syncTurnClock();
     setState(() {});
     _persistGame();
@@ -199,6 +207,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       _restoringGame = false;
       if (mounted) {
         _syncChallengeNotice();
+        _syncChallengeAnimation();
         _syncTurnClock();
         setState(() {});
         _persistGame();
@@ -240,6 +249,56 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       DouradinhaGame.challengeNoticeDuration,
       () {
         if (mounted) game.clearChallengeNotice();
+      },
+    );
+  }
+
+  void _syncChallengeAnimation() {
+    final historyLength = game.history.length;
+    if (historyLength < _lastObservedHistoryLength) {
+      _challengeAnimationTimer?.cancel();
+      _challengeAnimationTimer = null;
+      _challengeAnimationQueue.clear();
+      _shownChallengeAnimations.clear();
+      _activeChallengeAnimation = null;
+    }
+    _lastObservedHistoryLength = historyLength;
+
+    final challenge = game.pendingChallenge;
+    if (challenge == null ||
+        DouradinhaGame.challengeGifAssetForPoints(
+              challenge.requestedValue,
+            ) ==
+            null) {
+      return;
+    }
+    final animationId = [
+      historyLength,
+      challenge.challengerPlayer,
+      challenge.requestedValue,
+    ].join('-');
+    if (!_shownChallengeAnimations.add(animationId)) return;
+    _challengeAnimationQueue.add((
+      id: animationId,
+      playerIndex: challenge.challengerPlayer,
+      requestedValue: challenge.requestedValue,
+    ));
+    _startNextChallengeAnimation();
+  }
+
+  void _startNextChallengeAnimation() {
+    if (_activeChallengeAnimation != null || _challengeAnimationQueue.isEmpty) {
+      return;
+    }
+    _activeChallengeAnimation = _challengeAnimationQueue.removeAt(0);
+    _challengeAnimationTimer = Timer(
+      DouradinhaGame.challengeAnimationDuration,
+      () {
+        if (!mounted) return;
+        setState(() {
+          _activeChallengeAnimation = null;
+          _startNextChallengeAnimation();
+        });
       },
     );
   }
@@ -433,6 +492,16 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
               ),
             );
 
+        final playedCardAlignments = <int, Alignment>{
+          (game.humanPlayerIndex + 2) % 6: const Alignment(-.58, -.46),
+          (game.humanPlayerIndex + 3) % 6: const Alignment(0, -.62),
+          (game.humanPlayerIndex + 4) % 6: const Alignment(.58, -.46),
+          (game.humanPlayerIndex + 1) % 6: const Alignment(-.58, .46),
+          (game.humanPlayerIndex + 5) % 6: const Alignment(.58, .46),
+          game.humanPlayerIndex: const Alignment(0, .62),
+        };
+        final challengeAnimation = _activeChallengeAnimation;
+
         return Stack(
           children: [
             Center(
@@ -472,17 +541,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                         Alignment(-sideSeatX, .52)),
                     botSeat((game.humanPlayerIndex + 5) % 6,
                         Alignment(sideSeatX, .52)),
-                    playedCard((game.humanPlayerIndex + 2) % 6,
-                        const Alignment(-.58, -.46)),
-                    playedCard((game.humanPlayerIndex + 3) % 6,
-                        const Alignment(0, -.62)),
-                    playedCard((game.humanPlayerIndex + 4) % 6,
-                        const Alignment(.58, -.46)),
-                    playedCard((game.humanPlayerIndex + 1) % 6,
-                        const Alignment(-.58, .46)),
-                    playedCard((game.humanPlayerIndex + 5) % 6,
-                        const Alignment(.58, .46)),
-                    playedCard(game.humanPlayerIndex, const Alignment(0, .62)),
+                    for (final entry in playedCardAlignments.entries)
+                      playedCard(entry.key, entry.value),
                   ],
                 ),
               ),
@@ -503,6 +563,26 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
               Positioned.fill(child: _TenHandOverlay(game: game)),
             if (game.challengeNotice != null)
               Positioned.fill(child: _ChallengeNoticeOverlay(game: game)),
+            if (challengeAnimation != null)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Center(
+                    child: SizedBox.square(
+                      dimension: tableSize,
+                      child: Align(
+                        alignment: playedCardAlignments[
+                                challengeAnimation.playerIndex] ??
+                            Alignment.center,
+                        child: _ChallengeCallGif(
+                          key: ValueKey('gif-desafio-${challengeAnimation.id}'),
+                          requestedValue: challengeAnimation.requestedValue,
+                          compact: compact,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             if (game.phase == MatchPhase.gameOver)
               Positioned.fill(
                 child: _WinnerOverlay(
@@ -1643,6 +1723,36 @@ class _PlayedCardAtSeat extends StatelessWidget {
                 child: _CardBack(width: width, height: height),
               )
             : _CardFace(card: playedCard.card, width: width, height: height),
+      ),
+    );
+  }
+}
+
+class _ChallengeCallGif extends StatelessWidget {
+  const _ChallengeCallGif({
+    super.key,
+    required this.requestedValue,
+    required this.compact,
+  });
+
+  final int requestedValue;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final asset = DouradinhaGame.challengeGifAssetForPoints(requestedValue)!;
+    final label = DouradinhaGame.challengeLabelForPoints(requestedValue);
+    return Semantics(
+      label: label,
+      image: true,
+      child: Image.asset(
+        asset,
+        key: ValueKey('imagem-gif-desafio-$requestedValue'),
+        width: compact ? 88 : 132,
+        height: compact ? 88 : 132,
+        fit: BoxFit.contain,
+        gaplessPlayback: false,
+        filterQuality: FilterQuality.medium,
       ),
     );
   }

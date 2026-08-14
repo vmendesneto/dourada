@@ -8,6 +8,7 @@ export interface PlayedCardState {
 
 export interface ChallengeState {
   challengerTeam: number;
+  challengerPlayer?: number;
   targetTeam: number;
   requestedValue: number;
   responderPlayer: number;

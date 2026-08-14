@@ -133,12 +133,14 @@ class PlayedCard {
 class Challenge {
   const Challenge({
     required this.challengerTeam,
+    required this.challengerPlayer,
     required this.targetTeam,
     required this.requestedValue,
     required this.responderPlayer,
   });
 
   final int challengerTeam;
+  final int challengerPlayer;
   final int targetTeam;
   final int requestedValue;
   final int responderPlayer;
@@ -149,6 +151,7 @@ class DouradinhaGame extends ChangeNotifier {
   static const partidaStartDelay = Duration(milliseconds: 1500);
   static const betweenPartidasTransitionDuration = Duration(milliseconds: 3500);
   static const challengeNoticeDuration = Duration(seconds: 2);
+  static const challengeAnimationDuration = Duration(milliseconds: 2780);
 
   DouradinhaGame({Random? random, this.humanPlayerIndex = 0})
       : _random = random ?? Random() {
@@ -315,6 +318,14 @@ class DouradinhaGame extends ChangeNotifier {
   static String challengeLabelForPoints(int points) =>
       points == 2 ? 'TRUCO!' : 'VALE ${spokenValueForPoints(points)}!';
 
+  static String? challengeGifAssetForPoints(int points) => switch (points) {
+        2 => 'assets/gifs/truco.gif',
+        3 => 'assets/gifs/vale_6.gif',
+        4 => 'assets/gifs/vale_9.gif',
+        6 => 'assets/gifs/vale_12.gif',
+        _ => null,
+      };
+
   /// Nós somos representados exclusivamente pelo jogador humano nas apostas.
   static bool botCanDecideChallengeForTeam(int team) => team != 0;
 
@@ -435,6 +446,7 @@ class DouradinhaGame extends ChangeNotifier {
             ? null
             : {
                 'challengerTeam': pendingChallenge!.challengerTeam,
+                'challengerPlayer': pendingChallenge!.challengerPlayer,
                 'targetTeam': pendingChallenge!.targetTeam,
                 'requestedValue': pendingChallenge!.requestedValue,
                 'responderPlayer': pendingChallenge!.responderPlayer,
@@ -642,6 +654,8 @@ class DouradinhaGame extends ChangeNotifier {
 
   static Challenge _challengeFromJson(Map<String, dynamic> json) => Challenge(
         challengerTeam: json['challengerTeam'] as int,
+        challengerPlayer: json['challengerPlayer'] as int? ??
+            ((json['responderPlayer'] as int) + 5) % 6,
         targetTeam: json['targetTeam'] as int,
         requestedValue: json['requestedValue'] as int,
         responderPlayer: json['responderPlayer'] as int,
@@ -1019,6 +1033,7 @@ class DouradinhaGame extends ChangeNotifier {
     lastChallengeTeam = team;
     pendingChallenge = Challenge(
       challengerTeam: team,
+      challengerPlayer: playerIndex,
       targetTeam: 1 - team,
       requestedValue: requested,
       responderPlayer: _nextPlayerOnTeam(playerIndex, 1 - team),
@@ -1130,6 +1145,7 @@ class DouradinhaGame extends ChangeNotifier {
     lastChallengeTeam = raisingTeam;
     pendingChallenge = Challenge(
       challengerTeam: raisingTeam,
+      challengerPlayer: playerIndex,
       targetTeam: 1 - raisingTeam,
       requestedValue: requested,
       responderPlayer: _nextPlayerOnTeam(playerIndex, 1 - raisingTeam),
