@@ -33,6 +33,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   Timer? _challengeAnimationTimer;
   bool _automationScheduled = false;
   bool _challengeNoticeVisible = false;
+  bool _challengeNoticeStarted = false;
   String? _scheduledChallengeNotice;
   final List<({String id, int playerIndex, int requestedValue})>
       _challengeAnimationQueue = [];
@@ -107,12 +108,13 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   void _onGameChanged() {
     if (!mounted) return;
     if (_restoringGame) {
-      _challengeNoticeVisible = game.challengeNotice != null;
+      _syncChallengeAnimation();
+      _syncChallengeNotice();
       setState(() {});
       return;
     }
-    _syncChallengeNotice();
     _syncChallengeAnimation();
+    _syncChallengeNotice();
     _syncTurnClock();
     setState(() {});
     _persistGame();
@@ -208,8 +210,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     } finally {
       _restoringGame = false;
       if (mounted) {
-        _syncChallengeNotice();
         _syncChallengeAnimation();
+        _syncChallengeNotice();
         _syncTurnClock();
         setState(() {});
         _persistGame();
@@ -240,11 +242,26 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       _challengeNoticeTimer = null;
       _scheduledChallengeNotice = null;
       _challengeNoticeVisible = false;
+      _challengeNoticeStarted = false;
       return;
     }
     if (_scheduledChallengeNotice == notice) return;
     _challengeNoticeTimer?.cancel();
     _scheduledChallengeNotice = notice;
+    _challengeNoticeVisible = false;
+    _challengeNoticeStarted = false;
+    _startChallengeNoticeIfReady();
+  }
+
+  void _startChallengeNoticeIfReady() {
+    if (_challengeNoticeStarted ||
+        _scheduledChallengeNotice == null ||
+        game.challengeNotice != _scheduledChallengeNotice ||
+        _activeChallengeAnimation != null ||
+        _challengeAnimationQueue.isNotEmpty) {
+      return;
+    }
+    _challengeNoticeStarted = true;
     _challengeNoticeVisible = true;
     _challengeNoticeTimer = Timer(
       DouradinhaGame.challengeNoticeDuration,
@@ -304,6 +321,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         setState(() {
           _activeChallengeAnimation = null;
           _startNextChallengeAnimation();
+          _startChallengeNoticeIfReady();
         });
       },
     );

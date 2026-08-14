@@ -12,6 +12,7 @@ export interface ChallengeState {
   targetTeam: number;
   requestedValue: number;
   responderPlayer: number;
+  animationEndsAt?: number;
 }
 
 export interface GameState {
@@ -44,6 +45,7 @@ export interface GameState {
   pendingChallenge: ChallengeState | null;
   challengeNotice: string | null;
   challengeNoticeAccepted: boolean;
+  challengeNoticeUntil?: number | null;
   statusMessage: string;
 }
 
@@ -54,6 +56,8 @@ export interface BotStep {
 
 export const handTransitionMs = 2000;
 export const partidaStartDelayMs = 1500;
+export const challengeAnimationMs = 2780;
+export const challengeNoticeMs = 2000;
 export const betweenPartidasTransitionMs =
   handTransitionMs + partidaStartDelayMs;
 
@@ -98,6 +102,7 @@ export function createInitialGame(
     pendingChallenge: null,
     challengeNotice: null,
     challengeNoticeAccepted: false,
+    challengeNoticeUntil: null,
     statusMessage: "",
   };
   dealHand(game);
@@ -167,6 +172,10 @@ export function isGameState(value: unknown): value is GameState {
     hasLegalHiddenDiscards(state.currentTrick, state.scores) &&
     Array.isArray(state.playedCards) &&
     Array.isArray(state.trickWinners) &&
+    (state.challengeNoticeUntil === undefined ||
+      state.challengeNoticeUntil === null ||
+      (typeof state.challengeNoticeUntil === "number" &&
+        Number.isFinite(state.challengeNoticeUntil))) &&
     (state.pendingChallenge === null ||
       isChallengeState(state.pendingChallenge)) &&
     ["playing", "handFinished", "gameOver"].includes(state.phase ?? "")
@@ -187,7 +196,10 @@ function isChallengeState(value: unknown): value is ChallengeState {
     (challenge.challengerPlayer === undefined ||
       (Number.isInteger(challenge.challengerPlayer) &&
         challenge.challengerPlayer >= 0 &&
-        challenge.challengerPlayer < 6))
+        challenge.challengerPlayer < 6)) &&
+    (challenge.animationEndsAt === undefined ||
+      (typeof challenge.animationEndsAt === "number" &&
+        Number.isFinite(challenge.animationEndsAt)))
   );
 }
 
@@ -197,6 +209,7 @@ export function advanceBot(state: GameState): BotStep {
   if (game.challengeNotice !== null) {
     game.challengeNotice = null;
     game.challengeNoticeAccepted = false;
+    game.challengeNoticeUntil = null;
     return { state: game, nextDelayMs: 100 };
   }
 
@@ -256,7 +269,10 @@ export function pendingTenTeam(game: GameState): number | null {
   return null;
 }
 
-export function acceptPendingChallenge(game: GameState): boolean {
+export function acceptPendingChallenge(
+  game: GameState,
+  now = Date.now(),
+): boolean {
   const challenge = game.pendingChallenge;
   if (challenge === null) return false;
   game.handValue = challenge.requestedValue;
@@ -265,11 +281,16 @@ export function acceptPendingChallenge(game: GameState): boolean {
     `${teamAction(game, challenge.targetTeam, "aceitamos", "aceitaram")} o desafio.`;
   game.challengeNotice = message;
   game.challengeNoticeAccepted = true;
+  game.challengeNoticeUntil =
+    Math.max(now, challenge.animationEndsAt ?? now) + challengeNoticeMs;
   setStatus(game, message);
   return true;
 }
 
-export function foldPendingChallenge(game: GameState): boolean {
+export function foldPendingChallenge(
+  game: GameState,
+  now = Date.now(),
+): boolean {
   const challenge = game.pendingChallenge;
   if (challenge === null) return false;
   const message =
@@ -281,12 +302,15 @@ export function foldPendingChallenge(game: GameState): boolean {
   );
   game.challengeNotice = message;
   game.challengeNoticeAccepted = false;
+  game.challengeNoticeUntil =
+    Math.max(now, challenge.animationEndsAt ?? now) + challengeNoticeMs;
   return true;
 }
 
 export function raisePendingChallenge(
   game: GameState,
   playerIndex: number,
+  now = Date.now(),
 ): boolean {
   const challenge = game.pendingChallenge;
   if (
@@ -309,6 +333,7 @@ export function raisePendingChallenge(
     targetTeam: 1 - raisingTeam,
     requestedValue,
     responderPlayer: nextPlayerOnTeam(playerIndex, 1 - raisingTeam),
+    animationEndsAt: now + challengeAnimationMs,
   };
   setStatus(
     game,
@@ -471,6 +496,7 @@ function dealHand(game: GameState): void {
   game.pendingChallenge = null;
   game.challengeNotice = null;
   game.challengeNoticeAccepted = false;
+  game.challengeNoticeUntil = null;
   game.matchWinner = null;
   game.lastChallengeTeam = null;
   game.lastHandWinner = null;

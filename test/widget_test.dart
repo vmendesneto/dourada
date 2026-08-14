@@ -306,6 +306,50 @@ void main() {
     await tester.pump(const Duration(seconds: 12));
   });
 
+  testWidgets('espera o gif do pedido terminar antes de mostrar a resposta',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(
+      MaterialApp(home: GamePage(entry: _challengeVoteEntry())),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('imagem-gif-desafio-2')),
+      findsOneWidget,
+    );
+    final dynamic pageState = tester.state(find.byType(GamePage));
+    final game = pageState.game as DouradinhaGame;
+    game.acceptHumanChallenge();
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('imagem-gif-desafio-2')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('imagem-desafio-aceito')), findsNothing);
+
+    await tester.pump(
+      DouradinhaGame.challengeAnimationDuration -
+          const Duration(milliseconds: 1),
+    );
+    expect(find.byKey(const ValueKey('imagem-desafio-aceito')), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(find.byKey(const ValueKey('imagem-gif-desafio-2')), findsNothing);
+    expect(find.byKey(const ValueKey('imagem-desafio-aceito')), findsOneWidget);
+
+    await tester.pump(
+      DouradinhaGame.challengeNoticeDuration - const Duration(milliseconds: 1),
+    );
+    expect(find.byKey(const ValueKey('imagem-desafio-aceito')), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(find.byKey(const ValueKey('imagem-desafio-aceito')), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 12));
+  });
+
   testWidgets('esconde a carta na mão e mantém o verso ao descartá-la',
       (tester) async {
     final savedGame = DouradinhaGame()..currentPlayerIndex = 0;

@@ -2,6 +2,8 @@ import {
   acceptPendingChallenge,
   advanceBot,
   betweenPartidasTransitionMs,
+  challengeAnimationMs,
+  challengeNoticeMs,
   createInitialGame,
   foldPendingChallenge,
   handTransitionMs,
@@ -73,7 +75,6 @@ const tableCount = 10;
 const seatCount = 6;
 const disconnectGraceMs = 5000;
 const humanTurnMs = 15000;
-const challengeNoticeMs = 2000;
 const botAvatarCount = 10;
 const fillBotsVotingVersion = 2;
 const challengeVotingVersion = 1;
@@ -626,6 +627,12 @@ export class GameTable extends DurableObject<Env> {
     }
     const challengerPlayer =
       challenge.challengerPlayer ?? (challenge.responderPlayer + seatCount - 1) % seatCount;
+    if (
+      typeof challenge.animationEndsAt !== "number" ||
+      !Number.isFinite(challenge.animationEndsAt)
+    ) {
+      challenge.animationEndsAt = Date.now() + challengeAnimationMs;
+    }
     const current = table.challengeVote;
     if (
       current !== null &&
@@ -672,11 +679,11 @@ export class GameTable extends DurableObject<Env> {
     }
 
     if (decision === "raise") {
-      raisePendingChallenge(game, decidingSeatIndex);
+      raisePendingChallenge(game, decidingSeatIndex, now);
     } else if (decision === "accept") {
-      acceptPendingChallenge(game);
+      acceptPendingChallenge(game, now);
     } else {
-      foldPendingChallenge(game);
+      foldPendingChallenge(game, now);
     }
     table.challengeVote = null;
     this.ensureChallengeVote(table);
@@ -962,6 +969,12 @@ export class GameTable extends DurableObject<Env> {
     if (!game) return null;
     const now = Date.now();
     if (game.phase === "gameOver") return now + 5000;
+    if (game.challengeNotice !== null && game.phase !== "handFinished") {
+      return Math.max(
+        now,
+        game.challengeNoticeUntil ?? now + challengeNoticeMs,
+      );
+    }
     if (engineDelayMs !== undefined && engineDelayMs !== null) {
       const expectedHuman = this.expectedHumanSeat(table);
       if (expectedHuman === null || !activeHumans.has(expectedHuman)) {
@@ -972,13 +985,13 @@ export class GameTable extends DurableObject<Env> {
       return now + handTransitionMs;
     }
     if (game.phase === "handFinished") {
-      return now +
+      const transitionAt = now +
         (game.matchWinner === null
           ? betweenPartidasTransitionMs
           : handTransitionMs);
-    }
-    if (game.challengeNotice !== null) {
-      return now + challengeNoticeMs;
+      return game.challengeNotice !== null
+        ? Math.max(transitionAt, game.challengeNoticeUntil ?? transitionAt)
+        : transitionAt;
     }
     if (game.pendingChallenge !== null && table.challengeVote !== null) {
       return table.challengeVote.expiresAt;

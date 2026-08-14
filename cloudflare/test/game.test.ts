@@ -225,6 +225,7 @@ describe("motor do robô substituto", () => {
   });
 
   it("aplica no servidor aceitar, correr e aumentar", () => {
+    const now = 1_000;
     const challenged = fixture();
     challenged.pendingChallenge = {
       challengerTeam: 1,
@@ -232,25 +233,28 @@ describe("motor do robô substituto", () => {
       targetTeam: 0,
       requestedValue: 2,
       responderPlayer: 2,
+      animationEndsAt: 2_500,
     };
 
     const accepted = structuredClone(challenged);
-    expect(acceptPendingChallenge(accepted)).toBe(true);
+    expect(acceptPendingChallenge(accepted, now)).toBe(true);
     expect(accepted.handValue).toBe(2);
     expect(accepted.pendingChallenge).toBeNull();
     expect(accepted.challengeNoticeAccepted).toBe(true);
     expect(accepted.challengeNotice).toContain("aceitamos o desafio");
+    expect(accepted.challengeNoticeUntil).toBe(4_500);
 
     const folded = structuredClone(challenged);
-    expect(foldPendingChallenge(folded)).toBe(true);
+    expect(foldPendingChallenge(folded, now)).toBe(true);
     expect(folded.phase).toBe("handFinished");
     expect(folded.scores).toEqual([0, 2]);
     expect(folded.statusMessage).toContain("corremos do desafio");
     expect(folded.challengeNoticeAccepted).toBe(false);
     expect(folded.challengeNotice).toContain("corremos do desafio");
+    expect(folded.challengeNoticeUntil).toBe(4_500);
 
     const raised = structuredClone(challenged);
-    expect(raisePendingChallenge(raised, 4)).toBe(true);
+    expect(raisePendingChallenge(raised, 4, now)).toBe(true);
     expect(raised.handValue).toBe(2);
     expect(raised.pendingChallenge).toEqual({
       challengerTeam: 0,
@@ -258,6 +262,7 @@ describe("motor do robô substituto", () => {
       targetTeam: 1,
       requestedValue: 3,
       responderPlayer: 5,
+      animationEndsAt: 3_780,
     });
   });
 });
