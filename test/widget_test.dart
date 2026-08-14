@@ -406,6 +406,46 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('decisão da mão de dez não cobre os parceiros no celular',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final savedGame = DouradinhaGame()
+      ..scores[0] = 10
+      ..phase = MatchPhase.handFinished;
+    savedGame.startNextHand();
+    SharedPreferences.setMockInitialValues({
+      'douradinha_partida_em_andamento_v1': jsonEncode(savedGame.toJson()),
+    });
+    addTearDown(() => SharedPreferences.setMockInitialValues({}));
+
+    await tester.pumpWidget(
+      DouradinhaApp(authService: FakeAuthService(signedIn: true)),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
+    await tester.pumpAndSettle();
+
+    final decision = find.byKey(const ValueKey('decisao-mao-de-dez'));
+    final decisionRect = tester.getRect(decision);
+    expect(decision, findsOneWidget);
+    expect(decisionRect.height, lessThanOrEqualTo(120));
+    expect(find.byKey(const ValueKey('correr-mao-de-dez')), findsOneWidget);
+    expect(find.byKey(const ValueKey('jogar-mao-de-dez')), findsOneWidget);
+
+    for (final playerIndex in [2, 4]) {
+      final partnerCards = find.byKey(ValueKey('cartas-parceiro-$playerIndex'));
+      expect(partnerCards, findsOneWidget);
+      expect(decisionRect.overlaps(tester.getRect(partnerCards)), isFalse);
+    }
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('saida confirmada volta ao lobby e encerra a sessao',
       (tester) async {
     SharedPreferences.setMockInitialValues({});

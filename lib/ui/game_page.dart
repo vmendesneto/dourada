@@ -1666,6 +1666,7 @@ class _BotSeat extends StatelessWidget {
           if (!compact || reveal) ...[
             const SizedBox(height: 4),
             Row(
+              key: reveal ? ValueKey('cartas-parceiro-$playerIndex') : null,
               mainAxisSize: MainAxisSize.min,
               children: [
                 for (final card in player.hand)
@@ -2658,44 +2659,84 @@ class _TenHandOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final phone = MediaQuery.sizeOf(context).width < 600;
     return ColoredBox(
-      color: Colors.black54,
-      child: Center(
-        child: Card(
-          color: const Color(0xFF123C30),
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text('MÃO DE DEZ',
-                    style: TextStyle(
-                        color: Color(0xFFFFC857),
-                        fontSize: 22,
-                        fontWeight: FontWeight.w900)),
-                const SizedBox(height: 6),
-                const Text(
-                  'As cartas dos parceiros estão abertas para consulta.\nSem Truco ou aumentos; jogando, a mão vale 4.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white70),
+      color: Colors.black.withValues(alpha: phone ? .24 : .54),
+      child: Align(
+        alignment: phone ? Alignment.bottomCenter : Alignment.center,
+        child: Padding(
+          padding:
+              phone ? const EdgeInsets.fromLTRB(8, 8, 8, 6) : EdgeInsets.zero,
+          child: Card(
+            key: const ValueKey('decisao-mao-de-dez'),
+            margin: EdgeInsets.zero,
+            color: const Color(0xFF123C30),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: phone ? 350 : 520),
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: phone ? 10 : 18,
+                  vertical: phone ? 8 : 18,
                 ),
-                const SizedBox(height: 14),
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 10,
-                  runSpacing: 8,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    OutlinedButton(
-                      onPressed: game.foldHumanTenHand,
-                      child: const Text('CORRER (CEDE 2)'),
+                    Text(
+                      'MÃO DE DEZ',
+                      style: TextStyle(
+                        color: const Color(0xFFFFC857),
+                        fontSize: phone ? 17 : 22,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
-                    FilledButton(
-                      onPressed: game.chooseToPlayTenHand,
-                      child: const Text('JOGAR A MÃO'),
+                    SizedBox(height: phone ? 2 : 6),
+                    Text(
+                      phone
+                          ? 'Veja as cartas dos parceiros • vale 4, sem Truco.'
+                          : 'As cartas dos parceiros estão abertas para consulta.\nSem Truco ou aumentos; jogando, a mão vale 4.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: phone ? 11 : 14,
+                      ),
+                    ),
+                    SizedBox(height: phone ? 6 : 14),
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: phone ? 6 : 10,
+                      runSpacing: phone ? 4 : 8,
+                      children: [
+                        OutlinedButton(
+                          key: const ValueKey('correr-mao-de-dez'),
+                          style: phone
+                              ? OutlinedButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                  ),
+                                )
+                              : null,
+                          onPressed: game.foldHumanTenHand,
+                          child: Text(phone ? 'CORRER (2)' : 'CORRER (CEDE 2)'),
+                        ),
+                        FilledButton(
+                          key: const ValueKey('jogar-mao-de-dez'),
+                          style: phone
+                              ? FilledButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                  ),
+                                )
+                              : null,
+                          onPressed: game.chooseToPlayTenHand,
+                          child: Text(phone ? 'JOGAR' : 'JOGAR A MÃO'),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
