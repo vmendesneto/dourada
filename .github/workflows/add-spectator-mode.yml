@@ -28,6 +28,31 @@ jobs:
       - name: Aplicar modo espectador
         run: python3 tool/add_spectator_mode.py
 
+      - name: Corrigir const do overlay
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('lib/ui/game_page.dart')
+          text = path.read_text()
+          old = """class _SpectatorEndedOverlay extends StatelessWidget {
+            const _SpectatorEndedOverlay();
+
+            @override
+            Widget build(BuildContext context) {
+              return ColoredBox(
+          """
+          new = """class _SpectatorEndedOverlay extends StatelessWidget {
+            const _SpectatorEndedOverlay();
+
+            @override
+            Widget build(BuildContext context) {
+              return const ColoredBox(
+          """
+          if old not in text:
+              raise SystemExit('Overlay de espectador não encontrado')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
       - name: Instalar dependências Flutter
         run: flutter pub get
 
