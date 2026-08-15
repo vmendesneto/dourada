@@ -4,6 +4,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+
+final GlobalKey<NavigatorState> authNavigatorKey = GlobalKey<NavigatorState>();
 
 const humanAvatarAssets = <String>[
   'assets/images/avatar/humanos/avatar_homem_01.png',
@@ -145,10 +148,52 @@ class FirebaseAuthService extends AuthService {
   @override
   Future<void> signInWithGoogle() async {
     await _persistenceReady;
+    final context = authNavigatorKey.currentContext;
+    if (context == null) {
+      throw StateError('Não foi possível abrir o menu de login.');
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _AuthMenu(authService: this),
+    );
+  }
+
+  Future<void> _signInWithGoogleProvider() async {
+    await _persistenceReady;
     final provider = GoogleAuthProvider();
     provider.setCustomParameters({'prompt': 'select_account'});
     final credential = await _auth.signInWithPopup(provider);
     await _ensureDefaultAvatar(credential.user);
+  }
+
+  Future<void> _signInWithEmail({
+    required String email,
+    required String password,
+  }) async {
+    await _persistenceReady;
+    final credential = await _auth.signInWithEmailAndPassword(
+      email: email.trim(),
+      password: password,
+    );
+    await _ensureDefaultAvatar(credential.user);
+  }
+
+  Future<void> _createAccount({
+    required String email,
+    required String password,
+  }) async {
+    await _persistenceReady;
+    final credential = await _auth.createUserWithEmailAndPassword(
+      email: email.trim(),
+      password: password,
+    );
+    // O Firebase autentica automaticamente o usuário recém-criado.
+    await _ensureDefaultAvatar(credential.user);
+  }
+
+  Future<void> _sendPasswordResetEmail(String email) async {
+    await _persistenceReady;
+    await _auth.sendPasswordResetEmail(email: email.trim());
   }
 
   @override
@@ -255,6 +300,563 @@ class FirebaseAuthService extends AuthService {
       photoUrl: user.photoURL?.trim() ?? '',
     );
   }
+}
+
+class _AuthMenu extends StatefulWidget {
+  const _AuthMenu({required this.authService});
+
+  final FirebaseAuthService authService;
+
+  @override
+  State<_AuthMenu> createState() => _AuthMenuState();
+}
+
+class _AuthMenuState extends State<_AuthMenu>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+  final _loginEmailController = TextEditingController();
+  final _loginPasswordController = TextEditingController();
+  final _registerEmailController = TextEditingController();
+  final _registerPasswordController = TextEditingController();
+  final _registerConfirmController = TextEditingController();
+  bool _forgotPassword = false;
+  bool _busy = false;
+  bool _hideLoginPassword = true;
+  bool _hideRegisterPassword = true;
+  bool _hideRegisterConfirm = true;
+  String? _message;
+  bool _messageIsError = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _loginEmailController.dispose();
+    _loginPasswordController.dispose();
+    _registerEmailController.dispose();
+    _registerPasswordController.dispose();
+    _registerConfirmController.dispose();
+    super.dispose();
+  }
+
+  String? _validateEmail(String value) {
+    final email = value.trim();
+    if (email.isEmpty) return 'Informe seu e-mail.';
+    if (!email.contains('@') || !email.contains('.')) {
+      return 'Informe um e-mail válido.';
+    }
+    return null;
+  }
+
+  void _setMessage(String message, {bool error = true}) {
+    if (!mounted) return;
+    setState(() {
+      _message = message;
+      _messageIsError = error;
+    });
+  }
+
+  Future<void> _loginWithEmail() async {
+    if (_busy) return;
+    final emailError = _validateEmail(_loginEmailController.text);
+    if (emailError != null) {
+      _setMessage(emailError);
+      return;
+    }
+    if (_loginPasswordController.text.isEmpty) {
+      _setMessage('Informe sua senha.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _message = null;
+    });
+    try {
+      await widget.authService._signInWithEmail(
+        email: _loginEmailController.text,
+        password: _loginPasswordController.text,
+      );
+      if (mounted) Navigator.of(context).pop();
+    } on Object catch (error) {
+      _setMessage(_readableLoginError(error));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _loginWithGoogle() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _message = null;
+    });
+    try {
+      await widget.authService._signInWithGoogleProvider();
+      if (mounted) Navigator.of(context).pop();
+    } on Object catch (error) {
+      _setMessage(_readableLoginError(error));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _register() async {
+    if (_busy) return;
+    final emailError = _validateEmail(_registerEmailController.text);
+    if (emailError != null) {
+      _setMessage(emailError);
+      return;
+    }
+    if (_registerPasswordController.text.isEmpty) {
+      _setMessage('Informe uma senha.');
+      return;
+    }
+    if (_registerPasswordController.text != _registerConfirmController.text) {
+      _setMessage('A confirmação de senha não confere.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _message = null;
+    });
+    try {
+      await widget.authService._createAccount(
+        email: _registerEmailController.text,
+        password: _registerPasswordController.text,
+      );
+      if (mounted) Navigator.of(context).pop();
+    } on Object catch (error) {
+      _setMessage(_readableLoginError(error));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _sendPasswordReset() async {
+    if (_busy) return;
+    final emailError = _validateEmail(_loginEmailController.text);
+    if (emailError != null) {
+      _setMessage(emailError);
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _message = null;
+    });
+    try {
+      await widget.authService
+          ._sendPasswordResetEmail(_loginEmailController.text);
+      _setMessage(
+        'E-mail de redefinição enviado. Confira sua caixa de entrada.',
+        error: false,
+      );
+    } on Object catch (error) {
+      _setMessage(_readableLoginError(error));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  InputDecoration _fieldDecoration({
+    required String label,
+    required IconData icon,
+    Widget? suffixIcon,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon),
+      suffixIcon: suffixIcon,
+      border: const OutlineInputBorder(),
+    );
+  }
+
+  Widget _messageWidget() {
+    final message = _message;
+    if (message == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: (_messageIsError
+                  ? const Color(0xFFFF8A80)
+                  : const Color(0xFF62DFA8))
+              .withValues(alpha: .12),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: _messageIsError
+                ? const Color(0xFFFF8A80)
+                : const Color(0xFF62DFA8),
+          ),
+        ),
+        child: Text(
+          message,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: _messageIsError
+                ? const Color(0xFFFFB4AB)
+                : const Color(0xFF8FE9C2),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _loginTab() {
+    if (_forgotPassword) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 18),
+          const Text(
+            'REDEFINIR SENHA',
+            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Informe o e-mail da sua conta e enviaremos o link de redefinição.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white.withValues(alpha: .7)),
+          ),
+          const SizedBox(height: 18),
+          TextField(
+            key: const ValueKey('login-email-reset'),
+            controller: _loginEmailController,
+            enabled: !_busy,
+            keyboardType: TextInputType.emailAddress,
+            autofillHints: const [AutofillHints.email],
+            decoration: _fieldDecoration(
+              label: 'E-mail',
+              icon: Icons.email_outlined,
+            ),
+            onSubmitted: (_) => _sendPasswordReset(),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              key: const ValueKey('enviar-redefinicao-senha'),
+              onPressed: _busy ? null : _sendPasswordReset,
+              icon: _busy
+                  ? const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.send_rounded),
+              label: const Text('ENVIAR'),
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _busy
+                  ? null
+                  : () => setState(() {
+                        _forgotPassword = false;
+                        _message = null;
+                      }),
+              icon: const Icon(Icons.arrow_back_rounded, size: 18),
+              label: const Text('Voltar para o login'),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox(height: 18),
+        TextField(
+          key: const ValueKey('login-email'),
+          controller: _loginEmailController,
+          enabled: !_busy,
+          keyboardType: TextInputType.emailAddress,
+          autofillHints: const [AutofillHints.email],
+          decoration: _fieldDecoration(
+            label: 'E-mail',
+            icon: Icons.email_outlined,
+          ),
+        ),
+        const SizedBox(height: 14),
+        TextField(
+          key: const ValueKey('login-senha'),
+          controller: _loginPasswordController,
+          enabled: !_busy,
+          obscureText: _hideLoginPassword,
+          autofillHints: const [AutofillHints.password],
+          decoration: _fieldDecoration(
+            label: 'Senha',
+            icon: Icons.lock_outline_rounded,
+            suffixIcon: IconButton(
+              tooltip: _hideLoginPassword ? 'Mostrar senha' : 'Ocultar senha',
+              onPressed: _busy
+                  ? null
+                  : () => setState(
+                        () => _hideLoginPassword = !_hideLoginPassword,
+                      ),
+              icon: Icon(
+                _hideLoginPassword
+                    ? Icons.visibility_outlined
+                    : Icons.visibility_off_outlined,
+              ),
+            ),
+          ),
+          onSubmitted: (_) => _loginWithEmail(),
+        ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton(
+            key: const ValueKey('esqueci-senha'),
+            onPressed: _busy
+                ? null
+                : () => setState(() {
+                      _forgotPassword = true;
+                      _message = null;
+                    }),
+            child: const Text('Esqueci a senha'),
+          ),
+        ),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            key: const ValueKey('entrar-email-senha'),
+            onPressed: _busy ? null : _loginWithEmail,
+            icon: _busy
+                ? const SizedBox.square(
+                    dimension: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.login_rounded),
+            label: const Text('ENTRAR'),
+          ),
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            const Expanded(child: Divider()),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Text(
+                'ou',
+                style: TextStyle(color: Colors.white.withValues(alpha: .6)),
+              ),
+            ),
+            const Expanded(child: Divider()),
+          ],
+        ),
+        const SizedBox(height: 14),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            key: const ValueKey('entrar-google'),
+            onPressed: _busy ? null : _loginWithGoogle,
+            icon: const Icon(Icons.account_circle_outlined),
+            label: const Text('ENTRAR COM GOOGLE'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _registerTab() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox(height: 18),
+        TextField(
+          key: const ValueKey('cadastro-email'),
+          controller: _registerEmailController,
+          enabled: !_busy,
+          keyboardType: TextInputType.emailAddress,
+          autofillHints: const [AutofillHints.newUsername, AutofillHints.email],
+          decoration: _fieldDecoration(
+            label: 'E-mail',
+            icon: Icons.email_outlined,
+          ),
+        ),
+        const SizedBox(height: 14),
+        TextField(
+          key: const ValueKey('cadastro-senha'),
+          controller: _registerPasswordController,
+          enabled: !_busy,
+          obscureText: _hideRegisterPassword,
+          autofillHints: const [AutofillHints.newPassword],
+          decoration: _fieldDecoration(
+            label: 'Senha',
+            icon: Icons.lock_outline_rounded,
+            suffixIcon: IconButton(
+              tooltip:
+                  _hideRegisterPassword ? 'Mostrar senha' : 'Ocultar senha',
+              onPressed: _busy
+                  ? null
+                  : () => setState(
+                        () => _hideRegisterPassword = !_hideRegisterPassword,
+                      ),
+              icon: Icon(
+                _hideRegisterPassword
+                    ? Icons.visibility_outlined
+                    : Icons.visibility_off_outlined,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        TextField(
+          key: const ValueKey('cadastro-confirmar-senha'),
+          controller: _registerConfirmController,
+          enabled: !_busy,
+          obscureText: _hideRegisterConfirm,
+          autofillHints: const [AutofillHints.newPassword],
+          decoration: _fieldDecoration(
+            label: 'Confirmar senha',
+            icon: Icons.lock_reset_rounded,
+            suffixIcon: IconButton(
+              tooltip: _hideRegisterConfirm ? 'Mostrar senha' : 'Ocultar senha',
+              onPressed: _busy
+                  ? null
+                  : () => setState(
+                        () => _hideRegisterConfirm = !_hideRegisterConfirm,
+                      ),
+              icon: Icon(
+                _hideRegisterConfirm
+                    ? Icons.visibility_outlined
+                    : Icons.visibility_off_outlined,
+              ),
+            ),
+          ),
+          onSubmitted: (_) => _register(),
+        ),
+        const SizedBox(height: 18),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            key: const ValueKey('cadastrar-email-senha'),
+            onPressed: _busy ? null : _register,
+            icon: _busy
+                ? const SizedBox.square(
+                    dimension: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.person_add_alt_1_rounded),
+            label: const Text('CADASTRAR'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      alignment: Alignment.topRight,
+      insetPadding: const EdgeInsets.fromLTRB(16, 72, 18, 16),
+      backgroundColor: const Color(0xFF074333),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 410),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'ACESSAR CONTA',
+                        style: TextStyle(
+                          color: Color(0xFFFFD46B),
+                          fontWeight: FontWeight.w900,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Fechar',
+                      onPressed:
+                          _busy ? null : () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+                TabBar(
+                  controller: _tabController,
+                  onTap: (_) => setState(() {
+                    _forgotPassword = false;
+                    _message = null;
+                  }),
+                  labelColor: const Color(0xFFFFD46B),
+                  indicatorColor: const Color(0xFFE7A93E),
+                  tabs: const [
+                    Tab(text: 'LOGIN'),
+                    Tab(text: 'CRIAR CONTA'),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _messageWidget(),
+                AnimatedBuilder(
+                  animation: _tabController,
+                  builder: (context, _) => AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    child: _tabController.index == 0
+                        ? KeyedSubtree(
+                            key: ValueKey(_forgotPassword
+                                ? 'recuperar-senha'
+                                : 'aba-login'),
+                            child: _loginTab(),
+                          )
+                        : KeyedSubtree(
+                            key: const ValueKey('aba-criar-conta'),
+                            child: _registerTab(),
+                          ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _readableLoginError(Object error) {
+  if (error is FirebaseAuthException) {
+    return switch (error.code) {
+      'popup-closed-by-user' || 'cancelled-popup-request' => 'Login cancelado.',
+      'popup-blocked' =>
+        'O navegador bloqueou a janela do Google. Permita pop-ups e tente novamente.',
+      'unauthorized-domain' =>
+        'Este endereço ainda não foi autorizado no Firebase Auth.',
+      'invalid-email' => 'Informe um e-mail válido.',
+      'user-disabled' => 'Esta conta foi desativada.',
+      'user-not-found' || 'wrong-password' || 'invalid-credential' =>
+        'E-mail ou senha incorretos.',
+      'email-already-in-use' => 'Já existe uma conta com este e-mail.',
+      'weak-password' =>
+        'A senha é muito fraca. Escolha uma senha com pelo menos 6 caracteres.',
+      'too-many-requests' =>
+        'Muitas tentativas em pouco tempo. Aguarde e tente novamente.',
+      'operation-not-allowed' =>
+        'Este método de autenticação ainda não foi habilitado no Firebase Auth.',
+      'network-request-failed' =>
+        'Falha de conexão durante a autenticação. Tente novamente.',
+      _ => error.message ?? 'Não foi possível concluir a autenticação.',
+    };
+  }
+  return error
+      .toString()
+      .replaceFirst('Invalid argument(s): ', '')
+      .replaceFirst('Bad state: ', '')
+      .replaceFirst('Unsupported operation: ', '');
 }
 
 class DisabledAuthService extends AuthService {

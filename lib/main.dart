@@ -27,6 +27,7 @@ class DouradinhaApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: authNavigatorKey,
       debugShowCheckedModeBanner: false,
       title: 'Douradinha',
       theme: ThemeData(
