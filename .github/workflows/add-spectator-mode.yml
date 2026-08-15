@@ -161,6 +161,9 @@ jobs:
       - name: Testar Flutter
         run: flutter test
 
+      - name: Reverter ajustes automáticos do Flutter
+        run: git checkout -- analysis_options.yaml pubspec.lock
+
       - name: Validar Worker Cloudflare
         working-directory: cloudflare
         run: |
