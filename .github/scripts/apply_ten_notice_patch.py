@@ -84,12 +84,20 @@ changed |= replace_once(
 
 changed |= replace_once(
     "test/douradinha_game_test.dart",
-    """      game.chooseToPlayTenHand();
+    """      game.currentPlayerIndex = game.humanPlayerIndex;
+      game.trickLeaderIndex = game.humanPlayerIndex;
+      game.scores[game.humanTeam] = 10;
+      game.chooseToPlayTenHand();
       final card = game.players[game.humanPlayerIndex].hand.first;
 
       expect(game.isHumanTurn, isTrue);
 """,
-    """      game.chooseToPlayTenHand();
+    """      game.scores[game.humanTeam] = 10;
+      game.phase = MatchPhase.handFinished;
+      game.startNextHand();
+      game.currentPlayerIndex = game.humanPlayerIndex;
+      game.trickLeaderIndex = game.humanPlayerIndex;
+      game.chooseToPlayTenHand();
       final card = game.players[game.humanPlayerIndex].hand.first;
 
       expect(game.challengeNoticeAccepted, isTrue);
