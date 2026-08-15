@@ -238,11 +238,13 @@ export function advanceBot(state: GameState): BotStep {
   const tenTeam = pendingTenTeam(game);
   if (tenTeam !== null) {
     game.tenDecisionMade[tenTeam] = true;
-    setStatus(
-      game,
-      `${teamAction(game, tenTeam, "decidimos", "decidiram")} jogar a mão de dez.`,
-    );
-    return { state: game, nextDelayMs: 650 };
+    const message =
+      `${teamAction(game, tenTeam, "decidimos", "decidiram")} jogar a mão de dez.`;
+    game.challengeNotice = message;
+    game.challengeNoticeAccepted = true;
+    game.challengeNoticeUntil = Date.now() + challengeNoticeMs;
+    setStatus(game, message);
+    return { state: game, nextDelayMs: challengeNoticeMs };
   }
 
   const playerIndex = game.currentPlayerIndex;

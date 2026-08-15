@@ -296,12 +296,17 @@ void main() {
 
     test('não permite esconder cartas na mão de dez', () {
       final game = DouradinhaGame(random: Random(41));
+      game.scores[game.humanTeam] = 10;
+      game.phase = MatchPhase.handFinished;
+      game.startNextHand();
       game.currentPlayerIndex = game.humanPlayerIndex;
       game.trickLeaderIndex = game.humanPlayerIndex;
-      game.scores[game.humanTeam] = 10;
       game.chooseToPlayTenHand();
       final card = game.players[game.humanPlayerIndex].hand.first;
 
+      expect(game.challengeNoticeAccepted, isTrue);
+      expect(game.challengeNotice, contains('decidiu jogar a mão de dez'));
+      game.clearChallengeNotice();
       expect(game.isHumanTurn, isTrue);
       expect(game.canHumanHideCard(card), isFalse);
       game.toggleHumanCardHidden(card);
@@ -454,6 +459,8 @@ void main() {
 
       game.foldHumanTenHand();
 
+      expect(game.challengeNoticeAccepted, isFalse);
+      expect(game.challengeNotice, contains('correu na mão de dez'));
       expect(game.phase, MatchPhase.handFinished);
       expect(game.scores[1], 2);
       expect(game.lastHandPoints, 2);
@@ -485,6 +492,9 @@ void main() {
       }
 
       game.chooseToPlayTenHand();
+      expect(game.challengeNoticeAccepted, isTrue);
+      expect(game.challengeNotice, contains('decidiu jogar a mão de dez'));
+      game.clearChallengeNotice();
       var safety = 0;
       while (game.phase == MatchPhase.playing && safety++ < 30) {
         expect(game.pendingChallenge, isNull);
@@ -518,6 +528,7 @@ void main() {
       expect(game.isTenHand, isTrue);
       expect(game.humanTenDecisionPending, isFalse);
       expect(game.botTenDecisionPending, isFalse);
+      expect(game.challengeNotice, isNull);
       expect(game.canHumanSeePartnerCardsInTenHand, isFalse);
       expect(game.canCurrentPlayerPlayCard, isTrue);
       expect(game.handValue, 2);

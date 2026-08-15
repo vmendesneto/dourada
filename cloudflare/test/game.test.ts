@@ -4,6 +4,7 @@ import {
   advanceBot,
   betweenPartidasTransitionMs,
   cardStrength,
+  challengeNoticeMs,
   createInitialGame,
   foldPendingChallenge,
   handTransitionMs,
@@ -134,6 +135,30 @@ describe("motor do robô substituto", () => {
     };
 
     expect(isGameState(game)).toBe(false);
+  });
+
+  it("mostra a confirmação quando o trio aceita a mão de dez", () => {
+    const game = fixture();
+    game.scores[1] = 10;
+    game.tenDecisionMade = [true, false];
+
+    const step = advanceBot(game);
+
+    expect(step.state.tenDecisionMade[1]).toBe(true);
+    expect(step.state.challengeNoticeAccepted).toBe(true);
+    expect(step.state.challengeNotice).toContain("decidiram jogar a mão de dez");
+    expect(step.state.challengeNoticeUntil).not.toBeNull();
+    expect(step.nextDelayMs).toBe(challengeNoticeMs);
+  });
+
+  it("não mostra confirmação automática quando está dez a dez", () => {
+    const game = fixture();
+    game.scores = [10, 10];
+    game.tenDecisionMade = [true, true];
+
+    const step = advanceBot(game);
+
+    expect(step.state.challengeNotice).toBeNull();
   });
 
   it("joga automaticamente pela cadeira humana ausente", () => {

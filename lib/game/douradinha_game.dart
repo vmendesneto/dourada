@@ -735,6 +735,8 @@ class DouradinhaGame extends ChangeNotifier {
     if (!humanTenDecisionPending) return;
     _tenDecisionMade[humanTeam] = true;
     statusMessage = 'Seu trio decidiu jogar a mão de dez.';
+    challengeNotice = statusMessage;
+    challengeNoticeAccepted = true;
     _addHistory(statusMessage);
     notifyListeners();
   }
@@ -742,10 +744,13 @@ class DouradinhaGame extends ChangeNotifier {
   void foldHumanTenHand() {
     if (!humanTenDecisionPending) return;
     _tenDecisionMade[humanTeam] = true;
+    const message = 'Seu trio correu na mão de dez.';
+    challengeNotice = message;
+    challengeNoticeAccepted = false;
     _finishHand(
       1 - humanTeam,
       points: 1,
-      reason: 'Seu trio correu na mão de dez.',
+      reason: message,
     );
   }
 
@@ -761,14 +766,19 @@ class DouradinhaGame extends ChangeNotifier {
     cards.sort();
     final confidence = cards.reversed.take(3).fold<int>(0, (a, b) => a + b);
     if (confidence < 19 && _random.nextDouble() < .65) {
+      const message = 'O trio adversário correu na mão de dez.';
+      challengeNotice = message;
+      challengeNoticeAccepted = false;
       _finishHand(
         humanTeam,
         points: 1,
-        reason: 'O trio adversário correu na mão de dez.',
+        reason: message,
       );
       return;
     }
     statusMessage = 'O trio adversário decidiu jogar a mão de dez.';
+    challengeNotice = statusMessage;
+    challengeNoticeAccepted = true;
     _addHistory(statusMessage);
     notifyListeners();
   }
