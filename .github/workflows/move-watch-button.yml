@@ -1,0 +1,49 @@
+name: Separar botão Ver no lobby
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/move-watch-button.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Aplicar alteração
+        run: python3 tool/move_watch_button.py
+
+      - name: Instalar dependências
+        run: flutter pub get
+
+      - name: Analisar
+        run: flutter analyze
+
+      - name: Testar
+        run: flutter test
+
+      - name: Reverter ajustes automáticos
+        run: git checkout -- analysis_options.yaml pubspec.lock
+
+      - name: Conferir diff
+        run: git diff --check
+
+      - name: Gravar alteração
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/ui/lobby_page.dart
+          git commit -m "Separa botão Ver do botão Entrar"
+          git push origin HEAD:main
