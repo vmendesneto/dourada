@@ -167,10 +167,8 @@ void main() {
     await session.fillRemainingWithBots();
 
     expect(requestCount, 0);
-    expect(
-      session.errorMessage,
-      contains('servidor da mesa precisa ser atualizado'),
-    );
+    expect(session.errorMessage,
+        contains('servidor da mesa precisa ser atualizado'));
     session.dispose();
   });
 
