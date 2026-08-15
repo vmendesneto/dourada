@@ -29,7 +29,115 @@ jobs:
         run: python3 tool/add_spectator_mode.py
 
       - name: Normalizar const do overlay
-        run: dart fix --apply lib/ui/game_page.dart
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('lib/ui/game_page.dart')
+          text = path.read_text()
+          old = '''class _SpectatorEndedOverlay extends StatelessWidget {
+            const _SpectatorEndedOverlay();
+
+            @override
+            Widget build(BuildContext context) {
+              return ColoredBox(
+                color: Colors.black87,
+                child: Center(
+                  child: Card(
+                    color: const Color(0xFF123C30),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.sports_score_rounded,
+                              color: Color(0xFFFFC857), size: 52),
+                          const SizedBox(height: 10),
+                          const Text(
+                            'A PARTIDA ACABOU',
+                            key: ValueKey('partida-acabou-espectador'),
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'Voltando para o lobby...',
+                            style: TextStyle(color: Colors.white70),
+                          ),
+                          const SizedBox(height: 14),
+                          SizedBox(
+                            width: 220,
+                            child: LinearProgressIndicator(
+                              minHeight: 5,
+                              color: Color(0xFFFFC857),
+                              backgroundColor: Colors.white12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }
+          }
+          '''
+          new = '''class _SpectatorEndedOverlay extends StatelessWidget {
+            const _SpectatorEndedOverlay();
+
+            @override
+            Widget build(BuildContext context) {
+              return const ColoredBox(
+                color: Colors.black87,
+                child: Center(
+                  child: Card(
+                    color: Color(0xFF123C30),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 30, vertical: 24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.sports_score_rounded,
+                              color: Color(0xFFFFC857), size: 52),
+                          SizedBox(height: 10),
+                          Text(
+                            'A PARTIDA ACABOU',
+                            key: ValueKey('partida-acabou-espectador'),
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          SizedBox(height: 6),
+                          Text(
+                            'Voltando para o lobby...',
+                            style: TextStyle(color: Colors.white70),
+                          ),
+                          SizedBox(height: 14),
+                          SizedBox(
+                            width: 220,
+                            child: LinearProgressIndicator(
+                              minHeight: 5,
+                              color: Color(0xFFFFC857),
+                              backgroundColor: Colors.white12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }
+          }
+          '''
+          if old not in text:
+              raise SystemExit('Bloco do aviso de espectador não encontrado')
+          path.write_text(text.replace(old, new, 1))
+          PY
 
       - name: Instalar dependências Flutter
         run: flutter pub get
