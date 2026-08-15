@@ -31,6 +31,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   Timer? _turnTicker;
   Timer? _challengeNoticeTimer;
   Timer? _challengeAnimationTimer;
+  Timer? _spectatorReturnTimer;
   bool _automationScheduled = false;
   bool _challengeNoticeVisible = false;
   bool _challengeNoticeStarted = false;
@@ -47,6 +48,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   double _turnProgress = 1;
   bool _restoringGame = true;
   bool _leavingTable = false;
+  bool _spectatorEnding = false;
 
   @override
   void initState() {
@@ -81,6 +83,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     _turnTicker?.cancel();
     _challengeNoticeTimer?.cancel();
     _challengeAnimationTimer?.cancel();
+    _spectatorReturnTimer?.cancel();
     tableSession
       ..removeListener(_onTableSessionChanged)
       ..dispose();
@@ -107,6 +110,12 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
   void _onGameChanged() {
     if (!mounted) return;
+    if (tableSession.isSpectator) {
+      _syncChallengeAnimation();
+      _syncChallengeNotice();
+      setState(() {});
+      return;
+    }
     if (_restoringGame) {
       _syncChallengeAnimation();
       _syncChallengeNotice();
@@ -122,8 +131,20 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     _scheduleAutomation();
   }
 
+  Future<void> _leaveSpectator() async {
+    if (_leavingTable || !mounted) return;
+    setState(() => _leavingTable = true);
+    await tableSession.leaveTable();
+    await exitGameFullscreen();
+    if (mounted) Navigator.of(context).pop();
+  }
+
   Future<void> _confirmLeaveTable() async {
     if (_leavingTable) return;
+    if (tableSession.isSpectator) {
+      await _leaveSpectator();
+      return;
+    }
     final waiting = tableSession.waiting;
     final confirmed = await showDialog<bool>(
           context: context,
@@ -187,6 +208,13 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
   void _onTableSessionChanged() {
     if (!mounted) return;
+    if (tableSession.isSpectator && tableSession.spectatorMatchEnded) {
+      _automationTimer?.cancel();
+      _automationScheduled = false;
+      _stopTurnClock();
+      _handleSpectatorMatchEnded();
+      return;
+    }
     if (tableSession.seatUnavailable) {
       _automationTimer?.cancel();
       _automationScheduled = false;
@@ -203,6 +231,17 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       _scheduleAutomation();
     }
     setState(() {});
+  }
+
+  void _handleSpectatorMatchEnded() {
+    if (_spectatorEnding || !mounted) return;
+    _spectatorEnding = true;
+    _spectatorReturnTimer?.cancel();
+    setState(() {});
+    _spectatorReturnTimer = Timer(const Duration(seconds: 2), () async {
+      await exitGameFullscreen();
+      if (mounted) Navigator.of(context).pop();
+    });
   }
 
   Future<void> _restoreSavedGame() async {
@@ -343,6 +382,10 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   }
 
   void _syncTurnClock() {
+    if (tableSession.isSpectator) {
+      _stopTurnClock();
+      return;
+    }
     if (!mounted ||
         !tableSession.canPlayHere ||
         !game.canCurrentPlayerPlayCard ||
@@ -406,6 +449,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   void _scheduleAutomation() {
     if (!mounted ||
         _restoringGame ||
+        tableSession.isSpectator ||
         tableSession.serverControlsAutomation ||
         !tableSession.canPlayHere ||
         _automationScheduled) {
@@ -451,8 +495,10 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    if (tableSession.waiting ||
-        (tableSession.enabled && tableSession.phase == LobbyTablePhase.empty)) {
+    if (!tableSession.isSpectator &&
+        (tableSession.waiting ||
+            (tableSession.enabled &&
+                tableSession.phase == LobbyTablePhase.empty))) {
       return _WaitingRoom(
         session: tableSession,
         leaving: _leavingTable,
@@ -471,12 +517,13 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
               onLeave: () => unawaited(_confirmLeaveTable()),
             ),
             Expanded(child: _buildTable()),
-            _HumanControls(
-              game: game,
-              clockActive: _clockPlayerIndex == game.humanPlayerIndex,
-              turnProgress: _turnProgress,
-              secondsLeft: _turnSecondsLeft,
-            ),
+            if (!tableSession.isSpectator)
+              _HumanControls(
+                game: game,
+                clockActive: _clockPlayerIndex == game.humanPlayerIndex,
+                turnProgress: _turnProgress,
+                secondsLeft: _turnSecondsLeft,
+              ),
           ],
         ),
       ),
@@ -486,6 +533,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   Widget _buildTable() {
     return LayoutBuilder(
       builder: (context, constraints) {
+        final spectator = tableSession.isSpectator;
         final phone = MediaQuery.sizeOf(context).width < 600;
         final compact = phone || constraints.maxHeight < 250;
         final tableSize = math.min(
@@ -518,6 +566,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                   clockActive: _clockPlayerIndex == playerIndex,
                   turnProgress: _turnProgress,
                   secondsLeft: _turnSecondsLeft,
+                  spectatorMode: spectator,
                 ),
               ),
             );
@@ -580,6 +629,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                         Alignment(-sideSeatX, .52)),
                     botSeat((game.humanPlayerIndex + 5) % 6,
                         Alignment(sideSeatX, .52)),
+                    if (spectator)
+                      botSeat(game.humanPlayerIndex, const Alignment(0, 1)),
                     for (final entry in playedCardAlignments.entries)
                       playedCard(entry.key, entry.value),
                   ],
@@ -591,19 +642,20 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
               bottom: phone ? 2 : 8,
               child: _FootLegend(game: game),
             ),
-            Positioned(
-              right: phone ? 6 : 18,
-              bottom: phone ? 2 : 8,
-              child: const _ManilhasButton(),
-            ),
-            if (game.humanMustAnswerChallenge)
+            if (!spectator)
+              Positioned(
+                right: phone ? 6 : 18,
+                bottom: phone ? 2 : 8,
+                child: const _ManilhasButton(),
+              ),
+            if (!spectator && game.humanMustAnswerChallenge)
               Positioned.fill(
                 child: _ChallengeOverlay(
                   game: game,
                   tableSession: tableSession,
                 ),
               ),
-            if (game.humanTenDecisionPending)
+            if (!spectator && game.humanTenDecisionPending)
               Positioned.fill(child: _TenHandOverlay(game: game)),
             if (game.challengeNotice != null && _challengeNoticeVisible)
               Positioned.fill(child: _ChallengeNoticeOverlay(game: game)),
@@ -627,7 +679,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                   ),
                 ),
               ),
-            if (game.phase == MatchPhase.gameOver)
+            if (!spectator && game.phase == MatchPhase.gameOver)
               Positioned.fill(
                 child: _WinnerOverlay(
                   game: game,
@@ -637,10 +689,12 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                       : () => unawaited(tableSession.startNewMatch(game)),
                 ),
               ),
-            if (!tableSession.canPlayHere)
+            if (!tableSession.canPlayHere && !_spectatorEnding)
               Positioned.fill(
                 child: _ReconnectingOverlay(tableSession: tableSession),
               ),
+            if (_spectatorEnding)
+              const Positioned.fill(child: _SpectatorEndedOverlay()),
           ],
         );
       },
@@ -1279,6 +1333,11 @@ class _ScoreBoard extends StatelessWidget {
                       ],
                     ),
                   ),
+                  if (!tableSession.isSpectator &&
+                      tableSession.spectatorCount > 0) ...[
+                    const SizedBox(width: 4),
+                    _SpectatorIndicator(count: tableSession.spectatorCount),
+                  ],
                   const SizedBox(width: 4),
                   Tooltip(
                     message: tableSession.errorMessage ??
@@ -1387,6 +1446,10 @@ class _ScoreBoard extends StatelessWidget {
               ],
             ),
           ),
+          if (!tableSession.isSpectator && tableSession.spectatorCount > 0) ...[
+            const SizedBox(width: 8),
+            _SpectatorIndicator(count: tableSession.spectatorCount),
+          ],
           const SizedBox(width: 10),
           Tooltip(
             message: tableSession.errorMessage ?? tableSession.connectionLabel,
@@ -1420,6 +1483,34 @@ class _ScoreBoard extends StatelessWidget {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.logout_rounded),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SpectatorIndicator extends StatelessWidget {
+  const _SpectatorIndicator({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: count == 1 ? '1 pessoa assistindo' : '$count pessoas assistindo',
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.visibility_rounded, color: Color(0xFF8FD3FF), size: 18),
+          const SizedBox(width: 3),
+          Text(
+            '$count',
+            style: const TextStyle(
+              color: Color(0xFF8FD3FF),
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
           ),
         ],
       ),
@@ -1644,6 +1735,7 @@ class _BotSeat extends StatelessWidget {
     required this.clockActive,
     required this.turnProgress,
     required this.secondsLeft,
+    this.spectatorMode = false,
   });
 
   final DouradinhaGame game;
@@ -1652,6 +1744,7 @@ class _BotSeat extends StatelessWidget {
   final bool clockActive;
   final double turnProgress;
   final int secondsLeft;
+  final bool spectatorMode;
 
   @override
   Widget build(BuildContext context) {
@@ -1724,7 +1817,7 @@ class _BotSeat extends StatelessWidget {
               width: compact ? 66 : 94,
             ),
           ],
-          if (!compact || reveal) ...[
+          if (!spectatorMode && (!compact || reveal)) ...[
             const SizedBox(height: 4),
             Row(
               key: reveal ? ValueKey('cartas-parceiro-$playerIndex') : null,
@@ -2956,16 +3049,70 @@ class _ReconnectingOverlay extends StatelessWidget {
                 const CircularProgressIndicator(),
                 const SizedBox(height: 14),
                 Text(
-                  'RECONECTANDO À MESA ${tableSession.tableNumber ?? ''}',
+                  tableSession.isSpectator
+                      ? 'RECONECTANDO À PARTIDA'
+                      : 'RECONECTANDO À MESA ${tableSession.tableNumber ?? ''}',
                   style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
                 const SizedBox(height: 6),
-                const Text(
-                  'Um robô está jogando no seu lugar.',
+                Text(
+                  tableSession.isSpectator
+                      ? 'Tentando continuar a transmissão como espectador.'
+                      : 'Um robô está jogando no seu lugar.',
+                  style: const TextStyle(color: Colors.white70),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SpectatorEndedOverlay extends StatelessWidget {
+  const _SpectatorEndedOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    return const ColoredBox(
+      color: Colors.black87,
+      child: Center(
+        child: Card(
+          color: Color(0xFF123C30),
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 30, vertical: 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.sports_score_rounded,
+                    color: Color(0xFFFFC857), size: 52),
+                SizedBox(height: 10),
+                Text(
+                  'A PARTIDA ACABOU',
+                  key: ValueKey('partida-acabou-espectador'),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                SizedBox(height: 6),
+                Text(
+                  'Voltando para o lobby...',
                   style: TextStyle(color: Colors.white70),
+                ),
+                SizedBox(height: 14),
+                SizedBox(
+                  width: 220,
+                  child: LinearProgressIndicator(
+                    minHeight: 5,
+                    color: Color(0xFFFFC857),
+                    backgroundColor: Colors.white12,
+                  ),
                 ),
               ],
             ),

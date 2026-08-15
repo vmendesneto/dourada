@@ -31,6 +31,7 @@ class TableSession extends ChangeNotifier {
       waitingStartAt = entry!.waitingStartAt;
       fillBotsVote = entry!.fillBotsVote;
       challengeVote = entry!.challengeVote;
+      spectatorCount = entry!.spectatorCount;
     }
   }
 
@@ -68,21 +69,30 @@ class TableSession extends ChangeNotifier {
   bool connected = false;
   bool replacementBotActive = false;
   bool seatUnavailable = false;
+  bool spectatorMatchEnded = false;
+  int spectatorCount = 0;
   String? _reportedShownFillBotsVoteId;
 
   bool get enabled => _serverUrl.isNotEmpty && entry?.online != false;
+  bool get isSpectator => entry?.spectator == true;
   bool get applyingRemoteState => _applyingRemoteState;
   bool get serverControlsAutomation => enabled;
-  bool get waiting => enabled && phase == LobbyTablePhase.waiting;
-  bool get canPlayHere =>
-      !enabled || (connected && phase == LobbyTablePhase.playing);
+  bool get waiting =>
+      !isSpectator && enabled && phase == LobbyTablePhase.waiting;
+  bool get canPlayHere => isSpectator
+      ? (!enabled ||
+          (connected &&
+              phase == LobbyTablePhase.playing &&
+              !spectatorMatchEnded))
+      : (!enabled || (connected && phase == LobbyTablePhase.playing));
   int get playerCount => seats.where((seat) => seat != null).length;
   int get missingPlayers => 6 - playerCount;
   bool get isFillBotsVoteRequester =>
       fillBotsVote?.requesterSeatIndex == seatIndex;
   bool get canRespondToFillBotsVote {
     final vote = fillBotsVote;
-    return vote != null &&
+    return !isSpectator &&
+        vote != null &&
         vote.expiresAt != null &&
         vote.requesterSeatIndex != seatIndex &&
         vote.participantSeatIndexes.contains(seatIndex) &&
@@ -92,7 +102,8 @@ class TableSession extends ChangeNotifier {
 
   bool get canRespondToChallengeVote {
     final vote = challengeVote;
-    return enabled &&
+    return !isSpectator &&
+        enabled &&
         challengeVotingVersion >= 1 &&
         vote != null &&
         DateTime.now().isBefore(vote.expiresAt) &&
@@ -106,6 +117,11 @@ class TableSession extends ChangeNotifier {
       challengeVote?.voteFor(seatIndex);
 
   String get connectionLabel {
+    if (isSpectator) {
+      if (connecting) return 'Conectando para assistir...';
+      if (connected) return 'Assistindo mesa $tableNumber';
+      return 'Transmissão da mesa $tableNumber';
+    }
     if (!enabled) return 'Mesa local';
     if (connecting) return 'Conectando...';
     if (waiting) return 'Mesa $tableNumber • aguardando';
@@ -229,6 +245,17 @@ class TableSession extends ChangeNotifier {
 
   Future<void> leaveTable() async {
     if (_disposed) return;
+    if (isSpectator) {
+      _presencePaused = true;
+      _reconnectTimer?.cancel();
+      connected = false;
+      spectatorMatchEnded = false;
+      playerToken = null;
+      websocketUrl = null;
+      unawaited(_closeChannel());
+      if (!_disposed) notifyListeners();
+      return;
+    }
     final currentTable = tableNumber;
     final currentToken = playerToken;
     if (enabled && currentTable != null && currentToken != null) {
@@ -279,7 +306,10 @@ class TableSession extends ChangeNotifier {
   }
 
   void syncGame(DouradinhaGame game) {
-    if (_applyingRemoteState || !canPlayHere || _channel == null) {
+    if (isSpectator ||
+        _applyingRemoteState ||
+        !canPlayHere ||
+        _channel == null) {
       return;
     }
     _channel!.sink
@@ -298,6 +328,7 @@ class TableSession extends ChangeNotifier {
     waitingStartAt = value.waitingStartAt;
     fillBotsVote = value.fillBotsVote;
     challengeVote = value.challengeVote;
+    spectatorCount = value.spectatorCount;
     _configureSeats();
     _restoreRemoteState(value.gameState);
   }
@@ -321,13 +352,22 @@ class TableSession extends ChangeNotifier {
         : null;
     fillBotsVote = FillBotsVote.fromJsonValue(payload['fillBotsVote']);
     challengeVote = TeamChallengeVote.fromJsonValue(payload['challengeVote']);
+    spectatorCount = (payload['spectatorCount'] as num?)?.toInt() ?? 0;
+    final gameState = payload['gameState'];
+    if (isSpectator &&
+        (phase != LobbyTablePhase.playing ||
+            (gameState is Map && gameState['phase'] == 'gameOver'))) {
+      spectatorMatchEnded = true;
+      _presencePaused = true;
+      _reconnectTimer?.cancel();
+    }
     if (fillBotsVote?.id != _reportedShownFillBotsVoteId) {
       _reportedShownFillBotsVoteId = null;
     }
     submittingFillBotsVote = false;
     submittingChallengeVote = false;
     _configureSeats();
-    _restoreRemoteState(payload['gameState']);
+    _restoreRemoteState(gameState);
   }
 
   void _configureSeats() {
@@ -367,8 +407,11 @@ class TableSession extends ChangeNotifier {
       );
     } on Object {
       connected = false;
-      replacementBotActive = phase == LobbyTablePhase.playing;
-      errorMessage = 'Não foi possível conectar à mesa.';
+      replacementBotActive =
+          !isSpectator && phase == LobbyTablePhase.playing;
+      errorMessage = isSpectator
+          ? 'Não foi possível conectar à transmissão.'
+          : 'Não foi possível conectar à mesa.';
       _scheduleReconnect();
     } finally {
       connecting = false;
@@ -450,8 +493,36 @@ class TableSession extends ChangeNotifier {
   }
 
   Future<void> _rejoinAndConnect() async {
-    if (playerToken == null || tableNumber == null) return;
+    if (tableNumber == null) return;
     try {
+      if (isSpectator) {
+        final response = await _client
+            .post(
+              Uri.parse('$_serverUrl/api/tables/$tableNumber/watch'),
+              headers: const {'Content-Type': 'application/json'},
+              body: '{}',
+            )
+            .timeout(const Duration(seconds: 12));
+        if (response.statusCode == 409 || response.statusCode == 410) {
+          connected = false;
+          spectatorMatchEnded = true;
+          _presencePaused = true;
+          _reconnectTimer?.cancel();
+          errorMessage = null;
+          notifyListeners();
+          return;
+        }
+        if (response.statusCode != 200) {
+          throw StateError('Não foi possível reconectar à transmissão.');
+        }
+        final payload = jsonDecode(response.body) as Map<String, dynamic>;
+        playerToken = payload['playerToken'] as String;
+        websocketUrl = payload['websocketUrl'] as String;
+        _applyRoomPayload(payload);
+        await _connectSocket();
+        return;
+      }
+      if (playerToken == null) return;
       final response = await _client
           .post(
             Uri.parse('$_serverUrl/api/tables/$tableNumber/join'),
@@ -477,7 +548,9 @@ class TableSession extends ChangeNotifier {
       _applyRoomPayload(payload);
       await _connectSocket();
     } on Object {
-      errorMessage = 'Não foi possível reconectar à mesa.';
+      errorMessage = isSpectator
+          ? 'Não foi possível reconectar à transmissão.'
+          : 'Não foi possível reconectar à mesa.';
       notifyListeners();
       if (!_presencePaused) _scheduleReconnect();
     }
@@ -506,7 +579,12 @@ class TableSession extends ChangeNotifier {
   void _handleSocketClosed() {
     if (_disposed) return;
     connected = false;
-    replacementBotActive = phase == LobbyTablePhase.playing;
+    replacementBotActive =
+        !isSpectator && phase == LobbyTablePhase.playing;
+    if (isSpectator && phase != LobbyTablePhase.playing) {
+      spectatorMatchEnded = true;
+      _presencePaused = true;
+    }
     notifyListeners();
     if (!_presencePaused) _scheduleReconnect();
   }

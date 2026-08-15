@@ -61,6 +61,7 @@ interface SharedTableState {
 }
 
 interface SocketAttachment {
+  role?: "player" | "spectator";
   token: string;
   seatIndex: number;
   connectedAt: number;
@@ -105,12 +106,12 @@ export default {
     }
 
     const action = url.pathname.match(
-      /^\/api\/tables\/(10|[1-9])\/(join|fill-bots|can-resume|decline-resume|leave|connect)$/,
+      /^\/api\/tables\/(10|[1-9])\/(join|watch|fill-bots|can-resume|decline-resume|leave|connect|watch-connect)$/,
     );
     if (action) {
       const tableNumber = Number(action[1]);
       const operation = action[2];
-      if (operation === "connect") {
+      if (operation === "connect" || operation === "watch-connect") {
         return tableStub(env, tableNumber).fetch(request);
       }
       if (request.method !== "POST") {
@@ -162,7 +163,12 @@ export default {
         request,
         {
           ...body,
-          websocketUrl: connectionUrl(url, tableNumber, String(body.playerToken)),
+          websocketUrl: connectionUrl(
+            url,
+            tableNumber,
+            String(body.playerToken),
+            operation === "watch" ? "watch-connect" : "connect",
+          ),
         },
         internal.status,
       );
@@ -265,6 +271,9 @@ export class GameTable extends DurableObject<Env> {
     if (url.pathname === "/join" && request.method === "POST") {
       return this.join(request, requestedTableNumber);
     }
+    if (url.pathname === "/watch" && request.method === "POST") {
+      return this.watch(requestedTableNumber);
+    }
     if (url.pathname === "/fill-bots" && request.method === "POST") {
       return this.fillBots(request, requestedTableNumber);
     }
@@ -280,6 +289,9 @@ export class GameTable extends DurableObject<Env> {
     if (url.pathname.match(/^\/api\/tables\/(10|[1-9])\/connect$/)) {
       return this.connectSocket(request);
     }
+    if (url.pathname.match(/^\/api\/tables\/(10|[1-9])\/watch-connect$/)) {
+      return this.connectSpectatorSocket(request);
+    }
     return Response.json({ error: "Rota interna inexistente." }, { status: 404 });
   }
 
@@ -287,7 +299,12 @@ export class GameTable extends DurableObject<Env> {
     if (typeof message !== "string") return;
     const attachment = socket.deserializeAttachment() as SocketAttachment | null;
     const table = await this.load();
-    if (!attachment || !this.validHuman(table, attachment.seatIndex, attachment.token)) {
+    if (!attachment) {
+      socket.close(4003, "Sessão inválida");
+      return;
+    }
+    if (attachment.role === "spectator") return;
+    if (!this.validHuman(table, attachment.seatIndex, attachment.token)) {
       socket.close(4003, "Sessão inválida");
       return;
     }
@@ -345,6 +362,7 @@ export class GameTable extends DurableObject<Env> {
       this.returnToWaitingRoom(table, Date.now());
       await this.saveAndSchedule(table, true);
       this.broadcast(table);
+      this.closeSpectators();
       return;
     }
 
@@ -377,11 +395,25 @@ export class GameTable extends DurableObject<Env> {
     reason: string,
     wasClean: boolean,
   ): Promise<void> {
+    const attachment = socket.deserializeAttachment() as SocketAttachment | null;
+    if (attachment?.role === "spectator") {
+      const table = await this.load();
+      this.broadcast(table);
+      socket.close(code, reason);
+      return;
+    }
     await this.markDisconnected(socket);
     socket.close(code, reason);
   }
 
   async webSocketError(socket: WebSocket): Promise<void> {
+    const attachment = socket.deserializeAttachment() as SocketAttachment | null;
+    if (attachment?.role === "spectator") {
+      const table = await this.load();
+      this.broadcast(table);
+      socket.close(1011, "Erro de conexão");
+      return;
+    }
     await this.markDisconnected(socket);
     socket.close(1011, "Erro de conexão");
   }
@@ -440,6 +472,7 @@ export class GameTable extends DurableObject<Env> {
         this.returnToWaitingRoom(table, now);
         await this.saveAndSchedule(table, true);
         this.broadcast(table);
+        this.closeSpectators();
         return;
       }
       table.nextActionAt = null;
@@ -534,6 +567,36 @@ export class GameTable extends DurableObject<Env> {
     await this.saveAndSchedule(table, true);
     this.broadcast(table);
     return Response.json(this.entry(table, seatIndex), { status: 201 });
+  }
+
+  private async watch(tableNumber?: number): Promise<Response> {
+    const table = await this.load(tableNumber);
+    if (
+      table.phase !== "playing" ||
+      table.gameState === null ||
+      table.gameState.phase === "gameOver"
+    ) {
+      return Response.json(
+        { error: "Esta partida não está disponível para assistir." },
+        { status: 409 },
+      );
+    }
+    const token = crypto.randomUUID();
+    return Response.json({
+      tableNumber: String(table.tableNumber),
+      playerToken: token,
+      seatIndex: 0,
+      spectator: true,
+      spectatorCount: this.spectatorCount(),
+      phase: table.phase,
+      seats: publicSeats(table),
+      gameState: spectatorGameState(table.gameState),
+      fillBotsVotingVersion: 0,
+      challengeVotingVersion: 0,
+      fillBotsVote: null,
+      challengeVote: null,
+      waitingStartAt: null,
+    });
   }
 
   private async fillBots(request: Request, tableNumber?: number): Promise<Response> {
@@ -780,7 +843,12 @@ export class GameTable extends DurableObject<Env> {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.ctx.acceptWebSocket(server, [`seat:${seatIndex}`]);
-    server.serializeAttachment({ token, seatIndex, connectedAt: Date.now() });
+    server.serializeAttachment({
+      role: "player",
+      token,
+      seatIndex,
+      connectedAt: Date.now(),
+    });
     for (const oldSocket of this.ctx.getWebSockets(`seat:${seatIndex}`)) {
       if (oldSocket !== server) oldSocket.close(4000, "Conexão substituída");
     }
@@ -797,9 +865,41 @@ export class GameTable extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client });
   }
 
+  private async connectSpectatorSocket(request: Request): Promise<Response> {
+    if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
+      return new Response("WebSocket obrigatório", { status: 426 });
+    }
+    const table = await this.load();
+    if (
+      table.phase !== "playing" ||
+      table.gameState === null ||
+      table.gameState.phase === "gameOver"
+    ) {
+      return new Response("Partida encerrada", { status: 409 });
+    }
+    const token = new URL(request.url).searchParams.get("token");
+    if (!token) return new Response("Sessão inválida", { status: 403 });
+
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+    this.ctx.acceptWebSocket(server, [`spectator:${token}`]);
+    server.serializeAttachment({
+      role: "spectator",
+      token,
+      seatIndex: -1,
+      connectedAt: Date.now(),
+    });
+    for (const oldSocket of this.ctx.getWebSockets(`spectator:${token}`)) {
+      if (oldSocket !== server) oldSocket.close(4000, "Conexão substituída");
+    }
+    server.send(JSON.stringify(this.spectatorRoomMessage(table)));
+    this.broadcast(table, server);
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
   private async markDisconnected(socket: WebSocket): Promise<void> {
     const attachment = socket.deserializeAttachment() as SocketAttachment | null;
-    if (!attachment) return;
+    if (!attachment || attachment.role === "spectator") return;
     const table = await this.load();
     if (!this.validHuman(table, attachment.seatIndex, attachment.token)) return;
     if (this.activeHumanSeats().has(attachment.seatIndex)) return;
@@ -861,6 +961,7 @@ export class GameTable extends DurableObject<Env> {
       fillBotsVotingVersion,
       challengeVote: table.challengeVote,
       challengeVotingVersion,
+      spectatorCount: this.spectatorCount(),
       status: this.status(table),
     };
   }
@@ -893,6 +994,25 @@ export class GameTable extends DurableObject<Env> {
       fillBotsVotingVersion,
       challengeVote: table.challengeVote,
       challengeVotingVersion,
+      spectatorCount: this.spectatorCount(),
+    };
+  }
+
+  private spectatorRoomMessage(table: SharedTableState): Record<string, unknown> {
+    return {
+      type: "room",
+      phase: table.phase,
+      tableNumber: String(table.tableNumber),
+      seatIndex: 0,
+      spectator: true,
+      spectatorCount: this.spectatorCount(),
+      seats: publicSeats(table),
+      gameState: spectatorGameState(table.gameState),
+      waitingStartAt: null,
+      fillBotsVote: null,
+      fillBotsVotingVersion: 0,
+      challengeVote: null,
+      challengeVotingVersion: 0,
     };
   }
 
@@ -901,7 +1021,11 @@ export class GameTable extends DurableObject<Env> {
       if (socket === except || socket.readyState !== WebSocket.OPEN) continue;
       const attachment = socket.deserializeAttachment() as SocketAttachment | null;
       if (!attachment) continue;
-      socket.send(JSON.stringify(this.roomMessage(table, attachment.seatIndex)));
+      socket.send(JSON.stringify(
+        attachment.role === "spectator"
+          ? this.spectatorRoomMessage(table)
+          : this.roomMessage(table, attachment.seatIndex),
+      ));
     }
   }
 
@@ -910,10 +1034,28 @@ export class GameTable extends DurableObject<Env> {
     for (const socket of this.ctx.getWebSockets()) {
       if (socket.readyState !== WebSocket.OPEN) continue;
       const attachment = socket.deserializeAttachment() as SocketAttachment | null;
-      if (!attachment) continue;
+      if (!attachment || attachment.role === "spectator") continue;
       active.add(attachment.seatIndex);
     }
     return active;
+  }
+
+  private spectatorCount(): number {
+    return this.ctx.getWebSockets().filter((socket) => {
+      if (socket.readyState !== WebSocket.OPEN) return false;
+      const attachment = socket.deserializeAttachment() as SocketAttachment | null;
+      return attachment?.role === "spectator";
+    }).length;
+  }
+
+  private closeSpectators(): void {
+    for (const socket of this.ctx.getWebSockets()) {
+      if (socket.readyState !== WebSocket.OPEN) continue;
+      const attachment = socket.deserializeAttachment() as SocketAttachment | null;
+      if (attachment?.role === "spectator") {
+        socket.close(4004, "Partida encerrada");
+      }
+    }
   }
 
   private refreshDisconnections(
@@ -1145,6 +1287,15 @@ function emptyTableState(tableNumber: number): SharedTableState {
   };
 }
 
+function spectatorGameState(gameState: GameState | null): GameState | null {
+  if (gameState === null) return null;
+  return {
+    ...gameState,
+    playerHands: gameState.playerHands.map(() => []),
+    hiddenCards: gameState.hiddenCards?.map(() => []),
+  };
+}
+
 function publicSeats(table: SharedTableState): Array<Record<string, unknown> | null> {
   return table.seats.map((seat, index) =>
     seat === null
@@ -1163,9 +1314,14 @@ function publicSeats(table: SharedTableState): Array<Record<string, unknown> | n
   );
 }
 
-function connectionUrl(requestUrl: URL, tableNumber: number, token: string): string {
+function connectionUrl(
+  requestUrl: URL,
+  tableNumber: number,
+  token: string,
+  operation = "connect",
+): string {
   const protocol = requestUrl.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${requestUrl.host}/api/tables/${tableNumber}/connect?token=${encodeURIComponent(token)}`;
+  return `${protocol}//${requestUrl.host}/api/tables/${tableNumber}/${operation}?token=${encodeURIComponent(token)}`;
 }
 
 function cleanPlayerName(value: string | undefined, seatIndex: number): string {

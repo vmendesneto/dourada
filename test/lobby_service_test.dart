@@ -198,6 +198,40 @@ void main() {
     expect(entry.challengeVote?.voteFor(2), ChallengeVoteChoice.fold);
   });
 
+  test('assiste uma partida sem salvar sessão de jogador', () async {
+    SharedPreferences.setMockInitialValues({});
+    late http.Request sentRequest;
+    final service = LobbyService(
+      serverUrl: 'https://dourada.example.workers.dev',
+      client: MockClient((request) async {
+        sentRequest = request;
+        return http.Response(
+          jsonEncode({
+            'tableNumber': '4',
+            'playerToken': 'token-espectador',
+            'websocketUrl': 'wss://dourada.example/watch-connect',
+            'seatIndex': 0,
+            'phase': 'playing',
+            'spectator': true,
+            'spectatorCount': 3,
+            'seats': List<Object?>.filled(6, null),
+          }),
+          200,
+        );
+      }),
+    );
+
+    final entry = await service.watchTable(4);
+
+    expect(sentRequest.method, 'POST');
+    expect(sentRequest.url.path, '/api/tables/4/watch');
+    expect(entry.spectator, isTrue);
+    expect(entry.spectatorCount, 3);
+    expect(entry.phase, LobbyTablePhase.playing);
+    expect(await service.savedSession(), isNull);
+    service.dispose();
+  });
+
   test('usa nome e foto do perfil na mesa local', () async {
     final service = LobbyService(serverUrl: '');
 

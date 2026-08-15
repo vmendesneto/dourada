@@ -77,6 +77,7 @@ void main() {
 
     expect(find.text('DOURADA'), findsOneWidget);
     expect(find.text('LOBBY DOURADINHA'), findsNothing);
+    expect(find.text('VER'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('entrar-rapido')));
     await tester.pumpAndSettle();
 

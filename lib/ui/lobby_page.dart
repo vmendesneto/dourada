@@ -256,6 +256,35 @@ class _LobbyPageState extends State<LobbyPage> {
     }
   }
 
+  Future<void> _watch(LobbyTable table) async {
+    if (_openingTable != null || table.phase != LobbyTablePhase.playing) return;
+    setState(() => _openingTable = table.tableNumber);
+    await enterGameFullscreen();
+    final lobbySubscription = _lobbySubscription;
+    _lobbySubscription = null;
+    if (lobbySubscription != null) {
+      unawaited(lobbySubscription.cancel());
+    }
+    try {
+      final entry = await _service.watchTable(table.tableNumber);
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => GamePage(entry: entry)),
+      );
+    } on Object catch (error) {
+      if (!mounted) return;
+      final message = error.toString().replaceFirst('Bad state: ', '');
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
+    } finally {
+      await exitGameFullscreen();
+      if (mounted) {
+        setState(() => _openingTable = null);
+        unawaited(_connectLobby());
+      }
+    }
+  }
+
   Future<void> _quickEnter() async {
     if (_openingTable != null || _authBusy || !_hasLobbySnapshot) return;
     if (_authService.currentUser == null) {
@@ -423,6 +452,7 @@ class _LobbyPageState extends State<LobbyPage> {
                                       ? _signIn
                                       : () => _enter(table)
                                   : null,
+                              onWatch: table.canWatch ? () => _watch(table) : null,
                               firstButtonKey: index == 0
                                   ? const ValueKey('entrar-em-uma-mesa')
                                   : null,
@@ -1097,6 +1127,7 @@ class _TableCard extends StatelessWidget {
     required this.opening,
     required this.requiresLogin,
     required this.onEnter,
+    required this.onWatch,
     this.firstButtonKey,
   });
 
@@ -1104,6 +1135,7 @@ class _TableCard extends StatelessWidget {
   final bool opening;
   final bool requiresLogin;
   final VoidCallback? onEnter;
+  final VoidCallback? onWatch;
   final Key? firstButtonKey;
 
   @override
@@ -1175,7 +1207,11 @@ class _TableCard extends StatelessWidget {
             width: double.infinity,
             child: FilledButton(
               key: firstButtonKey,
-              onPressed: opening ? null : onEnter,
+              onPressed: opening
+                  ? null
+                  : table.phase == LobbyTablePhase.playing
+                      ? onWatch
+                      : onEnter,
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFFE7A93E),
                 foregroundColor: const Color(0xFF173326),
@@ -1186,7 +1222,7 @@ class _TableCard extends StatelessWidget {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : Text(table.phase == LobbyTablePhase.playing
-                      ? 'SEM VAGA'
+                      ? 'VER'
                       : requiresLogin
                           ? 'FAÇA LOGIN PARA ENTRAR'
                           : 'ENTRAR EM UMA MESA'),

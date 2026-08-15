@@ -71,6 +71,7 @@ class LobbyTable {
 
   bool get canJoin =>
       phase != LobbyTablePhase.playing && playerCount < capacity;
+  bool get canWatch => phase == LobbyTablePhase.playing;
 
   factory LobbyTable.fromJson(Map<String, dynamic> json) => LobbyTable(
         tableNumber: json['tableNumber'] as int,
@@ -115,6 +116,8 @@ class TableEntry {
     this.fillBotsVote,
     this.challengeVote,
     this.gameState,
+    this.spectator = false,
+    this.spectatorCount = 0,
   });
 
   final String serverUrl;
@@ -130,6 +133,8 @@ class TableEntry {
   final FillBotsVote? fillBotsVote;
   final TeamChallengeVote? challengeVote;
   final Object? gameState;
+  final bool spectator;
+  final int spectatorCount;
 
   bool get online => serverUrl.isNotEmpty;
 
@@ -156,6 +161,8 @@ class TableEntry {
         fillBotsVote: FillBotsVote.fromJsonValue(json['fillBotsVote']),
         challengeVote: TeamChallengeVote.fromJsonValue(json['challengeVote']),
         gameState: json['gameState'],
+        spectator: json['spectator'] as bool? ?? false,
+        spectatorCount: (json['spectatorCount'] as num?)?.toInt() ?? 0,
       );
 }
 
@@ -426,6 +433,30 @@ class LobbyService {
     await preferences.setString(tableNumberKey, entry.tableNumber);
     await preferences.setString(playerTokenKey, entry.playerToken);
     await preferences.setInt(seatIndexKey, entry.seatIndex);
+    return entry;
+  }
+
+  Future<TableEntry> watchTable(int tableNumber) async {
+    if (!enabled) {
+      throw StateError('Só é possível assistir partidas online.');
+    }
+    final response = await _client
+        .post(
+          Uri.parse('$serverUrl/api/tables/$tableNumber/watch'),
+          headers: const {'Content-Type': 'application/json'},
+          body: '{}',
+        )
+        .timeout(const Duration(seconds: 12));
+    final payload = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode != 200) {
+      throw StateError(
+        payload['error'] as String? ?? 'Não foi possível assistir à partida.',
+      );
+    }
+    final entry = TableEntry.fromJson(serverUrl, payload);
+    if (!entry.spectator || entry.phase != LobbyTablePhase.playing) {
+      throw StateError('Esta partida não está disponível para assistir.');
+    }
     return entry;
   }
 
