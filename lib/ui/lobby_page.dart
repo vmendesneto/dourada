@@ -569,6 +569,168 @@ class _AvatarInitials extends StatelessWidget {
   }
 }
 
+enum _ProfileImageAction { cameraOrPhotos }
+
+class _ProfileImageSourceDialog extends StatefulWidget {
+  const _ProfileImageSourceDialog({this.currentAvatarAsset});
+
+  final String? currentAvatarAsset;
+
+  @override
+  State<_ProfileImageSourceDialog> createState() =>
+      _ProfileImageSourceDialogState();
+}
+
+class _ProfileImageSourceDialogState extends State<_ProfileImageSourceDialog> {
+  bool _showAvatars = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      key: const ValueKey('dialogo-trocar-imagem'),
+      backgroundColor: const Color(0xFF074333),
+      title: Text(
+        _showAvatars ? 'ESCOLHA UM AVATAR' : 'ALTERAR IMAGEM',
+        textAlign: TextAlign.center,
+      ),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 430),
+        child: _showAvatars ? _buildAvatarPicker(context) : _buildSourcePicker(),
+      ),
+      actionsAlignment: MainAxisAlignment.spaceBetween,
+      actions: _showAvatars
+          ? [
+              TextButton.icon(
+                key: const ValueKey('voltar-escolha-imagem'),
+                onPressed: () => setState(() => _showAvatars = false),
+                icon: const Icon(Icons.arrow_back_rounded),
+                label: const Text('VOLTAR'),
+              ),
+            ]
+          : [
+              TextButton.icon(
+                key: const ValueKey('cancelar-escolha-imagem'),
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close_rounded),
+                label: const Text('CANCELAR'),
+              ),
+            ],
+    );
+  }
+
+  Widget _buildSourcePicker() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            key: const ValueKey('escolher-camera-fotos'),
+            onPressed: () => Navigator.of(context).pop(
+              _ProfileImageAction.cameraOrPhotos,
+            ),
+            icon: const Icon(Icons.photo_camera_rounded),
+            label: const Text('CÂMERA / FOTOS'),
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            key: const ValueKey('escolher-avatar'),
+            onPressed: () => setState(() => _showAvatars = true),
+            icon: const Icon(Icons.face_rounded),
+            label: const Text('AVATAR'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAvatarPicker(BuildContext context) {
+    return SingleChildScrollView(
+      child: Wrap(
+        key: const ValueKey('lista-avatares-perfil'),
+        spacing: 8,
+        runSpacing: 8,
+        alignment: WrapAlignment.center,
+        children: [
+          for (var index = 0; index < profileAvatarAssets.length; index++)
+            Tooltip(
+              message: 'Avatar ${index + 1}',
+              child: InkWell(
+                key: ValueKey('escolher-avatar-perfil-$index'),
+                onTap: () => Navigator.of(context).pop(
+                  profileAvatarAssets[index],
+                ),
+                customBorder: const CircleBorder(),
+                child: SizedBox.square(
+                  dimension: 64,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Positioned.fill(
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 180),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: widget.currentAvatarAsset ==
+                                      profileAvatarAssets[index]
+                                  ? Colors.white70
+                                  : Colors.white24,
+                              width: widget.currentAvatarAsset ==
+                                      profileAvatarAssets[index]
+                                  ? 2
+                                  : 1,
+                            ),
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: Transform.scale(
+                            scale: 1.08,
+                            child: Image.asset(
+                              profileAvatarAssets[index],
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (widget.currentAvatarAsset ==
+                          profileAvatarAssets[index])
+                        Positioned(
+                          right: -3,
+                          bottom: -3,
+                          child: Container(
+                            width: 22,
+                            height: 22,
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Color(0xFF62DFA8),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black38,
+                                  blurRadius: 4,
+                                ),
+                              ],
+                            ),
+                            child: const Icon(
+                              Icons.check_rounded,
+                              size: 16,
+                              color: Color(0xFF052D22),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class ProfileDialog extends StatefulWidget {
   const ProfileDialog({
     super.key,
@@ -621,6 +783,27 @@ class _ProfileDialogState extends State<ProfileDialog> {
     }
   }
 
+  Future<void> _changeProfileImage() async {
+    if (_saving || _selectingImage) return;
+    final profile = widget.authService.currentUser;
+    if (profile == null) return;
+    final currentAvatarAsset = _selectedImage == null
+        ? _selectedAvatarAsset ?? humanAvatarAssetFromPhotoUrl(profile.photoUrl)
+        : null;
+    final choice = await showDialog<Object?>(
+      context: context,
+      builder: (_) => _ProfileImageSourceDialog(
+        currentAvatarAsset: currentAvatarAsset,
+      ),
+    );
+    if (!mounted || choice == null) return;
+    if (choice == _ProfileImageAction.cameraOrPhotos) {
+      await _selectImage();
+      return;
+    }
+    if (choice is String) _selectAvatar(choice);
+  }
+
   Future<void> _selectImage() async {
     if (_saving || _selectingImage) return;
     setState(() => _selectingImage = true);
@@ -667,10 +850,6 @@ class _ProfileDialogState extends State<ProfileDialog> {
       displayName: _nameController.text,
       photoUrl: profile.photoUrl,
     );
-    final currentAvatarAsset = _selectedImage == null
-        ? _selectedAvatarAsset ?? humanAvatarAssetFromPhotoUrl(profile.photoUrl)
-        : null;
-
     return AlertDialog(
       backgroundColor: const Color(0xFF074333),
       title: const Text('MINHA CONTA', textAlign: TextAlign.center),
@@ -698,9 +877,9 @@ class _ProfileDialogState extends State<ProfileDialog> {
                       elevation: 4,
                       child: IconButton(
                         key: const ValueKey('trocar-foto-perfil'),
-                        tooltip: 'Escolher nova foto',
+                        tooltip: 'Alterar imagem',
                         onPressed:
-                            _saving || _selectingImage ? null : _selectImage,
+                            _saving || _selectingImage ? null : _changeProfileImage,
                         color: const Color(0xFF173326),
                         icon: _selectingImage
                             ? const SizedBox.square(
@@ -721,100 +900,8 @@ class _ProfileDialogState extends State<ProfileDialog> {
                     ? 'Nova foto selecionada.'
                     : _selectedAvatarAsset != null
                         ? 'Novo avatar selecionado.'
-                        : 'Clique na câmera ou escolha um avatar abaixo.',
+                        : 'Toque na câmera para alterar sua imagem.',
                 style: TextStyle(color: Colors.white.withValues(alpha: .65)),
-              ),
-              const SizedBox(height: 16),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'ESCOLHA UM AVATAR',
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: const Color(0xFFFFD46B),
-                        fontWeight: FontWeight.w800,
-                      ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                key: const ValueKey('lista-avatares-perfil'),
-                spacing: 8,
-                runSpacing: 8,
-                alignment: WrapAlignment.center,
-                children: [
-                  for (var index = 0;
-                      index < profileAvatarAssets.length;
-                      index++)
-                    Tooltip(
-                      message: 'Avatar ${index + 1}',
-                      child: InkWell(
-                        key: ValueKey('escolher-avatar-perfil-$index'),
-                        onTap: _saving || _selectingImage
-                            ? null
-                            : () => _selectAvatar(profileAvatarAssets[index]),
-                        customBorder: const CircleBorder(),
-                        child: SizedBox.square(
-                          dimension: 64,
-                          child: Stack(
-                            clipBehavior: Clip.none,
-                            children: [
-                              Positioned.fill(
-                                child: AnimatedContainer(
-                                  duration: const Duration(milliseconds: 180),
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: currentAvatarAsset ==
-                                              profileAvatarAssets[index]
-                                          ? Colors.white70
-                                          : Colors.white24,
-                                      width: currentAvatarAsset ==
-                                              profileAvatarAssets[index]
-                                          ? 2
-                                          : 1,
-                                    ),
-                                  ),
-                                  clipBehavior: Clip.antiAlias,
-                                  child: Transform.scale(
-                                    scale: 1.08,
-                                    child: Image.asset(
-                                      profileAvatarAssets[index],
-                                      fit: BoxFit.cover,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              if (currentAvatarAsset ==
-                                  profileAvatarAssets[index])
-                                Positioned(
-                                  right: -3,
-                                  bottom: -3,
-                                  child: Container(
-                                    width: 22,
-                                    height: 22,
-                                    decoration: const BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: Color(0xFF62DFA8),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black38,
-                                          blurRadius: 4,
-                                        ),
-                                      ],
-                                    ),
-                                    child: const Icon(
-                                      Icons.check_rounded,
-                                      size: 16,
-                                      color: Color(0xFF052D22),
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
               ),
               const SizedBox(height: 20),
               TextField(

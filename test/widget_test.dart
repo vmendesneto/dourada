@@ -126,6 +126,10 @@ void main() {
     expect(find.byKey(const ValueKey('foto-perfil')), findsNothing);
     await tester.tap(find.byKey(const ValueKey('trocar-foto-perfil')));
     await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('dialogo-trocar-imagem')), findsOneWidget);
+    expect(find.byKey(const ValueKey('lista-avatares-perfil')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('escolher-camera-fotos')));
+    await tester.pumpAndSettle();
     expect(find.text('Nova foto selecionada.'), findsOneWidget);
     expect(authService.updateProfileCalls, 0);
     await tester.tap(find.byKey(const ValueKey('cancelar-perfil')));
@@ -142,6 +146,10 @@ void main() {
       'Novo Nome',
     );
     await tester.tap(find.byKey(const ValueKey('trocar-foto-perfil')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('dialogo-trocar-imagem')), findsOneWidget);
+    expect(find.byKey(const ValueKey('lista-avatares-perfil')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('escolher-camera-fotos')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('salvar-perfil')));
     await tester.pumpAndSettle();
@@ -174,6 +182,26 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('abrir-perfil')));
     await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('lista-avatares-perfil')), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('trocar-foto-perfil')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('escolher-camera-fotos')), findsOneWidget);
+    expect(find.byKey(const ValueKey('escolher-avatar')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('escolher-avatar')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('lista-avatares-perfil')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('voltar-escolha-imagem')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('lista-avatares-perfil')), findsNothing);
+    expect(find.byKey(const ValueKey('escolher-camera-fotos')), findsOneWidget);
+    expect(find.byKey(const ValueKey('escolher-avatar')), findsOneWidget);
+    expect(find.text('Novo avatar selecionado.'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('escolher-avatar')));
+    await tester.pumpAndSettle();
     final avatar = find.byKey(const ValueKey('escolher-avatar-perfil-8'));
     await tester.ensureVisible(avatar);
     await tester.tap(avatar);
@@ -188,6 +216,10 @@ void main() {
     expect(authService.currentUser?.photoUrl, isEmpty);
 
     await tester.tap(find.byKey(const ValueKey('abrir-perfil')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('trocar-foto-perfil')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('escolher-avatar')));
     await tester.pumpAndSettle();
     final savedAvatar = find.byKey(const ValueKey('escolher-avatar-perfil-8'));
     await tester.ensureVisible(savedAvatar);
