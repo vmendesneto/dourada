@@ -1,40 +1,16 @@
 from pathlib import Path
 
 
-def replace_once(path: str, old: str, new: str) -> None:
-    file = Path(path)
-    text = file.read_text()
+def replace_once(text: str, old: str, new: str, label: str) -> str:
     if old not in text:
-        raise SystemExit(f'Trecho não encontrado em {path}')
-    file.write_text(text.replace(old, new, 1))
+        raise SystemExit(f'Trecho não encontrado: {label}')
+    return text.replace(old, new, 1)
 
 
-lobby_path = 'lib/ui/lobby_page.dart'
-text = Path(lobby_path).read_text()
+lobby_path = Path('lib/ui/lobby_page.dart')
+lobby = lobby_path.read_text()
 
-avatar_initials_end = '''class _AvatarInitials extends StatelessWidget {
-  const _AvatarInitials({required this.text, required this.fontSize});
-
-  final String text;
-  final double fontSize;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text(
-        text,
-        style: TextStyle(
-          color: const Color(0xFF173326),
-          fontWeight: FontWeight.w900,
-          fontSize: fontSize,
-        ),
-      ),
-    );
-  }
-}
-
-'''
-
+profile_marker = 'class ProfileDialog extends StatefulWidget {'
 image_dialog = '''enum _ProfileImageAction { cameraOrPhotos }
 
 class _ProfileImageSourceDialog extends StatefulWidget {
@@ -198,31 +174,10 @@ class _ProfileImageSourceDialogState extends State<_ProfileImageSourceDialog> {
 }
 
 '''
-replace_once(lobby_path, avatar_initials_end, avatar_initials_end + image_dialog)
+lobby = replace_once(lobby, profile_marker, image_dialog + profile_marker, 'dialogo de imagem')
 
-old_select_image = '''  Future<void> _selectImage() async {
-    if (_saving || _selectingImage) return;
-    setState(() => _selectingImage = true);
-    try {
-      final image = await (widget.imagePicker ?? _pickProfileImage)();
-      if (image != null && mounted) {
-        setState(() {
-          _selectedImage = image;
-          _selectedAvatarAsset = null;
-        });
-      }
-    } on Object catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(readableAuthError(error))),
-      );
-    } finally {
-      if (mounted) setState(() => _selectingImage = false);
-    }
-  }
-'''
-
-new_select_image = '''  Future<void> _changeProfileImage() async {
+select_image_marker = '  Future<void> _selectImage() async {'
+change_image_method = '''  Future<void> _changeProfileImage() async {
     if (_saving || _selectingImage) return;
     final profile = widget.authService.currentUser;
     if (profile == null) return;
@@ -243,111 +198,72 @@ new_select_image = '''  Future<void> _changeProfileImage() async {
     if (choice is String) _selectAvatar(choice);
   }
 
-  Future<void> _selectImage() async {
-    if (_saving || _selectingImage) return;
-    setState(() => _selectingImage = true);
-    try {
-      final image = await (widget.imagePicker ?? _pickProfileImage)();
-      if (image != null && mounted) {
-        setState(() {
-          _selectedImage = image;
-          _selectedAvatarAsset = null;
-        });
-      }
-    } on Object catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(readableAuthError(error))),
-      );
-    } finally {
-      if (mounted) setState(() => _selectingImage = false);
-    }
-  }
 '''
-replace_once(lobby_path, old_select_image, new_select_image)
+lobby = replace_once(
+    lobby,
+    select_image_marker,
+    change_image_method + select_image_marker,
+    'metodo de escolha de imagem',
+)
 
-text = Path(lobby_path).read_text()
 old_current_avatar = '''    final currentAvatarAsset = _selectedImage == null
         ? _selectedAvatarAsset ?? humanAvatarAssetFromPhotoUrl(profile.photoUrl)
         : null;
 
 '''
-if old_current_avatar not in text:
-    raise SystemExit('Variável currentAvatarAsset não encontrada')
-text = text.replace(old_current_avatar, '', 1)
-text = text.replace("tooltip: 'Escolher nova foto',", "tooltip: 'Alterar imagem',", 1)
-text = text.replace(
+lobby = replace_once(lobby, old_current_avatar, '', 'avatar atual da tela principal')
+lobby = replace_once(lobby, "tooltip: 'Escolher nova foto',", "tooltip: 'Alterar imagem',", 'tooltip')
+lobby = replace_once(
+    lobby,
     '_saving || _selectingImage ? null : _selectImage,',
     '_saving || _selectingImage ? null : _changeProfileImage,',
-    1,
+    'acao da camera',
 )
-text = text.replace(
+lobby = replace_once(
+    lobby,
     ": 'Clique na câmera ou escolha um avatar abaixo.',",
     ": 'Toque na câmera para alterar sua imagem.',",
-    1,
+    'texto de ajuda',
 )
 
-avatar_section_start = text.index(
+avatar_start = lobby.index(
     "              const SizedBox(height: 16),\n"
     "              Align(\n"
     "                alignment: Alignment.centerLeft,\n"
     "                child: Text(\n"
     "                  'ESCOLHA UM AVATAR',"
 )
-avatar_section_end = text.index(
+avatar_end = lobby.index(
     "              const SizedBox(height: 20),\n"
     "              TextField(",
-    avatar_section_start,
+    avatar_start,
 )
-text = (
-    text[:avatar_section_start]
-    + text[avatar_section_end:]
-)
-Path(lobby_path).write_text(text)
+lobby = lobby[:avatar_start] + lobby[avatar_end:]
+lobby_path.write_text(lobby)
 
 
-test_path = 'test/widget_test.dart'
-test = Path(test_path).read_text()
+test_path = Path('test/widget_test.dart')
+test = test_path.read_text()
 
-old_photo_first = '''    await tester.tap(find.byKey(const ValueKey('trocar-foto-perfil')));
+photo_click = '''    await tester.tap(find.byKey(const ValueKey('trocar-foto-perfil')));
     await tester.pumpAndSettle();
-    expect(find.text('Nova foto selecionada.'), findsOneWidget);
 '''
-new_photo_first = '''    await tester.tap(find.byKey(const ValueKey('trocar-foto-perfil')));
+photo_choice = '''    await tester.tap(find.byKey(const ValueKey('trocar-foto-perfil')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('dialogo-trocar-imagem')), findsOneWidget);
     expect(find.byKey(const ValueKey('lista-avatares-perfil')), findsNothing);
     await tester.tap(find.byKey(const ValueKey('escolher-camera-fotos')));
     await tester.pumpAndSettle();
-    expect(find.text('Nova foto selecionada.'), findsOneWidget);
 '''
-if test.count(old_photo_first) != 2:
-    raise SystemExit(f'Esperava 2 fluxos de foto, encontrei {test.count(old_photo_first)}')
-test = test.replace(old_photo_first, new_photo_first, 2)
+if test.count(photo_click) < 2:
+    raise SystemExit('Fluxos de foto esperados não encontrados')
+test = test.replace(photo_click, photo_choice, 2)
 
-old_avatar_test = '''    await tester.tap(find.byKey(const ValueKey('abrir-perfil')));
+first_avatar_prefix = '''    await tester.tap(find.byKey(const ValueKey('abrir-perfil')));
     await tester.pumpAndSettle();
     final avatar = find.byKey(const ValueKey('escolher-avatar-perfil-8'));
-    await tester.ensureVisible(avatar);
-    await tester.tap(avatar);
-    await tester.pump();
-
-    expect(find.text('Novo avatar selecionado.'), findsOneWidget);
-    expect(authService.updateProfileCalls, 0);
-
-    await tester.tap(find.byKey(const ValueKey('cancelar-perfil')));
-    await tester.pumpAndSettle();
-    expect(authService.savedAvatarAsset, isNull);
-    expect(authService.currentUser?.photoUrl, isEmpty);
-
-    await tester.tap(find.byKey(const ValueKey('abrir-perfil')));
-    await tester.pumpAndSettle();
-    final savedAvatar = find.byKey(const ValueKey('escolher-avatar-perfil-8'));
-    await tester.ensureVisible(savedAvatar);
-    await tester.tap(savedAvatar);
-    await tester.pump();
 '''
-new_avatar_test = '''    await tester.tap(find.byKey(const ValueKey('abrir-perfil')));
+first_avatar_new = '''    await tester.tap(find.byKey(const ValueKey('abrir-perfil')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('lista-avatares-perfil')), findsNothing);
 
@@ -370,30 +286,20 @@ new_avatar_test = '''    await tester.tap(find.byKey(const ValueKey('abrir-perfi
     await tester.tap(find.byKey(const ValueKey('escolher-avatar')));
     await tester.pumpAndSettle();
     final avatar = find.byKey(const ValueKey('escolher-avatar-perfil-8'));
-    await tester.ensureVisible(avatar);
-    await tester.tap(avatar);
+'''
+test = replace_once(test, first_avatar_prefix, first_avatar_new, 'primeira escolha de avatar')
+
+saved_avatar_prefix = '''    await tester.tap(find.byKey(const ValueKey('abrir-perfil')));
     await tester.pumpAndSettle();
-
-    expect(find.text('Novo avatar selecionado.'), findsOneWidget);
-    expect(authService.updateProfileCalls, 0);
-
-    await tester.tap(find.byKey(const ValueKey('cancelar-perfil')));
-    await tester.pumpAndSettle();
-    expect(authService.savedAvatarAsset, isNull);
-    expect(authService.currentUser?.photoUrl, isEmpty);
-
-    await tester.tap(find.byKey(const ValueKey('abrir-perfil')));
+    final savedAvatar = find.byKey(const ValueKey('escolher-avatar-perfil-8'));
+'''
+saved_avatar_new = '''    await tester.tap(find.byKey(const ValueKey('abrir-perfil')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('trocar-foto-perfil')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('escolher-avatar')));
     await tester.pumpAndSettle();
     final savedAvatar = find.byKey(const ValueKey('escolher-avatar-perfil-8'));
-    await tester.ensureVisible(savedAvatar);
-    await tester.tap(savedAvatar);
-    await tester.pumpAndSettle();
 '''
-if old_avatar_test not in test:
-    raise SystemExit('Teste de avatar original não encontrado')
-test = test.replace(old_avatar_test, new_avatar_test, 1)
-Path(test_path).write_text(test)
+test = replace_once(test, saved_avatar_prefix, saved_avatar_new, 'segunda escolha de avatar')
+test_path.write_text(test)
