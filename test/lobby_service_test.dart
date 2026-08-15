@@ -214,6 +214,7 @@ void main() {
             'phase': 'playing',
             'spectator': true,
             'spectatorCount': 3,
+            'spectatorHandCounts': [3, 2, 1, 3, 2, 1],
             'seats': List<Object?>.filled(6, null),
           }),
           200,
@@ -227,6 +228,7 @@ void main() {
     expect(sentRequest.url.path, '/api/tables/4/watch');
     expect(entry.spectator, isTrue);
     expect(entry.spectatorCount, 3);
+    expect(entry.spectatorHandCounts, [3, 2, 1, 3, 2, 1]);
     expect(entry.phase, LobbyTablePhase.playing);
     expect(await service.savedSession(), isNull);
     service.dispose();

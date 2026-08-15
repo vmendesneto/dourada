@@ -118,6 +118,7 @@ class TableEntry {
     this.gameState,
     this.spectator = false,
     this.spectatorCount = 0,
+    this.spectatorHandCounts = const [],
   });
 
   final String serverUrl;
@@ -135,6 +136,7 @@ class TableEntry {
   final Object? gameState;
   final bool spectator;
   final int spectatorCount;
+  final List<int> spectatorHandCounts;
 
   bool get online => serverUrl.isNotEmpty;
 
@@ -163,6 +165,11 @@ class TableEntry {
         gameState: json['gameState'],
         spectator: json['spectator'] as bool? ?? false,
         spectatorCount: (json['spectatorCount'] as num?)?.toInt() ?? 0,
+        spectatorHandCounts:
+            (json['spectatorHandCounts'] as List<Object?>? ??
+                    const <Object?>[])
+                .map((value) => value is num ? value.toInt() : 0)
+                .toList(growable: false),
       );
 }
 

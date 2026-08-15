@@ -567,6 +567,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                   turnProgress: _turnProgress,
                   secondsLeft: _turnSecondsLeft,
                   spectatorMode: spectator,
+                  hiddenCardCount: spectator
+                      ? tableSession.spectatorHandCountFor(playerIndex)
+                      : 0,
                 ),
               ),
             );
@@ -1736,6 +1739,7 @@ class _BotSeat extends StatelessWidget {
     required this.turnProgress,
     required this.secondsLeft,
     this.spectatorMode = false,
+    this.hiddenCardCount = 0,
   });
 
   final DouradinhaGame game;
@@ -1745,6 +1749,7 @@ class _BotSeat extends StatelessWidget {
   final double turnProgress;
   final int secondsLeft;
   final bool spectatorMode;
+  final int hiddenCardCount;
 
   @override
   Widget build(BuildContext context) {
@@ -1817,7 +1822,23 @@ class _BotSeat extends StatelessWidget {
               width: compact ? 66 : 94,
             ),
           ],
-          if (!spectatorMode && (!compact || reveal)) ...[
+          if (spectatorMode && hiddenCardCount > 0) ...[
+            const SizedBox(height: 4),
+            Row(
+              key: ValueKey('cartas-espectador-$playerIndex'),
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (var index = 0; index < hiddenCardCount; index++)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 1),
+                    child: _CardBack(
+                      width: compact ? 18 : 22,
+                      height: compact ? 26 : 32,
+                    ),
+                  ),
+              ],
+            ),
+          ] else if (!spectatorMode && (!compact || reveal)) ...[
             const SizedBox(height: 4),
             Row(
               key: reveal ? ValueKey('cartas-parceiro-$playerIndex') : null,

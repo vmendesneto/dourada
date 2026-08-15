@@ -32,6 +32,7 @@ class TableSession extends ChangeNotifier {
       fillBotsVote = entry!.fillBotsVote;
       challengeVote = entry!.challengeVote;
       spectatorCount = entry!.spectatorCount;
+      spectatorHandCounts = entry!.spectatorHandCounts;
     }
   }
 
@@ -71,6 +72,7 @@ class TableSession extends ChangeNotifier {
   bool seatUnavailable = false;
   bool spectatorMatchEnded = false;
   int spectatorCount = 0;
+  List<int> spectatorHandCounts = const [];
   String? _reportedShownFillBotsVoteId;
 
   bool get enabled => _serverUrl.isNotEmpty && entry?.online != false;
@@ -87,6 +89,10 @@ class TableSession extends ChangeNotifier {
       : (!enabled || (connected && phase == LobbyTablePhase.playing));
   int get playerCount => seats.where((seat) => seat != null).length;
   int get missingPlayers => 6 - playerCount;
+  int spectatorHandCountFor(int playerIndex) =>
+      playerIndex >= 0 && playerIndex < spectatorHandCounts.length
+          ? spectatorHandCounts[playerIndex]
+          : 0;
   bool get isFillBotsVoteRequester =>
       fillBotsVote?.requesterSeatIndex == seatIndex;
   bool get canRespondToFillBotsVote {
@@ -329,6 +335,7 @@ class TableSession extends ChangeNotifier {
     fillBotsVote = value.fillBotsVote;
     challengeVote = value.challengeVote;
     spectatorCount = value.spectatorCount;
+    spectatorHandCounts = value.spectatorHandCounts;
     _configureSeats();
     _restoreRemoteState(value.gameState);
   }
@@ -353,6 +360,12 @@ class TableSession extends ChangeNotifier {
     fillBotsVote = FillBotsVote.fromJsonValue(payload['fillBotsVote']);
     challengeVote = TeamChallengeVote.fromJsonValue(payload['challengeVote']);
     spectatorCount = (payload['spectatorCount'] as num?)?.toInt() ?? 0;
+    final rawSpectatorHandCounts = payload['spectatorHandCounts'];
+    spectatorHandCounts = rawSpectatorHandCounts is List
+        ? rawSpectatorHandCounts
+            .map((value) => value is num ? value.toInt() : 0)
+            .toList(growable: false)
+        : const [];
     final gameState = payload['gameState'];
     if (isSpectator &&
         (phase != LobbyTablePhase.playing ||

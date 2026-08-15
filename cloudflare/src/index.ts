@@ -588,6 +588,7 @@ export class GameTable extends DurableObject<Env> {
       seatIndex: 0,
       spectator: true,
       spectatorCount: this.spectatorCount(),
+      spectatorHandCounts: spectatorHandCounts(table.gameState),
       phase: table.phase,
       seats: publicSeats(table),
       gameState: spectatorGameState(table.gameState),
@@ -1006,6 +1007,7 @@ export class GameTable extends DurableObject<Env> {
       seatIndex: 0,
       spectator: true,
       spectatorCount: this.spectatorCount(),
+      spectatorHandCounts: spectatorHandCounts(table.gameState),
       seats: publicSeats(table),
       gameState: spectatorGameState(table.gameState),
       waitingStartAt: null,
@@ -1294,6 +1296,11 @@ function spectatorGameState(gameState: GameState | null): GameState | null {
     playerHands: gameState.playerHands.map(() => []),
     hiddenCards: gameState.hiddenCards?.map(() => []),
   };
+}
+
+function spectatorHandCounts(gameState: GameState | null): number[] {
+  if (gameState === null) return Array<number>(seatCount).fill(0);
+  return gameState.playerHands.map((hand) => hand.length);
 }
 
 function publicSeats(table: SharedTableState): Array<Record<string, unknown> | null> {
