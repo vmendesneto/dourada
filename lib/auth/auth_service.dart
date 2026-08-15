@@ -147,7 +147,6 @@ class FirebaseAuthService extends AuthService {
 
   @override
   Future<void> signInWithGoogle() async {
-    await _persistenceReady;
     final context = authNavigatorKey.currentContext;
     if (context == null) {
       throw StateError('Não foi possível abrir o menu de login.');
