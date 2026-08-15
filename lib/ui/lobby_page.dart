@@ -1182,6 +1182,33 @@ class _TableCard extends StatelessWidget {
                   ),
                 ),
               ),
+              if (table.phase == LobbyTablePhase.playing) ...[
+                const SizedBox(width: 6),
+                OutlinedButton.icon(
+                  key: ValueKey('ver-mesa-${table.tableNumber}'),
+                  onPressed: opening ? null : onWatch,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: color,
+                    side: BorderSide(color: color.withValues(alpha: .8)),
+                    backgroundColor: color.withValues(alpha: .08),
+                    visualDensity: VisualDensity.compact,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    minimumSize: const Size(0, 28),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    textStyle: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  icon: opening
+                      ? const SizedBox.square(
+                          dimension: 12,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.visibility_rounded, size: 15),
+                  label: const Text('VER'),
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 9),
@@ -1207,25 +1234,21 @@ class _TableCard extends StatelessWidget {
             width: double.infinity,
             child: FilledButton(
               key: firstButtonKey,
-              onPressed: opening
+              onPressed: opening || table.phase == LobbyTablePhase.playing
                   ? null
-                  : table.phase == LobbyTablePhase.playing
-                      ? onWatch
-                      : onEnter,
+                  : onEnter,
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFFE7A93E),
                 foregroundColor: const Color(0xFF173326),
               ),
-              child: opening
+              child: opening && table.phase != LobbyTablePhase.playing
                   ? const SizedBox.square(
                       dimension: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : Text(table.phase == LobbyTablePhase.playing
-                      ? 'VER'
-                      : requiresLogin
-                          ? 'FAÇA LOGIN PARA ENTRAR'
-                          : 'ENTRAR EM UMA MESA'),
+                  : Text(requiresLogin
+                      ? 'FAÇA LOGIN PARA ENTRAR'
+                      : 'ENTRAR EM UMA MESA'),
             ),
           ),
         ],
