@@ -139,6 +139,19 @@ jobs:
           path.write_text(text.replace(old, new, 1))
           PY
 
+      - name: Compatibilizar estados antigos
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('cloudflare/src/index.ts')
+          text = path.read_text()
+          old = 'hiddenCards: gameState.hiddenCards.map(() => []),'
+          new = 'hiddenCards: gameState.hiddenCards?.map(() => []),'
+          if old not in text:
+              raise SystemExit('Sanitizador de hiddenCards não encontrado')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
       - name: Instalar dependências Flutter
         run: flutter pub get
 
