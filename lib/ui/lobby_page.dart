@@ -933,6 +933,77 @@ String readableAuthError(Object error) {
       .replaceFirst('Unsupported operation: ', '');
 }
 
+class _LobbySeatAvatar extends StatelessWidget {
+  const _LobbySeatAvatar({
+    super.key,
+    required this.seat,
+    required this.teamColor,
+  });
+
+  final LobbySeat? seat;
+  final Color teamColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final currentSeat = seat;
+    if (currentSeat == null) {
+      return Container(
+        width: 32,
+        height: 32,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white.withValues(alpha: .05),
+          border: Border.all(color: Colors.white24),
+        ),
+        child: const Icon(
+          Icons.chair_outlined,
+          color: Colors.white38,
+          size: 18,
+        ),
+      );
+    }
+
+    final photoUrl = currentSeat.photoUrl?.trim() ?? '';
+    final assetPath = currentSeat.isBot
+        ? (photoUrl.startsWith('assets/') ? photoUrl : null)
+        : humanAvatarAssetFromPhotoUrl(photoUrl);
+    final fallback = Icon(
+      currentSeat.isBot ? Icons.smart_toy_rounded : Icons.person_rounded,
+      color: teamColor,
+      size: 18,
+    );
+
+    return Tooltip(
+      message: currentSeat.name,
+      child: Container(
+        width: 32,
+        height: 32,
+        padding: const EdgeInsets.all(2),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: teamColor.withValues(alpha: .15),
+          border: Border.all(color: teamColor),
+        ),
+        child: ClipOval(
+          child: photoUrl.isEmpty
+              ? fallback
+              : assetPath != null
+                  ? Image.asset(
+                      assetPath,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => fallback,
+                    )
+                  : Image.network(
+                      photoUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => fallback,
+                    ),
+        ),
+      ),
+    );
+  }
+}
+
 class _TableCard extends StatelessWidget {
   const _TableCard({
     required this.table,
@@ -1005,27 +1076,10 @@ class _TableCard extends StatelessWidget {
               final teamColor = index.isEven
                   ? const Color(0xFF5CB6FF)
                   : const Color(0xFFFFC857);
-              return Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: seat == null
-                      ? Colors.white.withValues(alpha: .05)
-                      : teamColor.withValues(alpha: .15),
-                  border: Border.all(
-                    color: seat == null ? Colors.white24 : teamColor,
-                  ),
-                ),
-                child: Icon(
-                  seat == null
-                      ? Icons.chair_outlined
-                      : seat.isBot
-                          ? Icons.smart_toy_rounded
-                          : Icons.person_rounded,
-                  color: seat == null ? Colors.white38 : teamColor,
-                  size: 18,
-                ),
+              return _LobbySeatAvatar(
+                key: ValueKey('avatar-mesa-${table.tableNumber}-$index'),
+                seat: seat,
+                teamColor: teamColor,
               );
             }),
           ),
