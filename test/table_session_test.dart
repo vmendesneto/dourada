@@ -167,8 +167,10 @@ void main() {
     await session.fillRemainingWithBots();
 
     expect(requestCount, 0);
-    expect(session.errorMessage,
-        contains('servidor da mesa precisa ser atualizado'));
+    expect(
+      session.errorMessage,
+      contains('servidor da mesa precisa ser atualizado'),
+    );
     session.dispose();
   });
 
@@ -199,6 +201,42 @@ void main() {
     expect(sentRequest.method, 'POST');
     expect(sentRequest.url.path, '/api/tables/4/leave');
     expect(sentRequest.body, contains('token-privado'));
+    final preferences = await SharedPreferences.getInstance();
+    expect(preferences.getString(TableSession.tableNumberKey), isNull);
+    expect(preferences.getString(TableSession.playerTokenKey), isNull);
+    expect(preferences.getInt(LobbyService.seatIndexKey), isNull);
+    session.dispose();
+  });
+
+  test('cadeira perdida limpa a sessão e volta a ser indisponível só quando o servidor rejeita o token', () async {
+    SharedPreferences.setMockInitialValues({
+      TableSession.tableNumberKey: '4',
+      TableSession.playerTokenKey: 'token-antigo',
+      LobbyService.seatIndexKey: 0,
+    });
+    final client = MockClient((request) async {
+      expect(request.url.path, '/api/tables/4/join');
+      return http.Response('{"error":"Sessão inválida"}', 401);
+    });
+    final session = TableSession(
+      entry: TableEntry(
+        serverUrl: 'https://dourada.example.workers.dev',
+        tableNumber: '4',
+        playerToken: 'token-antigo',
+        websocketUrl: 'wss://dourada.example.workers.dev/connect',
+        seatIndex: 0,
+        phase: LobbyTablePhase.waiting,
+        seats: List<LobbySeat?>.filled(6, null),
+      ),
+      client: client,
+    );
+
+    await session.pausePresence();
+    await session.resumePresence();
+
+    expect(session.seatUnavailable, isTrue);
+    expect(session.errorMessage, isNull);
+    await session.clearUnavailableSeat();
     final preferences = await SharedPreferences.getInstance();
     expect(preferences.getString(TableSession.tableNumberKey), isNull);
     expect(preferences.getString(TableSession.playerTokenKey), isNull);

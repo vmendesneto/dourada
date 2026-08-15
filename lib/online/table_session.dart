@@ -9,16 +9,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 class TableSession extends ChangeNotifier {
-  TableSession({
-    this.entry,
-    http.Client? client,
-    String? serverUrl,
-  })  : _client = client ?? http.Client(),
-        _serverUrl = normalizeServerUrl(
-          entry?.serverUrl ??
-              serverUrl ??
-              const String.fromEnvironment('DOURADA_SERVER_URL'),
-        ) {
+  TableSession({this.entry, http.Client? client, String? serverUrl})
+    : _client = client ?? http.Client(),
+      _serverUrl = normalizeServerUrl(
+        entry?.serverUrl ??
+            serverUrl ??
+            const String.fromEnvironment('DOURADA_SERVER_URL'),
+      ) {
     if (entry != null) {
       tableNumber = entry!.tableNumber;
       playerToken = entry!.playerToken;
@@ -67,6 +64,7 @@ class TableSession extends ChangeNotifier {
   bool submittingChallengeVote = false;
   bool connected = false;
   bool replacementBotActive = false;
+  bool seatUnavailable = false;
   String? _reportedShownFillBotsVoteId;
 
   bool get enabled => _serverUrl.isNotEmpty && entry?.online != false;
@@ -130,8 +128,7 @@ class TableSession extends ChangeNotifier {
       return;
     }
     if (fillBotsVotingVersion < 2) {
-      errorMessage =
-          'O servidor da mesa precisa ser atualizado antes de iniciar a votação.';
+      errorMessage = 'O servidor da mesa precisa ser atualizado antes de iniciar a votação.';
       notifyListeners();
       return;
     }
@@ -156,7 +153,8 @@ class TableSession extends ChangeNotifier {
       final payload = jsonDecode(response.body) as Map<String, dynamic>;
       if (response.statusCode != 200) {
         throw StateError(
-            payload['error'] as String? ?? 'Não foi possível iniciar.');
+          payload['error'] as String? ?? 'Não foi possível iniciar.',
+        );
       }
       _applyRoomPayload(payload);
     } on Object catch (error) {
@@ -175,11 +173,13 @@ class TableSession extends ChangeNotifier {
       return;
     }
     submittingFillBotsVote = true;
-    _channel!.sink.add(jsonEncode({
-      'type': 'fillBotsVote',
-      'voteId': fillBotsVote!.id,
-      'accepted': accepted,
-    }));
+    _channel!.sink.add(
+      jsonEncode({
+        'type': 'fillBotsVote',
+        'voteId': fillBotsVote!.id,
+        'accepted': accepted,
+      }),
+    );
     notifyListeners();
   }
 
@@ -195,21 +195,22 @@ class TableSession extends ChangeNotifier {
       return;
     }
     _reportedShownFillBotsVoteId = voteId;
-    _channel!.sink.add(jsonEncode({
-      'type': 'fillBotsVoteShown',
-      'voteId': voteId,
-    }));
+    _channel!.sink.add(
+      jsonEncode({'type': 'fillBotsVoteShown', 'voteId': voteId}),
+    );
   }
 
   void respondToChallengeVote(ChallengeVoteChoice choice) {
     final vote = challengeVote;
     if (!canRespondToChallengeVote || vote == null) return;
     submittingChallengeVote = true;
-    _channel!.sink.add(jsonEncode({
-      'type': 'challengeVote',
-      'voteId': vote.id,
-      'choice': choice.wireValue,
-    }));
+    _channel!.sink.add(
+      jsonEncode({
+        'type': 'challengeVote',
+        'voteId': vote.id,
+        'choice': choice.wireValue,
+      }),
+    );
     notifyListeners();
   }
 
@@ -281,8 +282,9 @@ class TableSession extends ChangeNotifier {
     if (_applyingRemoteState || !canPlayHere || _channel == null) {
       return;
     }
-    _channel!.sink
-        .add(jsonEncode({'type': 'state', 'gameState': game.toJson()}));
+    _channel!.sink.add(
+      jsonEncode({'type': 'state', 'gameState': game.toJson()}),
+    );
   }
 
   void _applyEntry(TableEntry value) {
@@ -306,13 +308,16 @@ class TableSession extends ChangeNotifier {
     final votingVersion = payload['fillBotsVotingVersion'];
     fillBotsVotingVersion = votingVersion is num ? votingVersion.toInt() : 0;
     final challengeVersion = payload['challengeVotingVersion'];
-    challengeVotingVersion =
-        challengeVersion is num ? challengeVersion.toInt() : 0;
+    challengeVotingVersion = challengeVersion is num
+        ? challengeVersion.toInt()
+        : 0;
     seatIndex = payload['seatIndex'] as int? ?? seatIndex;
     seats = (payload['seats'] as List<Object?>)
-        .map((value) => value == null
-            ? null
-            : LobbySeat.fromJson(Map<String, dynamic>.from(value as Map)))
+        .map(
+          (value) => value == null
+              ? null
+              : LobbySeat.fromJson(Map<String, dynamic>.from(value as Map)),
+        )
         .toList(growable: false);
     final countdownValue = payload['waitingStartAt'];
     waitingStartAt = countdownValue is num
@@ -334,11 +339,7 @@ class TableSession extends ChangeNotifier {
       for (final seat in seats)
         seat == null
             ? null
-            : (
-                name: seat.name,
-                isHuman: !seat.isBot,
-                photoUrl: seat.photoUrl,
-              ),
+            : (name: seat.name, isHuman: !seat.isBot, photoUrl: seat.photoUrl),
     ]);
   }
 
@@ -451,20 +452,55 @@ class TableSession extends ChangeNotifier {
   Future<void> _rejoinAndConnect() async {
     if (playerToken == null || tableNumber == null) return;
     try {
-      final response = await _client.post(
-        Uri.parse('$_serverUrl/api/tables/$tableNumber/join'),
-        headers: const {'Content-Type': 'application/json'},
-        body: jsonEncode({'playerToken': playerToken}),
-      );
-      if (response.statusCode != 200) throw StateError('Sessão encerrada.');
+      final response = await _client
+          .post(
+            Uri.parse('$_serverUrl/api/tables/$tableNumber/join'),
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({'playerToken': playerToken}),
+          )
+          .timeout(const Duration(seconds: 12));
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        connected = false;
+        seatUnavailable = true;
+        _presencePaused = true;
+        _reconnectTimer?.cancel();
+        errorMessage = null;
+        notifyListeners();
+        return;
+      }
+      if (response.statusCode != 200) {
+        throw StateError('Não foi possível reconectar à mesa.');
+      }
+      seatUnavailable = false;
       final payload = jsonDecode(response.body) as Map<String, dynamic>;
       websocketUrl = payload['websocketUrl'] as String;
       _applyRoomPayload(payload);
       await _connectSocket();
     } on Object {
-      errorMessage = 'Sua cadeira não está mais disponível.';
+      errorMessage = 'Não foi possível reconectar à mesa.';
       notifyListeners();
+      if (!_presencePaused) _scheduleReconnect();
     }
+  }
+
+  Future<void> clearUnavailableSeat() async {
+    if (_disposed) return;
+    _presencePaused = true;
+    _reconnectTimer?.cancel();
+    connected = false;
+    replacementBotActive = false;
+    seatUnavailable = false;
+    errorMessage = null;
+    playerToken = null;
+    websocketUrl = null;
+    final preferences = _preferences ?? await SharedPreferences.getInstance();
+    await Future.wait([
+      preferences.remove(tableNumberKey),
+      preferences.remove(playerTokenKey),
+      preferences.remove(LobbyService.seatIndexKey),
+    ]);
+    unawaited(_closeChannel());
+    if (!_disposed) notifyListeners();
   }
 
   void _handleSocketClosed() {

@@ -36,7 +36,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   bool _challengeNoticeStarted = false;
   String? _scheduledChallengeNotice;
   final List<({String id, int playerIndex, int requestedValue})>
-      _challengeAnimationQueue = [];
+  _challengeAnimationQueue = [];
   final Set<String> _shownChallengeAnimations = {};
   ({String id, int playerIndex, int requestedValue})? _activeChallengeAnimation;
   int _lastObservedHistoryLength = 0;
@@ -125,7 +125,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   Future<void> _confirmLeaveTable() async {
     if (_leavingTable) return;
     final waiting = tableSession.waiting;
-    final confirmed = await showDialog<bool>(
+    final confirmed =
+        await showDialog<bool>(
           context: context,
           builder: (dialogContext) => AlertDialog(
             backgroundColor: const Color(0xFF123C30),
@@ -134,10 +135,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
               color: Color(0xFFFFC857),
               size: 42,
             ),
-            title: const Text(
-              'SAIR DA MESA?',
-              textAlign: TextAlign.center,
-            ),
+            title: const Text('SAIR DA MESA?', textAlign: TextAlign.center),
             content: Text(
               waiting
                   ? 'Sua cadeira será liberada e você voltará ao lobby. Não será possível retornar por esta sessão.'
@@ -170,15 +168,29 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     } on Object catch (error) {
       if (!mounted) return;
       final message = error.toString().replaceFirst('Bad state: ', '');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
       setState(() => _leavingTable = false);
     }
   }
 
+  Future<void> _returnToLobbyAfterSeatLoss() async {
+    if (_leavingTable || !mounted) return;
+    setState(() => _leavingTable = true);
+    await tableSession.clearUnavailableSeat();
+    await exitGameFullscreen();
+    if (mounted) Navigator.of(context).pop();
+  }
+
   void _onTableSessionChanged() {
     if (!mounted) return;
+    if (tableSession.seatUnavailable) {
+      _automationTimer?.cancel();
+      _automationScheduled = false;
+      _stopTurnClock();
+      unawaited(_returnToLobbyAfterSeatLoss());
+      return;
+    }
     if (!tableSession.canPlayHere) {
       _automationTimer?.cancel();
       _automationScheduled = false;
@@ -263,17 +275,14 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     }
     _challengeNoticeStarted = true;
     _challengeNoticeVisible = true;
-    _challengeNoticeTimer = Timer(
-      DouradinhaGame.challengeNoticeDuration,
-      () {
-        if (!mounted) return;
-        if (tableSession.enabled) {
-          setState(() => _challengeNoticeVisible = false);
-        } else {
-          game.clearChallengeNotice();
-        }
-      },
-    );
+    _challengeNoticeTimer = Timer(DouradinhaGame.challengeNoticeDuration, () {
+      if (!mounted) return;
+      if (tableSession.enabled) {
+        setState(() => _challengeNoticeVisible = false);
+      } else {
+        game.clearChallengeNotice();
+      }
+    });
   }
 
   void _syncChallengeAnimation() {
@@ -289,9 +298,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
     final challenge = game.pendingChallenge;
     if (challenge == null ||
-        DouradinhaGame.challengeGifAssetForPoints(
-              challenge.requestedValue,
-            ) ==
+        DouradinhaGame.challengeGifAssetForPoints(challenge.requestedValue) ==
             null) {
       return;
     }
@@ -479,42 +486,39 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
               (phone
                   ? .78
                   : compact
-                      ? .82
-                      : .69),
+                  ? .82
+                  : .69),
         );
         final seatOutset = phone
             ? 10.0
             : compact
-                ? 62.0
-                : 102.0;
+            ? 62.0
+            : 102.0;
         final sideSeatX = phone ? .84 : .92;
 
         Widget botSeat(int playerIndex, Alignment alignment) => Align(
-              alignment: alignment,
-              child: Transform.translate(
-                offset: Offset(
-                  alignment.x * seatOutset,
-                  alignment.y * seatOutset,
-                ),
-                child: _BotSeat(
-                  game: game,
-                  playerIndex: playerIndex,
-                  compact: compact,
-                  clockActive: _clockPlayerIndex == playerIndex,
-                  turnProgress: _turnProgress,
-                  secondsLeft: _turnSecondsLeft,
-                ),
-              ),
-            );
+          alignment: alignment,
+          child: Transform.translate(
+            offset: Offset(alignment.x * seatOutset, alignment.y * seatOutset),
+            child: _BotSeat(
+              game: game,
+              playerIndex: playerIndex,
+              compact: compact,
+              clockActive: _clockPlayerIndex == playerIndex,
+              turnProgress: _turnProgress,
+              secondsLeft: _turnSecondsLeft,
+            ),
+          ),
+        );
 
         Widget playedCard(int playerIndex, Alignment alignment) => Align(
-              alignment: alignment,
-              child: _PlayedCardAtSeat(
-                game: game,
-                playerIndex: playerIndex,
-                compact: compact,
-              ),
-            );
+          alignment: alignment,
+          child: _PlayedCardAtSeat(
+            game: game,
+            playerIndex: playerIndex,
+            compact: compact,
+          ),
+        );
 
         final playedCardAlignments = <int, Alignment>{
           (game.humanPlayerIndex + 2) % 6: const Alignment(-.58, -.46),
@@ -555,16 +559,26 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                         ),
                       ),
                     ),
-                    botSeat((game.humanPlayerIndex + 2) % 6,
-                        Alignment(-sideSeatX, -.52)),
-                    botSeat((game.humanPlayerIndex + 3) % 6,
-                        const Alignment(0, -1)),
-                    botSeat((game.humanPlayerIndex + 4) % 6,
-                        Alignment(sideSeatX, -.52)),
-                    botSeat((game.humanPlayerIndex + 1) % 6,
-                        Alignment(-sideSeatX, .52)),
-                    botSeat((game.humanPlayerIndex + 5) % 6,
-                        Alignment(sideSeatX, .52)),
+                    botSeat(
+                      (game.humanPlayerIndex + 2) % 6,
+                      Alignment(-sideSeatX, -.52),
+                    ),
+                    botSeat(
+                      (game.humanPlayerIndex + 3) % 6,
+                      const Alignment(0, -1),
+                    ),
+                    botSeat(
+                      (game.humanPlayerIndex + 4) % 6,
+                      Alignment(sideSeatX, -.52),
+                    ),
+                    botSeat(
+                      (game.humanPlayerIndex + 1) % 6,
+                      Alignment(-sideSeatX, .52),
+                    ),
+                    botSeat(
+                      (game.humanPlayerIndex + 5) % 6,
+                      Alignment(sideSeatX, .52),
+                    ),
                     for (final entry in playedCardAlignments.entries)
                       playedCard(entry.key, entry.value),
                   ],
@@ -599,8 +613,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                     child: SizedBox.square(
                       dimension: tableSize,
                       child: Align(
-                        alignment: playedCardAlignments[
-                                challengeAnimation.playerIndex] ??
+                        alignment:
+                            playedCardAlignments[challengeAnimation
+                                .playerIndex] ??
                             Alignment.center,
                         child: _ChallengeCallGif(
                           key: ValueKey('gif-desafio-${challengeAnimation.id}'),
@@ -694,8 +709,10 @@ class _WaitingRoomState extends State<_WaitingRoom> {
                     decoration: BoxDecoration(
                       color: const Color(0xFF074333),
                       borderRadius: BorderRadius.circular(26),
-                      border:
-                          Border.all(color: const Color(0xFFD7A84C), width: 2),
+                      border: Border.all(
+                        color: const Color(0xFFD7A84C),
+                        width: 2,
+                      ),
                     ),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -758,10 +775,12 @@ class _WaitingRoomState extends State<_WaitingRoom> {
                                       height: 54,
                                       decoration: BoxDecoration(
                                         shape: BoxShape.circle,
-                                        color:
-                                            Colors.white.withValues(alpha: .05),
-                                        border:
-                                            Border.all(color: Colors.white24),
+                                        color: Colors.white.withValues(
+                                          alpha: .05,
+                                        ),
+                                        border: Border.all(
+                                          color: Colors.white24,
+                                        ),
                                       ),
                                       child: const Icon(
                                         Icons.chair_outlined,
@@ -785,8 +804,10 @@ class _WaitingRoomState extends State<_WaitingRoom> {
                                         : null,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style:
-                                        TextStyle(color: color, fontSize: 11),
+                                    style: TextStyle(
+                                      color: color,
+                                      fontSize: 11,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -802,16 +823,15 @@ class _WaitingRoomState extends State<_WaitingRoom> {
                               color: const Color(0xFFFFC857)
                                   .withValues(alpha: .12),
                               borderRadius: BorderRadius.circular(14),
-                              border:
-                                  Border.all(color: const Color(0xFFFFC857)),
+                              border: Border.all(
+                                color: const Color(0xFFFFC857),
+                              ),
                             ),
                             child: Column(
                               children: [
                                 Text(
                                   '6 HUMANOS CONECTADOS',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleMedium
+                                  style: Theme.of(context).textTheme.titleMedium
                                       ?.copyWith(
                                         color: const Color(0xFFFFC857),
                                         fontWeight: FontWeight.w900,
@@ -848,7 +868,8 @@ class _WaitingRoomState extends State<_WaitingRoom> {
                           height: 52,
                           child: FilledButton.icon(
                             key: const ValueKey('colocar-robos'),
-                            onPressed: session.connecting ||
+                            onPressed:
+                                session.connecting ||
                                     session.fillBotsVote != null ||
                                     session.missingPlayers == 0
                                 ? null
@@ -857,31 +878,35 @@ class _WaitingRoomState extends State<_WaitingRoom> {
                             label: Text(
                               session.missingPlayers == 0
                                   ? countdownEnd == null
-                                      ? 'AGUARDANDO CONEXÃO DOS JOGADORES'
-                                      : 'INÍCIO AUTOMÁTICO EM $countdownSeconds'
+                                        ? 'AGUARDANDO CONEXÃO DOS JOGADORES'
+                                        : 'INÍCIO AUTOMÁTICO EM $countdownSeconds'
                                   : session.missingPlayers == 1
-                                      ? 'COLOCAR 1 ROBÔ E INICIAR'
-                                      : 'COLOCAR ${session.missingPlayers} ROBÔS E INICIAR',
+                                  ? 'COLOCAR 1 ROBÔ E INICIAR'
+                                  : 'COLOCAR ${session.missingPlayers} ROBÔS E INICIAR',
                             ),
                             style: FilledButton.styleFrom(
                               backgroundColor: const Color(0xFFE7A93E),
                               foregroundColor: const Color(0xFF173326),
-                              textStyle:
-                                  const TextStyle(fontWeight: FontWeight.w900),
+                              textStyle: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                              ),
                             ),
                           ),
                         ),
                         if (session.errorMessage != null) ...[
                           const SizedBox(height: 12),
-                          Text(session.errorMessage!,
-                              style: const TextStyle(color: Color(0xFFFF9E80))),
+                          Text(
+                            session.errorMessage!,
+                            style: const TextStyle(color: Color(0xFFFF9E80)),
+                          ),
                         ],
                         const SizedBox(height: 10),
                         Text(
                           'Seis humanos iniciam automaticamente. Você também pode preencher todas as cadeiras vazias com robôs.',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                              color: Colors.white.withValues(alpha: .55)),
+                            color: Colors.white.withValues(alpha: .55),
+                          ),
                         ),
                       ],
                     ),
@@ -943,7 +968,8 @@ class _FillBotsVoteOverlay extends StatelessWidget {
       });
     }
 
-    final requester = vote.requesterSeatIndex >= 0 &&
+    final requester =
+        vote.requesterSeatIndex >= 0 &&
             vote.requesterSeatIndex < session.seats.length
         ? session.seats[vote.requesterSeatIndex]
         : null;
@@ -953,10 +979,12 @@ class _FillBotsVoteOverlay extends StatelessWidget {
     final responders = vote.participantSeatIndexes
         .where((index) => index != vote.requesterSeatIndex)
         .toList(growable: false);
-    final accepted =
-        responders.where((index) => vote.voteFor(index) == true).length;
-    final refused =
-        responders.where((index) => vote.voteFor(index) == false).length;
+    final accepted = responders
+        .where((index) => vote.voteFor(index) == true)
+        .length;
+    final refused = responders
+        .where((index) => vote.voteFor(index) == false)
+        .length;
     final pending = responders.length - accepted - refused;
     final expiresAt = vote.expiresAt;
     final remainingMs = expiresAt == null
@@ -966,14 +994,12 @@ class _FillBotsVoteOverlay extends StatelessWidget {
 
     String message;
     if (expiresAt == null && isRequester) {
-      message =
-          'Pedido enviado. O tempo começará somente depois que a mensagem aparecer para todos os outros jogadores.';
+      message = 'Pedido enviado. O tempo começará somente depois que a mensagem aparecer para todos os outros jogadores.';
     } else if (expiresAt == null && canRespond == false && localVote == null) {
       message =
           '${requester?.name ?? 'Outro jogador'} pediu para completar a mesa com robôs. Preparando o tempo de resposta...';
     } else if (isRequester) {
-      message =
-          'Você pediu para completar a mesa com robôs. Aguardando a resposta dos outros jogadores.';
+      message = 'Você pediu para completar a mesa com robôs. Aguardando a resposta dos outros jogadores.';
     } else if (canRespond) {
       message =
           '${requester?.name ?? 'Outro jogador'} pediu para completar a mesa com robôs. Você aceita?';
@@ -1040,10 +1066,10 @@ class _FillBotsVoteOverlay extends StatelessWidget {
                                 status: index == vote.requesterSeatIndex
                                     ? _FillBotsVoteStatus.requester
                                     : vote.voteFor(index) == true
-                                        ? _FillBotsVoteStatus.accepted
-                                        : vote.voteFor(index) == false
-                                            ? _FillBotsVoteStatus.refused
-                                            : _FillBotsVoteStatus.pending,
+                                    ? _FillBotsVoteStatus.accepted
+                                    : vote.voteFor(index) == false
+                                    ? _FillBotsVoteStatus.refused
+                                    : _FillBotsVoteStatus.pending,
                               ),
                           ],
                         ),
@@ -1085,8 +1111,9 @@ class _FillBotsVoteOverlay extends StatelessWidget {
                                   key: const ValueKey('recusar-robos'),
                                   onPressed: session.submittingFillBotsVote
                                       ? null
-                                      : () =>
-                                          session.respondToFillBotsVote(false),
+                                      : () => session.respondToFillBotsVote(
+                                          false,
+                                        ),
                                   icon: const Icon(Icons.close_rounded),
                                   label: const Text('NÃO ACEITO'),
                                   style: OutlinedButton.styleFrom(
@@ -1101,7 +1128,7 @@ class _FillBotsVoteOverlay extends StatelessWidget {
                                   onPressed: session.submittingFillBotsVote
                                       ? null
                                       : () =>
-                                          session.respondToFillBotsVote(true),
+                                            session.respondToFillBotsVote(true),
                                   icon: const Icon(Icons.check_rounded),
                                   label: const Text('ACEITO'),
                                 ),
@@ -1134,25 +1161,25 @@ class _FillBotsVotePlayer extends StatelessWidget {
   Widget build(BuildContext context) {
     final (color, icon, label) = switch (status) {
       _FillBotsVoteStatus.requester => (
-          const Color(0xFFFFC857),
-          Icons.smart_toy_rounded,
-          'Pediu'
-        ),
+        const Color(0xFFFFC857),
+        Icons.smart_toy_rounded,
+        'Pediu',
+      ),
       _FillBotsVoteStatus.accepted => (
-          const Color(0xFF67D391),
-          Icons.check_rounded,
-          'Aceitou'
-        ),
+        const Color(0xFF67D391),
+        Icons.check_rounded,
+        'Aceitou',
+      ),
       _FillBotsVoteStatus.refused => (
-          const Color(0xFFFF7D6E),
-          Icons.close_rounded,
-          'Recusou'
-        ),
+        const Color(0xFFFF7D6E),
+        Icons.close_rounded,
+        'Recusou',
+      ),
       _FillBotsVoteStatus.pending => (
-          Colors.blueGrey,
-          Icons.hourglass_top_rounded,
-          'Aguardando'
-        ),
+        Colors.blueGrey,
+        Icons.hourglass_top_rounded,
+        'Aguardando',
+      ),
     };
     return SizedBox(
       width: 72,
@@ -1230,8 +1257,10 @@ class _ScoreBoard extends StatelessWidget {
                   ),
                   const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 6),
-                    child: Text('×',
-                        style: TextStyle(fontSize: 18, color: Colors.white54)),
+                    child: Text(
+                      '×',
+                      style: TextStyle(fontSize: 18, color: Colors.white54),
+                    ),
                   ),
                   _TeamScore(
                     label: game.teamTwoLabel,
@@ -1266,7 +1295,8 @@ class _ScoreBoard extends StatelessWidget {
                   ),
                   const SizedBox(width: 4),
                   Tooltip(
-                    message: tableSession.errorMessage ??
+                    message:
+                        tableSession.errorMessage ??
                         tableSession.connectionLabel,
                     child: Icon(
                       tableSession.connected
@@ -1327,8 +1357,10 @@ class _ScoreBoard extends StatelessWidget {
           ),
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 12),
-            child: Text('×',
-                style: TextStyle(fontSize: 24, color: Colors.white54)),
+            child: Text(
+              '×',
+              style: TextStyle(fontSize: 24, color: Colors.white54),
+            ),
           ),
           _TeamScore(
             label: game.teamTwoLabel,
@@ -1433,15 +1465,15 @@ class _HandWinnerDots extends StatelessWidget {
         final label = !wasPlayed
             ? '${index + 1}ª mão: ainda não jogada'
             : winner == null
-                ? '${index + 1}ª mão: empate'
-                : '${index + 1}ª mão: ${game.teamLabel(winner)}';
+            ? '${index + 1}ª mão: empate'
+            : '${index + 1}ª mão: ${game.teamLabel(winner)}';
         final color = !wasPlayed
             ? Colors.transparent
             : winner == null
-                ? Colors.white38
-                : winner == 0
-                    ? const Color(0xFF5CB6FF)
-                    : const Color(0xFFFFC857);
+            ? Colors.white38
+            : winner == 0
+            ? const Color(0xFF5CB6FF)
+            : const Color(0xFFFFC857);
         return Padding(
           padding: const EdgeInsets.only(right: 4),
           child: Tooltip(
@@ -1480,11 +1512,12 @@ class _HandWinnerDots extends StatelessWidget {
 }
 
 class _TeamScore extends StatelessWidget {
-  const _TeamScore(
-      {required this.label,
-      required this.score,
-      required this.color,
-      this.compact = false});
+  const _TeamScore({
+    required this.label,
+    required this.score,
+    required this.color,
+    this.compact = false,
+  });
 
   final String label;
   final int score;
@@ -1499,20 +1532,27 @@ class _TeamScore extends StatelessWidget {
           width: compact ? 6 : 9,
           height: compact ? 30 : 38,
           decoration: BoxDecoration(
-              color: color, borderRadius: BorderRadius.circular(5)),
+            color: color,
+            borderRadius: BorderRadius.circular(5),
+          ),
         ),
         SizedBox(width: compact ? 5 : 8),
         Column(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label,
-                style: TextStyle(color: color, fontSize: compact ? 10 : 12)),
-            Text('$score',
-                style: TextStyle(
-                    color: Colors.white,
-                    fontSize: compact ? 21 : 26,
-                    height: 1)),
+            Text(
+              label,
+              style: TextStyle(color: color, fontSize: compact ? 10 : 12),
+            ),
+            Text(
+              '$score',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: compact ? 21 : 26,
+                height: 1,
+              ),
+            ),
           ],
         ),
       ],
@@ -1551,23 +1591,23 @@ class _TablePlayerAvatar extends StatelessWidget {
           color: color,
           child: validPhoto
               ? assetPath != null
-                  ? Transform.scale(
-                      scale: isBot ? 1 : 1.08,
-                      child: Image.asset(
-                        assetPath,
+                    ? Transform.scale(
+                        scale: isBot ? 1 : 1.08,
+                        child: Image.asset(
+                          assetPath,
+                          width: radius * 2,
+                          height: radius * 2,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => fallback,
+                        ),
+                      )
+                    : Image.network(
+                        photoUrl!,
                         width: radius * 2,
                         height: radius * 2,
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => fallback,
-                      ),
-                    )
-                  : Image.network(
-                      photoUrl!,
-                      width: radius * 2,
-                      height: radius * 2,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => fallback,
-                    )
+                      )
               : fallback,
         ),
       ),
@@ -1641,11 +1681,13 @@ class _BotSeat extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final player = game.players[playerIndex];
-    final active = game.currentPlayerIndex == playerIndex &&
+    final active =
+        game.currentPlayerIndex == playerIndex &&
         game.phase == MatchPhase.playing &&
         !game.awaitingNextTrick;
-    final teamColor =
-        player.team == 0 ? const Color(0xFF5CB6FF) : const Color(0xFFFFC857);
+    final teamColor = player.team == 0
+        ? const Color(0xFF5CB6FF)
+        : const Color(0xFFFFC857);
     final reveal =
         game.canHumanSeePartnerCardsInTenHand && player.team == game.humanTeam;
     return AnimatedContainer(
@@ -1655,11 +1697,14 @@ class _BotSeat extends StatelessWidget {
         vertical: compact ? 2 : 6,
       ),
       decoration: BoxDecoration(
-        color:
-            active ? teamColor.withValues(alpha: .22) : const Color(0xB8052D22),
+        color: active
+            ? teamColor.withValues(alpha: .22)
+            : const Color(0xB8052D22),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-            color: active ? teamColor : Colors.white12, width: active ? 2 : 1),
+          color: active ? teamColor : Colors.white12,
+          width: active ? 2 : 1,
+        ),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1694,8 +1739,10 @@ class _BotSeat extends StatelessWidget {
                   if (game.footIndex == playerIndex)
                     const Padding(
                       padding: EdgeInsets.only(left: 5),
-                      child: Text('PÉ',
-                          style: TextStyle(color: Colors.white60, fontSize: 9)),
+                      child: Text(
+                        'PÉ',
+                        style: TextStyle(color: Colors.white60, fontSize: 9),
+                      ),
                     ),
                 ],
               ),
@@ -1760,13 +1807,15 @@ class _PlayedCardAtSeat extends StatelessWidget {
     final height = compact ? 56.0 : 88.0;
     final resultIsVisible =
         game.awaitingNextTrick || game.phase == MatchPhase.handFinished;
-    final greatestStrength =
-        game.currentTrick.where((play) => !play.hidden).fold<int>(
-              0,
-              (greatest, play) =>
-                  play.card.strength > greatest ? play.card.strength : greatest,
-            );
-    final isGreatestCard = resultIsVisible &&
+    final greatestStrength = game.currentTrick
+        .where((play) => !play.hidden)
+        .fold<int>(
+          0,
+          (greatest, play) =>
+              play.card.strength > greatest ? play.card.strength : greatest,
+        );
+    final isGreatestCard =
+        resultIsVisible &&
         !playedCard.hidden &&
         playedCard.card.strength == greatestStrength;
 
@@ -1930,8 +1979,9 @@ class _HumanControls extends StatelessWidget {
     final human = game.players[game.humanPlayerIndex];
     final active = game.isHumanTurn;
     final phone = MediaQuery.sizeOf(context).width < 600;
-    final teamColor =
-        human.team == 0 ? const Color(0xFF5CB6FF) : const Color(0xFFFFC857);
+    final teamColor = human.team == 0
+        ? const Color(0xFF5CB6FF)
+        : const Color(0xFFFFC857);
     if (phone) {
       return Container(
         height: 154,
@@ -2093,8 +2143,10 @@ class _HumanControls extends StatelessWidget {
                   key: const ValueKey('nome-jogador-local'),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style:
-                      TextStyle(color: teamColor, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    color: teamColor,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 if (clockActive)
                   _TurnProgress(
@@ -2108,8 +2160,10 @@ class _HumanControls extends StatelessWidget {
                     style: const TextStyle(color: Colors.white60, fontSize: 12),
                   ),
                 if (game.footIndex == game.humanPlayerIndex)
-                  const Text('PÉ',
-                      style: TextStyle(color: Colors.white38, fontSize: 10)),
+                  const Text(
+                    'PÉ',
+                    style: TextStyle(color: Colors.white38, fontSize: 10),
+                  ),
               ],
             ),
           ),
@@ -2136,8 +2190,9 @@ class _HumanControls extends StatelessWidget {
           SizedBox(
             width: 150,
             child: FilledButton.icon(
-              onPressed:
-                  game.canHumanChallenge ? game.requestHumanChallenge : null,
+              onPressed: game.canHumanChallenge
+                  ? game.requestHumanChallenge
+                  : null,
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFFE9A23B),
                 foregroundColor: const Color(0xFF271500),
@@ -2172,8 +2227,8 @@ class _TurnProgress extends StatelessWidget {
     final color = progress > .5
         ? const Color(0xFF63E6A5)
         : progress > .25
-            ? const Color(0xFFFFC857)
-            : const Color(0xFFFF6B6B);
+        ? const Color(0xFFFFC857)
+        : const Color(0xFFFF6B6B);
     return SizedBox(
       width: width,
       child: Row(
@@ -2256,10 +2311,12 @@ class _PlayableCardState extends State<_PlayableCard> {
                       duration: const Duration(milliseconds: 240),
                       transitionBuilder: (child, animation) {
                         final turn = Tween<double>(begin: math.pi / 2, end: 0)
-                            .animate(CurvedAnimation(
-                          parent: animation,
-                          curve: Curves.easeOut,
-                        ));
+                            .animate(
+                              CurvedAnimation(
+                                parent: animation,
+                                curve: Curves.easeOut,
+                              ),
+                            );
                         return AnimatedBuilder(
                           animation: turn,
                           child: child,
@@ -2294,8 +2351,8 @@ class _PlayableCardState extends State<_PlayableCard> {
                   child: Tooltip(
                     message: widget.canToggleHidden
                         ? widget.hidden
-                            ? 'Mostrar carta'
-                            : 'Jogar esta carta escondida'
+                              ? 'Mostrar carta'
+                              : 'Jogar esta carta escondida'
                         : 'Não é possível esconder esta carta',
                     child: Material(
                       color: widget.canToggleHidden
@@ -2346,8 +2403,11 @@ class _PlayableCardState extends State<_PlayableCard> {
 }
 
 class _CardFace extends StatelessWidget {
-  const _CardFace(
-      {required this.card, required this.width, required this.height});
+  const _CardFace({
+    required this.card,
+    required this.width,
+    required this.height,
+  });
 
   final PlayingCard card;
   final double width;
@@ -2363,7 +2423,7 @@ class _CardFace extends StatelessWidget {
         borderRadius: BorderRadius.circular(5),
         border: Border.all(color: const Color(0xFFDDDDDD)),
         boxShadow: const [
-          BoxShadow(color: Colors.black26, blurRadius: 3, offset: Offset(0, 2))
+          BoxShadow(color: Colors.black26, blurRadius: 3, offset: Offset(0, 2)),
         ],
       ),
       clipBehavior: Clip.antiAlias,
@@ -2371,9 +2431,13 @@ class _CardFace extends StatelessWidget {
         'assets/images/cartas/${card.code}.png',
         fit: BoxFit.fill,
         errorBuilder: (_, __, ___) => Center(
-          child: Text(card.code,
-              style: const TextStyle(
-                  color: Colors.black, fontWeight: FontWeight.bold)),
+          child: Text(
+            card.code,
+            style: const TextStyle(
+              color: Colors.black,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
         ),
       ),
     );
@@ -2402,10 +2466,7 @@ class _CardBack extends StatelessWidget {
 }
 
 class _ChallengeOverlay extends StatelessWidget {
-  const _ChallengeOverlay({
-    required this.game,
-    required this.tableSession,
-  });
+  const _ChallengeOverlay({required this.game, required this.tableSession});
 
   final DouradinhaGame game;
   final TableSession tableSession;
@@ -2457,16 +2518,20 @@ class _ChallengeOverlay extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.campaign,
-                      color: Color(0xFFFFC857), size: 36),
+                  const Icon(
+                    Icons.campaign,
+                    color: Color(0xFFFFC857),
+                    size: 36,
+                  ),
                   Text(
                     DouradinhaGame.challengeLabelForPoints(
                       challenge.requestedValue,
                     ),
                     style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w900),
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -2485,7 +2550,8 @@ class _ChallengeOverlay extends StatelessWidget {
                       children: [
                         for (final seatIndex in vote.participantSeatIndexes)
                           _ChallengeVoteStatus(
-                            seat: seatIndex >= 0 &&
+                            seat:
+                                seatIndex >= 0 &&
                                     seatIndex < tableSession.seats.length
                                 ? tableSession.seats[seatIndex]
                                 : null,
@@ -2501,28 +2567,32 @@ class _ChallengeOverlay extends StatelessWidget {
                     runSpacing: 8,
                     children: [
                       OutlinedButton(
-                          key: const ValueKey('correr-desafio'),
-                          onPressed: canRespond
-                              ? () => respond(ChallengeVoteChoice.fold)
-                              : null,
-                          child: const Text('CORRER')),
+                        key: const ValueKey('correr-desafio'),
+                        onPressed: canRespond
+                            ? () => respond(ChallengeVoteChoice.fold)
+                            : null,
+                        child: const Text('CORRER'),
+                      ),
                       FilledButton(
-                          key: const ValueKey('aceitar-desafio'),
-                          onPressed: canRespond
-                              ? () => respond(ChallengeVoteChoice.accept)
-                              : null,
-                          child: const Text('ACEITAR')),
+                        key: const ValueKey('aceitar-desafio'),
+                        onPressed: canRespond
+                            ? () => respond(ChallengeVoteChoice.accept)
+                            : null,
+                        child: const Text('ACEITAR'),
+                      ),
                       if (challenge.requestedValue < 6) ...[
                         FilledButton.tonal(
                           key: const ValueKey('aumentar-desafio'),
                           onPressed: canRespond
                               ? () => respond(ChallengeVoteChoice.raise)
                               : null,
-                          child: Text(DouradinhaGame.challengeLabelForPoints(
-                            DouradinhaGame.nextChallengeAfter(
-                              challenge.requestedValue,
-                            )!,
-                          )),
+                          child: Text(
+                            DouradinhaGame.challengeLabelForPoints(
+                              DouradinhaGame.nextChallengeAfter(
+                                challenge.requestedValue,
+                              )!,
+                            ),
+                          ),
                         ),
                       ],
                     ],
@@ -2721,8 +2791,9 @@ class _TenHandOverlay extends StatelessWidget {
       child: Align(
         alignment: phone ? Alignment.bottomCenter : Alignment.center,
         child: Padding(
-          padding:
-              phone ? const EdgeInsets.fromLTRB(8, 8, 8, 6) : EdgeInsets.zero,
+          padding: phone
+              ? const EdgeInsets.fromLTRB(8, 8, 8, 6)
+              : EdgeInsets.zero,
           child: Card(
             key: const ValueKey('decisao-mao-de-dez'),
             margin: EdgeInsets.zero,
@@ -2882,15 +2953,19 @@ class _WinnerOverlay extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(humanWon ? Icons.emoji_events : Icons.sports_esports,
-                color: const Color(0xFFFFC857), size: 62),
+            Icon(
+              humanWon ? Icons.emoji_events : Icons.sports_esports,
+              color: const Color(0xFFFFC857),
+              size: 62,
+            ),
             const SizedBox(height: 8),
             Text(
               humanWon ? 'SEU TRIO VENCEU!' : 'O TRIO ADVERSÁRIO VENCEU',
               style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 28,
-                  fontWeight: FontWeight.w900),
+                color: Colors.white,
+                fontSize: 28,
+                fontWeight: FontWeight.w900,
+              ),
             ),
             Text(
               '${game.scores[0]} × ${game.scores[1]}',
