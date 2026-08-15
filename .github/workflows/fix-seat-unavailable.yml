@@ -1,0 +1,227 @@
+name: Corrigir cadeira indisponível
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/fix-seat-unavailable.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Aplicar correção
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              file = Path(path)
+              text = file.read_text()
+              if old not in text:
+                  raise SystemExit(f'Trecho não encontrado em {path}')
+              file.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              'lib/online/table_session.dart',
+              "  bool replacementBotActive = false;\n  String? _reportedShownFillBotsVoteId;",
+              "  bool replacementBotActive = false;\n  bool seatUnavailable = false;\n  String? _reportedShownFillBotsVoteId;",
+          )
+
+          old_rejoin = (
+              "  Future<void> _rejoinAndConnect() async {\n"
+              "    if (playerToken == null || tableNumber == null) return;\n"
+              "    try {\n"
+              "      final response = await _client.post(\n"
+              "        Uri.parse('$_serverUrl/api/tables/$tableNumber/join'),\n"
+              "        headers: const {'Content-Type': 'application/json'},\n"
+              "        body: jsonEncode({'playerToken': playerToken}),\n"
+              "      );\n"
+              "      if (response.statusCode != 200) throw StateError('Sessão encerrada.');\n"
+              "      final payload = jsonDecode(response.body) as Map<String, dynamic>;\n"
+              "      websocketUrl = payload['websocketUrl'] as String;\n"
+              "      _applyRoomPayload(payload);\n"
+              "      await _connectSocket();\n"
+              "    } on Object {\n"
+              "      errorMessage = 'Sua cadeira não está mais disponível.';\n"
+              "      notifyListeners();\n"
+              "    }\n"
+              "  }\n"
+          )
+          new_rejoin = (
+              "  Future<void> _rejoinAndConnect() async {\n"
+              "    if (playerToken == null || tableNumber == null) return;\n"
+              "    try {\n"
+              "      final response = await _client\n"
+              "          .post(\n"
+              "            Uri.parse('$_serverUrl/api/tables/$tableNumber/join'),\n"
+              "            headers: const {'Content-Type': 'application/json'},\n"
+              "            body: jsonEncode({'playerToken': playerToken}),\n"
+              "          )\n"
+              "          .timeout(const Duration(seconds: 12));\n"
+              "      if (response.statusCode == 401 || response.statusCode == 403) {\n"
+              "        connected = false;\n"
+              "        seatUnavailable = true;\n"
+              "        _presencePaused = true;\n"
+              "        _reconnectTimer?.cancel();\n"
+              "        errorMessage = null;\n"
+              "        notifyListeners();\n"
+              "        return;\n"
+              "      }\n"
+              "      if (response.statusCode != 200) {\n"
+              "        throw StateError('Não foi possível reconectar à mesa.');\n"
+              "      }\n"
+              "      seatUnavailable = false;\n"
+              "      final payload = jsonDecode(response.body) as Map<String, dynamic>;\n"
+              "      websocketUrl = payload['websocketUrl'] as String;\n"
+              "      _applyRoomPayload(payload);\n"
+              "      await _connectSocket();\n"
+              "    } on Object {\n"
+              "      errorMessage = 'Não foi possível reconectar à mesa.';\n"
+              "      notifyListeners();\n"
+              "      if (!_presencePaused) _scheduleReconnect();\n"
+              "    }\n"
+              "  }\n\n"
+              "  Future<void> clearUnavailableSeat() async {\n"
+              "    if (_disposed) return;\n"
+              "    _presencePaused = true;\n"
+              "    _reconnectTimer?.cancel();\n"
+              "    connected = false;\n"
+              "    replacementBotActive = false;\n"
+              "    seatUnavailable = false;\n"
+              "    errorMessage = null;\n"
+              "    playerToken = null;\n"
+              "    websocketUrl = null;\n"
+              "    final preferences = _preferences ?? await SharedPreferences.getInstance();\n"
+              "    await Future.wait([\n"
+              "      preferences.remove(tableNumberKey),\n"
+              "      preferences.remove(playerTokenKey),\n"
+              "      preferences.remove(LobbyService.seatIndexKey),\n"
+              "    ]);\n"
+              "    unawaited(_closeChannel());\n"
+              "    if (!_disposed) notifyListeners();\n"
+              "  }\n"
+          )
+          replace_once('lib/online/table_session.dart', old_rejoin, new_rejoin)
+
+          old_changed = (
+              "  void _onTableSessionChanged() {\n"
+              "    if (!mounted) return;\n"
+              "    if (!tableSession.canPlayHere) {\n"
+              "      _automationTimer?.cancel();\n"
+              "      _automationScheduled = false;\n"
+              "      _stopTurnClock();\n"
+              "    } else if (!_restoringGame) {\n"
+              "      _syncTurnClock();\n"
+              "      _scheduleAutomation();\n"
+              "    }\n"
+              "    setState(() {});\n"
+              "  }\n"
+          )
+          new_changed = (
+              "  Future<void> _returnToLobbyAfterSeatLoss() async {\n"
+              "    if (_leavingTable || !mounted) return;\n"
+              "    setState(() => _leavingTable = true);\n"
+              "    await tableSession.clearUnavailableSeat();\n"
+              "    await exitGameFullscreen();\n"
+              "    if (mounted) Navigator.of(context).pop();\n"
+              "  }\n\n"
+              "  void _onTableSessionChanged() {\n"
+              "    if (!mounted) return;\n"
+              "    if (tableSession.seatUnavailable) {\n"
+              "      _automationTimer?.cancel();\n"
+              "      _automationScheduled = false;\n"
+              "      _stopTurnClock();\n"
+              "      unawaited(_returnToLobbyAfterSeatLoss());\n"
+              "      return;\n"
+              "    }\n"
+              "    if (!tableSession.canPlayHere) {\n"
+              "      _automationTimer?.cancel();\n"
+              "      _automationScheduled = false;\n"
+              "      _stopTurnClock();\n"
+              "    } else if (!_restoringGame) {\n"
+              "      _syncTurnClock();\n"
+              "      _scheduleAutomation();\n"
+              "    }\n"
+              "    setState(() {});\n"
+              "  }\n"
+          )
+          replace_once('lib/ui/game_page.dart', old_changed, new_changed)
+
+          old_test_end = (
+              "    expect(preferences.getInt(LobbyService.seatIndexKey), isNull);\n"
+              "    session.dispose();\n"
+              "  });\n"
+              "}\n"
+          )
+          new_test_end = (
+              "    expect(preferences.getInt(LobbyService.seatIndexKey), isNull);\n"
+              "    session.dispose();\n"
+              "  });\n\n"
+              "  test('cadeira perdida limpa a sessão e volta a ser indisponível só quando o servidor rejeita o token', () async {\n"
+              "    SharedPreferences.setMockInitialValues({\n"
+              "      TableSession.tableNumberKey: '4',\n"
+              "      TableSession.playerTokenKey: 'token-antigo',\n"
+              "      LobbyService.seatIndexKey: 0,\n"
+              "    });\n"
+              "    final client = MockClient((request) async {\n"
+              "      expect(request.url.path, '/api/tables/4/join');\n"
+              "      return http.Response('{\\\"error\\\":\\\"Sessão inválida\\\"}', 401);\n"
+              "    });\n"
+              "    final session = TableSession(\n"
+              "      entry: TableEntry(\n"
+              "        serverUrl: 'https://dourada.example.workers.dev',\n"
+              "        tableNumber: '4',\n"
+              "        playerToken: 'token-antigo',\n"
+              "        websocketUrl: 'wss://dourada.example.workers.dev/connect',\n"
+              "        seatIndex: 0,\n"
+              "        phase: LobbyTablePhase.waiting,\n"
+              "        seats: List<LobbySeat?>.filled(6, null),\n"
+              "      ),\n"
+              "      client: client,\n"
+              "    );\n\n"
+              "    await session.pausePresence();\n"
+              "    await session.resumePresence();\n\n"
+              "    expect(session.seatUnavailable, isTrue);\n"
+              "    expect(session.errorMessage, isNull);\n"
+              "    await session.clearUnavailableSeat();\n"
+              "    final preferences = await SharedPreferences.getInstance();\n"
+              "    expect(preferences.getString(TableSession.tableNumberKey), isNull);\n"
+              "    expect(preferences.getString(TableSession.playerTokenKey), isNull);\n"
+              "    expect(preferences.getInt(LobbyService.seatIndexKey), isNull);\n"
+              "    session.dispose();\n"
+              "  });\n"
+              "}\n"
+          )
+          replace_once('test/table_session_test.dart', old_test_end, new_test_end)
+          PY
+
+          dart format lib/online/table_session.dart lib/ui/game_page.dart test/table_session_test.dart
+          git diff --check
+
+      - name: Instalar dependências
+        run: flutter pub get
+
+      - name: Analisar
+        run: flutter analyze
+
+      - name: Testar
+        run: flutter test
+
+      - name: Gravar correção
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/online/table_session.dart lib/ui/game_page.dart test/table_session_test.dart
+          git commit -m "Volta ao lobby quando a cadeira expira"
+          git push origin HEAD:main
