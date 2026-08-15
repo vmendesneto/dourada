@@ -656,8 +656,30 @@ class _AuthMenuState extends State<_AuthMenu>
           child: OutlinedButton.icon(
             key: const ValueKey('entrar-google'),
             onPressed: _busy ? null : _loginWithGoogle,
-            icon: const Icon(Icons.account_circle_outlined),
-            label: const Text('ENTRAR COM GOOGLE'),
+            style: OutlinedButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: const Color(0xFF1F1F1F),
+              disabledBackgroundColor: const Color(0xFFF2F2F2),
+              disabledForegroundColor: const Color(0xFF747775),
+              side: const BorderSide(color: Color(0xFF747775)),
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(6),
+              ),
+              textStyle: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            icon: Image.memory(
+              UriData.parse(
+                'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAABmJLR0QA/wD/AP+gvaeTAAADHElEQVRIia2US2yUVRTHf+fOVzPQlqbtfAMJKm1MNCWhUTsNQuwY24nRnSkUBxKCa+sjBqPRsJiIiiQ+IwsTdUXQtmOiiRotmRZSVsyUxoXAQqE+MfSl6BAKM3OPC3Ay/fy+zjRydvd/7/n97+scYZlYSHTdXrShnRjiqHYCrYBF5HdUz4noaMmYz9cdzU4HMcRPvNB7z4YQzmsiJAGz3CaAIsJhB5tqyZz6uarBbG9sp4q8D6ypAvaS/hBkt5vJflUpL9ndbCL2rIocWTEcQGlGNemVywYzfd2PqcqbBFybwoKInFTIAvM+80ciLW2P+xrMP9R9G8iHAfBRkHi0J+e6mex9a8dym92eXFSt3o/o0X/h0Za2PZJOl7zJAjC3u+OQvdAw6JmzorrXHZ98x+9EN8Ay2xfb5ra0f+YHB5Arx8JtTql0dnEqcvLK6K3xilO8FB3LHQiC1xrGKRaTQDh879wDTU+cmZRwMQ9MuT25g/8XDmDAPFgeNF3rbn7m9Ezojr9elxT2ZhhIIeP8CrK+QlOnWIjIwyz4JfS+mtea4apJAxLx6PNB8JWGguvXBqq1hppDjKw2oHMevVkztN4kj4sOmO9Ay2/wQ6lx+sClzgQcHw5ICvpdjwCdSxThohQyzvMgBwHSi+2Tb+c3dSh8325MLL3Dv3i8kUqpmai7fAa4q0K2tmDXGkec4aKaxcFLWyfeym+KKdQDd5/X0ou1wAEmbrm8xwNH0Ozx1Jo5I32LP21b6PtoqhCJL1mg8nLXcP/eavDE/nwC5ZBXV/j4uhGwZWRgfcHas0CjD2MMlVfaQ3Ki8so2jwxstNY+Gbp658ZVv72wVdSpq4BPhxvrO75+Wq6Wu2fsk/7tiIwQ0K6BPwXOKVgRNqgSLZ/Wrj7d8Mv+VilG1gEWlUfH99V/gRfWNdT/lCDvLmMSHCrzq2YGf6z7u3tofF/DG2Vz77quoe0Dgn4ANK3Q4pqxznPZXcPvVYr/qdpTyU/TakwncBio6Zsi8o2iW7xwqHIVNx5/l0JcrheRC6jCjBE5b7HHjIS+zO1IfxvE+AelUhzpSF0ykQAAAABJRU5ErkJggg==',
+              ).contentAsBytes(),
+              width: 20,
+              height: 20,
+              filterQuality: FilterQuality.high,
+            ),
+            label: const Text('Entrar com Google'),
           ),
         ),
       ],
