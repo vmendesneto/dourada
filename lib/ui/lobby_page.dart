@@ -1248,7 +1248,7 @@ class _TableCard extends StatelessWidget {
                     )
                   : Text(requiresLogin
                       ? 'FAÇA LOGIN PARA ENTRAR'
-                      : 'ENTRAR EM UMA MESA'),
+                      : 'ENTRAR'),
             ),
           ),
         ],
