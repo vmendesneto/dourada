@@ -38,6 +38,7 @@ dependencies:
   firebase_storage: ^13.4.6
   image_picker: ^1.2.3
   web: ^1.1.1
+  audioplayers: ^6.8.1
 
 
 dev_dependencies:
@@ -59,7 +60,7 @@ flutter:
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
-  # the material Icons class.
+  # the Material Icons class.
   uses-material-design: true
 
   # To add assets to your application, add an assets section, like this:
@@ -69,6 +70,12 @@ flutter:
     - assets/images/avatar/humanos/
     - assets/images/challenge/
     - assets/gifs/
+    - assets/sons/truco/
+    - assets/sons/seis/
+    - assets/sons/nove/
+    - assets/sons/doze/
+    - assets/sons/aceitar/
+    - assets/sons/correr/
   #   - images/a_dot_ham.jpeg
 
   # An image asset can refer to one or more resolution-specific "variants", see
