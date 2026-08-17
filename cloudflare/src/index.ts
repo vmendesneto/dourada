@@ -424,9 +424,6 @@ export class GameTable extends DurableObject<Env> {
     reason: string,
     wasClean: boolean,
   ): Promise<void> {
-    if (wasClean) {
-      // O código usa o mesmo fluxo de presença para fechamentos limpos ou não.
-    }
     const attachment = socket.deserializeAttachment() as SocketAttachment | null;
     if (attachment?.role === "spectator") {
       const table = await this.load();
@@ -1337,10 +1334,7 @@ function gameStateWithoutPlayerSignals(gameState: GameState): GameState {
 }
 
 function normalizePlayerSignals(value: unknown): Array<PlayerSignalState | null> {
-  const empty = Array.from<PlayerSignalState | null>(
-    { length: seatCount },
-    () => null,
-  );
+  const empty: Array<PlayerSignalState | null> = Array(seatCount).fill(null);
   if (!Array.isArray(value) || value.length !== seatCount) return empty;
   const now = Date.now();
   return value.map((entry) => {
