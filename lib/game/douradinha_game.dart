@@ -152,7 +152,7 @@ class DouradinhaGame extends ChangeNotifier {
   static const betweenPartidasTransitionDuration = Duration(milliseconds: 3500);
   static const challengeNoticeDuration = Duration(seconds: 2);
   static const challengeAnimationDuration = Duration(milliseconds: 2780);
-  static const signalDuration = Duration(seconds: 1);
+  static const signalDuration = Duration(milliseconds: 500);
   static const defaultSignalEmoji = '🙂';
 
   DouradinhaGame({Random? random, this.humanPlayerIndex = 0})
