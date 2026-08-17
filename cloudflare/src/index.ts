@@ -47,12 +47,18 @@ interface TableSeat {
   disconnectedAt: number | null;
 }
 
+interface PlayerSignalState {
+  emoji: string;
+  expiresAt: number;
+}
+
 interface SharedTableState {
   version: 2;
   tableNumber: number;
   phase: TablePhase;
   seats: Array<TableSeat | null>;
   gameState: GameState | null;
+  playerSignals: Array<PlayerSignalState | null>;
   nextActionAt: number | null;
   waitingStartAt: number | null;
   fillBotsVote: FillBotsVote | null;
@@ -76,6 +82,7 @@ const tableCount = 10;
 const seatCount = 6;
 const disconnectGraceMs = 5000;
 const humanTurnMs = 15000;
+const playerSignalMs = 500;
 const botAvatarCount = 10;
 const fillBotsVotingVersion = 2;
 const challengeVotingVersion = 1;
@@ -316,12 +323,34 @@ export class GameTable extends DurableObject<Env> {
       return;
     }
 
+    // Eventos sociais da mesa não dependem da vez. O sinal usa este canal
+    // agora; o chat digitado poderá entrar como outro `kind` no mesmo envelope.
+    if (payload.type === "tableEvent" && table.phase === "playing") {
+      const rawEvent = payload.event;
+      if (!rawEvent || typeof rawEvent !== "object" || Array.isArray(rawEvent)) {
+        return;
+      }
+      const event = rawEvent as Record<string, unknown>;
+      if (event.kind === "signal") {
+        const emoji = cleanPlayerSignal(event.emoji);
+        if (emoji === null || table.gameState === null) return;
+        table.playerSignals[attachment.seatIndex] = {
+          emoji,
+          expiresAt: Date.now() + playerSignalMs,
+        };
+        table.updatedAt = Date.now();
+        await this.saveAndSchedule(table);
+        this.broadcast(table);
+      }
+      return;
+    }
+
     if (payload.type === "state" && table.phase === "playing") {
       if (!isGameState(payload.gameState) || !this.canSeatSubmit(table, attachment.seatIndex)) {
         socket.send(JSON.stringify({ type: "rejected", reason: "Jogada inválida." }));
         return;
       }
-      table.gameState = payload.gameState;
+      table.gameState = gameStateWithoutPlayerSignals(payload.gameState);
       this.ensureChallengeVote(table);
       table.updatedAt = Date.now();
       table.nextActionAt = this.nextActionAt(table, this.activeHumanSeats());
@@ -395,6 +424,9 @@ export class GameTable extends DurableObject<Env> {
     reason: string,
     wasClean: boolean,
   ): Promise<void> {
+    if (wasClean) {
+      // O código usa o mesmo fluxo de presença para fechamentos limpos ou não.
+    }
     const attachment = socket.deserializeAttachment() as SocketAttachment | null;
     if (attachment?.role === "spectator") {
       const table = await this.load();
@@ -441,6 +473,7 @@ export class GameTable extends DurableObject<Env> {
           )
         ) {
           table.seats[index] = null;
+          table.playerSignals[index] = null;
         }
       }
       if (!table.seats.some((seat) => seat?.kind === "human")) {
@@ -562,6 +595,7 @@ export class GameTable extends DurableObject<Env> {
       joinedAt: now,
       disconnectedAt: now,
     };
+    table.playerSignals[seatIndex] = null;
     table.updatedAt = now;
 
     await this.saveAndSchedule(table, true);
@@ -591,7 +625,7 @@ export class GameTable extends DurableObject<Env> {
       spectatorHandCounts: spectatorHandCounts(table.gameState),
       phase: table.phase,
       seats: publicSeats(table),
-      gameState: spectatorGameState(table.gameState),
+      gameState: spectatorGameState(table),
       fillBotsVotingVersion: 0,
       challengeVotingVersion: 0,
       fillBotsVote: null,
@@ -784,6 +818,7 @@ export class GameTable extends DurableObject<Env> {
       socket.close(4001, "Jogador decidiu nÃ£o voltar");
     }
     const now = Date.now();
+    table.playerSignals[seatIndex] = null;
     if (table.phase === "playing") {
       table.seats[seatIndex] = {
         kind: "bot",
@@ -929,6 +964,7 @@ export class GameTable extends DurableObject<Env> {
   private startGame(table: SharedTableState): void {
     table.phase = "playing";
     table.gameState = createInitialGame();
+    table.playerSignals = Array.from({ length: seatCount }, () => null);
     table.waitingStartAt = null;
     table.fillBotsVote = null;
     table.challengeVote = null;
@@ -939,6 +975,7 @@ export class GameTable extends DurableObject<Env> {
   private returnToWaitingRoom(table: SharedTableState, now: number): void {
     table.phase = "waiting";
     table.gameState = null;
+    table.playerSignals = Array.from({ length: seatCount }, () => null);
     table.nextActionAt = null;
     table.waitingStartAt = null;
     table.fillBotsVote = null;
@@ -956,7 +993,7 @@ export class GameTable extends DurableObject<Env> {
       seatIndex,
       phase: table.phase,
       seats: publicSeats(table),
-      gameState: table.gameState,
+      gameState: gameStateForClient(table),
       waitingStartAt: table.waitingStartAt,
       fillBotsVote: table.fillBotsVote,
       fillBotsVotingVersion,
@@ -989,7 +1026,7 @@ export class GameTable extends DurableObject<Env> {
       tableNumber: String(table.tableNumber),
       seatIndex,
       seats: publicSeats(table),
-      gameState: table.gameState,
+      gameState: gameStateForClient(table),
       waitingStartAt: table.waitingStartAt,
       fillBotsVote: table.fillBotsVote,
       fillBotsVotingVersion,
@@ -1009,7 +1046,7 @@ export class GameTable extends DurableObject<Env> {
       spectatorCount: this.spectatorCount(),
       spectatorHandCounts: spectatorHandCounts(table.gameState),
       seats: publicSeats(table),
-      gameState: spectatorGameState(table.gameState),
+      gameState: spectatorGameState(table),
       waitingStartAt: null,
       fillBotsVote: null,
       fillBotsVotingVersion: 0,
@@ -1187,6 +1224,7 @@ export class GameTable extends DurableObject<Env> {
       stored.waitingStartAt ??= null;
       stored.fillBotsVote ??= null;
       stored.challengeVote ??= null;
+      stored.playerSignals = normalizePlayerSignals(stored.playerSignals);
       if (
         stored.fillBotsVote !== null &&
         (typeof stored.fillBotsVote.id !== "string" ||
@@ -1281,6 +1319,7 @@ function emptyTableState(tableNumber: number): SharedTableState {
     phase: "empty",
     seats: Array.from({ length: seatCount }, () => null),
     gameState: null,
+    playerSignals: Array.from({ length: seatCount }, () => null),
     nextActionAt: null,
     waitingStartAt: null,
     fillBotsVote: null,
@@ -1289,12 +1328,57 @@ function emptyTableState(tableNumber: number): SharedTableState {
   };
 }
 
-function spectatorGameState(gameState: GameState | null): GameState | null {
-  if (gameState === null) return null;
+function gameStateWithoutPlayerSignals(gameState: GameState): GameState {
+  const clean = structuredClone(gameState) as GameState & {
+    playerSignals?: unknown;
+  };
+  delete clean.playerSignals;
+  return clean;
+}
+
+function normalizePlayerSignals(value: unknown): Array<PlayerSignalState | null> {
+  const empty = Array.from<PlayerSignalState | null>(
+    { length: seatCount },
+    () => null,
+  );
+  if (!Array.isArray(value) || value.length !== seatCount) return empty;
+  const now = Date.now();
+  return value.map((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+    const signal = entry as Partial<PlayerSignalState>;
+    const emoji = cleanPlayerSignal(signal.emoji);
+    return emoji !== null &&
+      typeof signal.expiresAt === "number" &&
+      Number.isFinite(signal.expiresAt) &&
+      signal.expiresAt > now
+      ? { emoji, expiresAt: signal.expiresAt }
+      : null;
+  });
+}
+
+function gameStateForClient(table: SharedTableState): Record<string, unknown> | null {
+  if (table.gameState === null) return null;
+  const now = Date.now();
+  return {
+    ...table.gameState,
+    playerSignals: table.playerSignals.map((signal) =>
+      signal !== null && signal.expiresAt > now
+        ? {
+            emoji: signal.emoji,
+            remainingMs: signal.expiresAt - now,
+          }
+        : null,
+    ),
+  };
+}
+
+function spectatorGameState(table: SharedTableState): Record<string, unknown> | null {
+  const gameState = gameStateForClient(table);
+  if (gameState === null || table.gameState === null) return null;
   return {
     ...gameState,
-    playerHands: gameState.playerHands.map(() => []),
-    hiddenCards: gameState.hiddenCards?.map(() => []),
+    playerHands: table.gameState.playerHands.map(() => []),
+    hiddenCards: table.gameState.hiddenCards?.map(() => []),
   };
 }
 
@@ -1334,6 +1418,12 @@ function connectionUrl(
 function cleanPlayerName(value: string | undefined, seatIndex: number): string {
   const clean = value?.trim().replace(/\s+/g, " ").slice(0, 20);
   return clean ? clean : `Jogador ${seatIndex + 1}`;
+}
+
+function cleanPlayerSignal(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const signal = value.trim();
+  return signal.length > 0 && signal.length <= 16 ? signal : null;
 }
 
 function cleanPhotoUrl(value: string | null | undefined): string | null {
