@@ -23,45 +23,17 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
+          import re
 
-          def replace_once(path, old, new):
+          def regex_replace(path, pattern, replacement):
               file = Path(path)
               text = file.read_text()
-              count = text.count(old)
+              updated, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
               if count != 1:
-                  raise SystemExit(f"{path}: esperado 1 trecho, encontrado {count}")
-              file.write_text(text.replace(old, new, 1))
+                  raise SystemExit(f"{path}: trecho não encontrado para alteração")
+              file.write_text(updated)
 
-          dart_old = '''  bool _currentTrickIsLockedAgainst(int team) {
-            final visibleTrick = currentTrick.where((play) => !play.hidden).toList();
-            if (visibleTrick.isEmpty) return false;
-            final topStrength =
-                visibleTrick.map((play) => play.card.strength).reduce(max);
-            final publicCodes = <String>{
-              ...playedCards
-                  .where((play) => !play.hidden)
-                  .map((play) => play.card.code),
-              ...visibleTrick.map((play) => play.card.code),
-            };
-            final aStrongerCardCanStillAppear = PlayingCard.fullDeck().any(
-              (card) => !publicCodes.contains(card.code) && card.strength > topStrength,
-            );
-            if (aStrongerCardCanStillAppear) return false;
-
-            final topTeams = visibleTrick
-                .where((play) => play.card.strength == topStrength)
-                .map((play) => players[play.playerIndex].team)
-                .toSet();
-            final provisionalWinner = topTeams.length == 1 ? topTeams.single : null;
-            final disputeWinner = resolveDisputeWinner([
-              ...trickWinners,
-              provisionalWinner,
-            ]);
-            return disputeWinner != null && disputeWinner != team;
-          }
-          '''
-
-          dart_new = '''  bool _currentTrickIsLockedAgainst(int team) {
+          dart_lock = '''  bool _currentTrickIsLockedAgainst(int team) {
             final visibleTrick = currentTrick.where((play) => !play.hidden).toList();
             if (visibleTrick.isEmpty) return false;
 
@@ -88,8 +60,8 @@ jobs:
               return disputeIsLostWith(currentTrick);
             }
 
-            // Só é derrota matemática quando nenhuma carta que o trio ainda
-            // pode realmente jogar evita que a disputa seja encerrada contra ele.
+            // Derrota matemática: nenhuma carta que este trio ainda pode
+            // realmente jogar evita que a disputa seja encerrada contra ele.
             for (final candidate in remainingTeamCards) {
               final simulatedTrick = [
                 ...currentTrick,
@@ -101,16 +73,17 @@ jobs:
               if (!disputeIsLostWith(simulatedTrick)) return false;
             }
             return true;
-          }
-          '''
-          replace_once('lib/game/douradinha_game.dart', dart_old, dart_new)
+          }'''
+          regex_replace(
+              'lib/game/douradinha_game.dart',
+              r'  bool _currentTrickIsLockedAgainst\(int team\) \{.*?\n  \}\n\n  void requestHumanChallenge\(\)',
+              dart_lock + '\n\n  void requestHumanChallenge()',
+          )
 
-          dart_resolve_old = '''    final botTeam = 1 - humanTeam;
-            _botChallengeConsideredThisTrick[botTeam] = true;
-            final foldingLosesMatch =
-          '''
-          dart_resolve_new = '''    final botTeam = 1 - humanTeam;
-            _botChallengeConsideredThisTrick[botTeam] = true;
+          dart = Path('lib/game/douradinha_game.dart')
+          text = dart.read_text()
+          marker = '    _botChallengeConsideredThisTrick[botTeam] = true;\n'
+          addition = '''    _botChallengeConsideredThisTrick[botTeam] = true;
 
             if (_currentTrickIsLockedAgainst(botTeam)) {
               const message = 'O trio adversário conversou e correu do desafio.';
@@ -123,14 +96,15 @@ jobs:
               );
               return;
             }
-
-            final foldingLosesMatch =
           '''
-          replace_once('lib/game/douradinha_game.dart', dart_resolve_old, dart_resolve_new)
+          if text.count(marker) != 1:
+              raise SystemExit('Dart: ponto de decisão do desafio não encontrado')
+          dart.write_text(text.replace(marker, addition, 1))
 
-          dart_test_marker = '''    test('trio de robôs conversa e corre quando todos estão fracos', () {
-          '''
-          dart_tests = '''    test('trio de robôs corre quando a disputa já está matematicamente perdida', () {
+          dart_tests = Path('test/douradinha_game_test.dart')
+          text = dart_tests.read_text()
+          marker = "    test('trio de robôs conversa e corre quando todos estão fracos', () {\n"
+          tests = '''    test('trio de robôs corre quando a disputa já está matematicamente perdida', () {
             final game = DouradinhaGame(random: Random(43));
             game.currentPlayerIndex = game.humanPlayerIndex;
             game.trickLeaderIndex = 2;
@@ -141,7 +115,6 @@ jobs:
             );
             game.currentTrick.add(leadingPlay);
             game.playedCards.add(leadingPlay);
-
             final botCards = <int, List<PlayingCard>>{
               1: const [PlayingCard('2', 'p')],
               3: const [PlayingCard('A', 'p')],
@@ -174,7 +147,6 @@ jobs:
             );
             game.currentTrick.add(leadingPlay);
             game.playedCards.add(leadingPlay);
-
             final botCards = <int, List<PlayingCard>>{
               1: const [PlayingCard('2', 'p')],
               3: const [PlayingCard('Q', 'o')],
@@ -194,20 +166,21 @@ jobs:
             expect(game.scores, [0, 0]);
           });
 
-          ''' + dart_test_marker
-          replace_once('test/douradinha_game_test.dart', dart_test_marker, dart_tests)
+          '''
+          if text.count(marker) != 1:
+              raise SystemExit('Teste Dart: ponto de inserção não encontrado')
+          dart_tests.write_text(text.replace(marker, tests + marker, 1))
 
-          ts_pending_old = '''  if (game.pendingChallenge !== null) {
+          worker = Path('cloudflare/src/game.ts')
+          text = worker.read_text()
+          old = '''  if (game.pendingChallenge !== null) {
             acceptPendingChallenge(game);
             return { state: game, nextDelayMs: 650 };
           }
           '''
-          ts_pending_new = '''  if (game.pendingChallenge !== null) {
+          new = '''  if (game.pendingChallenge !== null) {
             if (
-              currentTrickIsLockedAgainst(
-                game,
-                game.pendingChallenge.targetTeam,
-              )
+              currentTrickIsLockedAgainst(game, game.pendingChallenge.targetTeam)
             ) {
               foldPendingChallenge(game);
             } else {
@@ -216,11 +189,11 @@ jobs:
             return { state: game, nextDelayMs: 650 };
           }
           '''
-          replace_once('cloudflare/src/game.ts', ts_pending_old, ts_pending_new)
-
-          ts_marker = '''function chooseBotCard(game: GameState, playerIndex: number): string | null {
-          '''
-          ts_helper = '''export function currentTrickIsLockedAgainst(
+          if text.count(old) != 1:
+              raise SystemExit('Worker: resposta automática ao desafio não encontrada')
+          text = text.replace(old, new, 1)
+          marker = 'function chooseBotCard(game: GameState, playerIndex: number): string | null {\n'
+          helper = '''export function currentTrickIsLockedAgainst(
             game: GameState,
             team: number,
           ): boolean {
@@ -259,24 +232,20 @@ jobs:
             );
           }
 
-          ''' + ts_marker
-          replace_once('cloudflare/src/game.ts', ts_marker, ts_helper)
-
-          ts_test_marker = '''  it("aplica no servidor aceitar, correr e aumentar", () => {
           '''
-          ts_tests = '''  it("robô substituto corre quando a disputa já está matematicamente perdida", () => {
+          if text.count(marker) != 1:
+              raise SystemExit('Worker: ponto de inserção da regra não encontrado')
+          worker.write_text(text.replace(marker, helper + marker, 1))
+
+          worker_tests = Path('cloudflare/test/game.test.ts')
+          text = worker_tests.read_text()
+          marker = '  it("aplica no servidor aceitar, correr e aumentar", () => {\n'
+          tests = '''  it("robô substituto corre quando a disputa já está matematicamente perdida", () => {
             const game = fixture();
             game.trickWinners = [0];
             game.currentTrick = [{ playerIndex: 2, card: "Jp" }];
             game.playedCards = [...game.currentTrick];
-            game.playerHands = [
-              ["4o"],
-              ["2p"],
-              [],
-              ["Ap"],
-              ["5o"],
-              ["5p"],
-            ];
+            game.playerHands = [["4o"], ["2p"], [], ["Ap"], ["5o"], ["5p"]];
             game.pendingChallenge = {
               challengerTeam: 0,
               challengerPlayer: 0,
@@ -299,14 +268,7 @@ jobs:
             game.trickWinners = [0];
             game.currentTrick = [{ playerIndex: 2, card: "Jp" }];
             game.playedCards = [...game.currentTrick];
-            game.playerHands = [
-              ["4o"],
-              ["2p"],
-              [],
-              ["Qo"],
-              ["5o"],
-              ["Ap"],
-            ];
+            game.playerHands = [["4o"], ["2p"], [], ["Qo"], ["5o"], ["Ap"]];
             game.pendingChallenge = {
               challengerTeam: 0,
               challengerPlayer: 0,
@@ -323,8 +285,10 @@ jobs:
             expect(step.state.challengeNoticeAccepted).toBe(true);
           });
 
-          ''' + ts_test_marker
-          replace_once('cloudflare/test/game.test.ts', ts_test_marker, ts_tests)
+          '''
+          if text.count(marker) != 1:
+              raise SystemExit('Teste Worker: ponto de inserção não encontrado')
+          worker_tests.write_text(text.replace(marker, tests + marker, 1))
 
       - name: Configurar Flutter
         uses: subosito/flutter-action@v2
@@ -335,6 +299,7 @@ jobs:
       - name: Testar Flutter
         run: |
           flutter pub get
+          dart format --output=none --set-exit-if-changed lib/game/douradinha_game.dart test/douradinha_game_test.dart
           flutter test test/douradinha_game_test.dart
 
       - name: Configurar Node
