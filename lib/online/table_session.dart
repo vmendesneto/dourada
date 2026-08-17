@@ -50,6 +50,8 @@ class TableSession extends ChangeNotifier {
   bool _disposed = false;
   bool _presencePaused = false;
   bool _applyingRemoteState = false;
+  String? _lastSentSignalEmoji;
+  int? _lastSentSignalExpiresAt;
 
   String? tableNumber;
   String? playerToken;
@@ -318,8 +320,57 @@ class TableSession extends ChangeNotifier {
         _channel == null) {
       return;
     }
-    _channel!.sink
-        .add(jsonEncode({'type': 'state', 'gameState': game.toJson()}));
+    final gameState = game.toJson();
+    _sendPendingPlayerSignal(gameState);
+    _channel!.sink.add(jsonEncode({'type': 'state', 'gameState': gameState}));
+  }
+
+  void _sendPendingPlayerSignal(Map<String, Object?> gameState) {
+    final signals = gameState['playerSignals'];
+    if (signals is! List || seatIndex < 0 || seatIndex >= signals.length) {
+      _lastSentSignalEmoji = null;
+      _lastSentSignalExpiresAt = null;
+      return;
+    }
+    final rawSignal = signals[seatIndex];
+    if (rawSignal is! Map) {
+      _lastSentSignalEmoji = null;
+      _lastSentSignalExpiresAt = null;
+      return;
+    }
+    final signal = Map<String, dynamic>.from(rawSignal);
+    final emoji = signal['emoji'];
+    final remainingMs = signal['remainingMs'];
+    if (emoji is! String ||
+        emoji.isEmpty ||
+        remainingMs is! num ||
+        remainingMs <= 0) {
+      _lastSentSignalEmoji = null;
+      _lastSentSignalExpiresAt = null;
+      return;
+    }
+
+    final expiresAt =
+        DateTime.now().millisecondsSinceEpoch + remainingMs.toInt();
+    final sameSignal = _lastSentSignalEmoji == emoji &&
+        _lastSentSignalExpiresAt != null &&
+        (expiresAt - _lastSentSignalExpiresAt!).abs() < 40;
+    if (sameSignal) return;
+
+    _lastSentSignalEmoji = emoji;
+    _lastSentSignalExpiresAt = expiresAt;
+    _sendTableEvent('signal', {'emoji': emoji});
+  }
+
+  void _sendTableEvent(String kind, Map<String, Object?> data) {
+    if (isSpectator || !canPlayHere || _channel == null) return;
+    _channel!.sink.add(jsonEncode({
+      'type': 'tableEvent',
+      'event': {
+        'kind': kind,
+        ...data,
+      },
+    }));
   }
 
   void _applyEntry(TableEntry value) {
