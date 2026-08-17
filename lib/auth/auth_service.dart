@@ -663,9 +663,6 @@ class _AuthMenuState extends State<_AuthMenu>
               disabledForegroundColor: const Color(0xFF747775),
               side: const BorderSide(color: Color(0xFF747775)),
               padding: const EdgeInsets.symmetric(vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(6),
-              ),
               textStyle: const TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,

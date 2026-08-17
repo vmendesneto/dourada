@@ -152,6 +152,8 @@ class DouradinhaGame extends ChangeNotifier {
   static const betweenPartidasTransitionDuration = Duration(milliseconds: 3500);
   static const challengeNoticeDuration = Duration(seconds: 2);
   static const challengeAnimationDuration = Duration(milliseconds: 2780);
+  static const signalDuration = Duration(seconds: 1);
+  static const defaultSignalEmoji = '🙂';
 
   DouradinhaGame({Random? random, this.humanPlayerIndex = 0})
       : _random = random ?? Random() {
@@ -178,6 +180,8 @@ class DouradinhaGame extends ChangeNotifier {
   final List<bool> _tenDecisionMade = [true, true];
   final List<bool> _botChallengeConsideredThisTrick = [false, false];
   final List<int> _automaticTimeouts = List.filled(6, 0);
+  final List<String?> _playerSignalEmojis = List.filled(6, null);
+  final List<int> _playerSignalExpiresAt = List.filled(6, 0);
 
   int dealerIndex = 5;
   int trickLeaderIndex = 0;
@@ -405,56 +409,117 @@ class DouradinhaGame extends ChangeNotifier {
   String get teamOneLabel => teamLabel(0);
   String get teamTwoLabel => teamLabel(1);
 
-  Map<String, Object?> toJson() => {
-        'version': 1,
-        'perspectiveTeam': humanTeam,
-        'scores': scores,
-        'playerHands': [
-          for (final player in players)
-            [for (final card in player.hand) card.code],
-        ],
-        'hiddenCards': [
-          for (final player in players)
-            [for (final card in player.hiddenCards) card.code],
-        ],
-        'currentTrick': [
-          for (final play in currentTrick) _playedCardToJson(play)
-        ],
-        'playedCards': [
-          for (final play in playedCards) _playedCardToJson(play)
-        ],
-        'trickWinners': trickWinners,
-        'history': history,
-        'tenDecisionMade': _tenDecisionMade,
-        'botChallengeConsideredThisTrick': _botChallengeConsideredThisTrick,
-        'automaticTimeouts': _automaticTimeouts,
-        'dealerIndex': dealerIndex,
-        'trickLeaderIndex': trickLeaderIndex,
-        'currentPlayerIndex': currentPlayerIndex,
-        'handValue': handValue,
-        'nextTrickLeader': nextTrickLeader,
-        'matchWinner': matchWinner,
-        'lastChallengeTeam': lastChallengeTeam,
-        'lastHandWinner': lastHandWinner,
-        'lastHandPoints': lastHandPoints,
-        'lastCompletedHandNumber': lastCompletedHandNumber,
-        'lastCompletedHandWinnerTeam': lastCompletedHandWinnerTeam,
-        'awaitingNextTrick': awaitingNextTrick,
-        'challengeAttemptedThisTurn': challengeAttemptedThisTurn,
-        'phase': phase.name,
-        'pendingChallenge': pendingChallenge == null
-            ? null
-            : {
-                'challengerTeam': pendingChallenge!.challengerTeam,
-                'challengerPlayer': pendingChallenge!.challengerPlayer,
-                'targetTeam': pendingChallenge!.targetTeam,
-                'requestedValue': pendingChallenge!.requestedValue,
-                'responderPlayer': pendingChallenge!.responderPlayer,
-              },
-        'challengeNotice': challengeNotice,
-        'challengeNoticeAccepted': challengeNoticeAccepted,
-        'statusMessage': statusMessage,
-      };
+  String signalEmojiFor(int playerIndex) {
+    if (playerIndex < 0 || playerIndex >= players.length) {
+      return defaultSignalEmoji;
+    }
+    final emoji = _playerSignalEmojis[playerIndex];
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (emoji == null || _playerSignalExpiresAt[playerIndex] <= now) {
+      return defaultSignalEmoji;
+    }
+    return emoji;
+  }
+
+  Duration? get timeUntilNextSignalExpires {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    int? nextExpiry;
+    for (var index = 0; index < _playerSignalExpiresAt.length; index++) {
+      if (_playerSignalEmojis[index] == null) continue;
+      final expiry = _playerSignalExpiresAt[index];
+      if (expiry <= now) return Duration.zero;
+      if (nextExpiry == null || expiry < nextExpiry) nextExpiry = expiry;
+    }
+    if (nextExpiry == null) return null;
+    return Duration(milliseconds: nextExpiry - now);
+  }
+
+  void showHumanSignal(String emoji) {
+    showPlayerSignal(humanPlayerIndex, emoji);
+  }
+
+  void showPlayerSignal(int playerIndex, String emoji) {
+    if (playerIndex < 0 || playerIndex >= players.length || emoji.isEmpty) {
+      return;
+    }
+    _playerSignalEmojis[playerIndex] = emoji;
+    _playerSignalExpiresAt[playerIndex] =
+        DateTime.now().millisecondsSinceEpoch + signalDuration.inMilliseconds;
+    notifyListeners();
+  }
+
+  void clearExpiredPlayerSignals() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    var changed = false;
+    for (var index = 0; index < _playerSignalEmojis.length; index++) {
+      if (_playerSignalEmojis[index] == null ||
+          _playerSignalExpiresAt[index] > now) {
+        continue;
+      }
+      _playerSignalEmojis[index] = null;
+      _playerSignalExpiresAt[index] = 0;
+      changed = true;
+    }
+    if (changed) notifyListeners();
+  }
+
+  Map<String, Object?> toJson() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return {
+      'version': 1,
+      'perspectiveTeam': humanTeam,
+      'scores': scores,
+      'playerHands': [
+        for (final player in players)
+          [for (final card in player.hand) card.code],
+      ],
+      'hiddenCards': [
+        for (final player in players)
+          [for (final card in player.hiddenCards) card.code],
+      ],
+      'currentTrick': [
+        for (final play in currentTrick) _playedCardToJson(play)
+      ],
+      'playedCards': [
+        for (final play in playedCards) _playedCardToJson(play)
+      ],
+      'trickWinners': trickWinners,
+      'history': history,
+      'tenDecisionMade': _tenDecisionMade,
+      'botChallengeConsideredThisTrick': _botChallengeConsideredThisTrick,
+      'automaticTimeouts': _automaticTimeouts,
+      'playerSignals': [
+        for (var index = 0; index < players.length; index++)
+          _playerSignalToJson(index, now),
+      ],
+      'dealerIndex': dealerIndex,
+      'trickLeaderIndex': trickLeaderIndex,
+      'currentPlayerIndex': currentPlayerIndex,
+      'handValue': handValue,
+      'nextTrickLeader': nextTrickLeader,
+      'matchWinner': matchWinner,
+      'lastChallengeTeam': lastChallengeTeam,
+      'lastHandWinner': lastHandWinner,
+      'lastHandPoints': lastHandPoints,
+      'lastCompletedHandNumber': lastCompletedHandNumber,
+      'lastCompletedHandWinnerTeam': lastCompletedHandWinnerTeam,
+      'awaitingNextTrick': awaitingNextTrick,
+      'challengeAttemptedThisTurn': challengeAttemptedThisTurn,
+      'phase': phase.name,
+      'pendingChallenge': pendingChallenge == null
+          ? null
+          : {
+              'challengerTeam': pendingChallenge!.challengerTeam,
+              'challengerPlayer': pendingChallenge!.challengerPlayer,
+              'targetTeam': pendingChallenge!.targetTeam,
+              'requestedValue': pendingChallenge!.requestedValue,
+              'responderPlayer': pendingChallenge!.responderPlayer,
+            },
+      'challengeNotice': challengeNotice,
+      'challengeNoticeAccepted': challengeNoticeAccepted,
+      'statusMessage': statusMessage,
+    };
+  }
 
   /// Restaura uma partida salva. Se os dados estiverem incompletos ou forem de
   /// outra versão, mantém a nova partida criada pelo construtor.
@@ -510,6 +575,8 @@ class DouradinhaGame extends ChangeNotifier {
               .cast<bool>();
       final restoredTimeouts =
           _intList(json['automaticTimeouts'], length: players.length);
+      final restoredSignals =
+          _playerSignalList(json['playerSignals'], length: players.length);
       if (restoredTenDecisionMade.length != 2 ||
           restoredBotConsidered.length != 2) {
         return false;
@@ -554,6 +621,10 @@ class DouradinhaGame extends ChangeNotifier {
         ..clear()
         ..addAll(restoredBotConsidered);
       _automaticTimeouts.setAll(0, restoredTimeouts);
+      for (var index = 0; index < players.length; index++) {
+        _playerSignalEmojis[index] = restoredSignals[index].emoji;
+        _playerSignalExpiresAt[index] = restoredSignals[index].expiresAt;
+      }
 
       dealerIndex = json['dealerIndex'] as int;
       trickLeaderIndex = json['trickLeaderIndex'] as int;
@@ -589,6 +660,16 @@ class DouradinhaGame extends ChangeNotifier {
         if (play.hidden) 'hidden': true,
       };
 
+  Map<String, Object>? _playerSignalToJson(int playerIndex, int now) {
+    final emoji = _playerSignalEmojis[playerIndex];
+    final remainingMs = _playerSignalExpiresAt[playerIndex] - now;
+    if (emoji == null || remainingMs <= 0) return null;
+    return {
+      'emoji': emoji,
+      'remainingMs': remainingMs,
+    };
+  }
+
   static List<PlayedCard> _playedCardList(Object? value) =>
       (value as List<Object?>).map((entry) {
         final map = Map<String, dynamic>.from(entry as Map);
@@ -603,6 +684,33 @@ class DouradinhaGame extends ChangeNotifier {
     final list = (value as List<Object?>).cast<int>();
     if (list.length != length) throw const FormatException('Lista inválida.');
     return list;
+  }
+
+  static List<({String? emoji, int expiresAt})> _playerSignalList(
+    Object? value, {
+    required int length,
+  }) {
+    final empty = List<({String? emoji, int expiresAt})>.generate(
+      length,
+      (_) => (emoji: null, expiresAt: 0),
+    );
+    if (value is! List || value.length != length) return empty;
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return [
+      for (final entry in value)
+        if (entry is Map)
+          switch (Map<String, dynamic>.from(entry)) {
+            {
+              'emoji': final String emoji,
+              'remainingMs': final num remainingMs,
+            } when emoji.isNotEmpty && remainingMs > 0 =>
+              (emoji: emoji, expiresAt: now + remainingMs.toInt()),
+            _ => (emoji: null, expiresAt: 0),
+          }
+        else
+          (emoji: null, expiresAt: 0),
+    ];
   }
 
   static String _swapTeamPerspective(String message) {

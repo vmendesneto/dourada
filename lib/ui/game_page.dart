@@ -31,6 +31,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   Timer? _turnTicker;
   Timer? _challengeNoticeTimer;
   Timer? _challengeAnimationTimer;
+  Timer? _playerSignalTimer;
   Timer? _spectatorReturnTimer;
   bool _automationScheduled = false;
   bool _challengeNoticeVisible = false;
@@ -83,6 +84,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     _turnTicker?.cancel();
     _challengeNoticeTimer?.cancel();
     _challengeAnimationTimer?.cancel();
+    _playerSignalTimer?.cancel();
     _spectatorReturnTimer?.cancel();
     tableSession
       ..removeListener(_onTableSessionChanged)
@@ -113,17 +115,20 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     if (tableSession.isSpectator) {
       _syncChallengeAnimation();
       _syncChallengeNotice();
+      _syncPlayerSignalTimer();
       setState(() {});
       return;
     }
     if (_restoringGame) {
       _syncChallengeAnimation();
       _syncChallengeNotice();
+      _syncPlayerSignalTimer();
       setState(() {});
       return;
     }
     _syncChallengeAnimation();
     _syncChallengeNotice();
+    _syncPlayerSignalTimer();
     _syncTurnClock();
     setState(() {});
     _persistGame();
@@ -266,6 +271,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       if (mounted) {
         _syncChallengeAnimation();
         _syncChallengeNotice();
+        _syncPlayerSignalTimer();
         _syncTurnClock();
         setState(() {});
         _persistGame();
@@ -287,6 +293,18 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     } on Object {
       // O jogo continua funcionando caso o navegador bloqueie o armazenamento.
     }
+  }
+
+  void _syncPlayerSignalTimer() {
+    _playerSignalTimer?.cancel();
+    _playerSignalTimer = null;
+
+    final remaining = game.timeUntilNextSignalExpires;
+    if (remaining == null) return;
+    _playerSignalTimer = Timer(remaining + const Duration(milliseconds: 20), () {
+      if (!mounted) return;
+      game.clearExpiredPlayerSignals();
+    });
   }
 
   void _syncChallengeNotice() {
@@ -649,7 +667,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
               Positioned(
                 right: phone ? 6 : 18,
                 bottom: phone ? 2 : 8,
-                child: const _ManilhasButton(),
+                child: _ManilhasButton(game: game),
               ),
             if (!spectator && game.humanMustAnswerChallenge)
               Positioned.fill(
@@ -1684,6 +1702,37 @@ class _TablePlayerAvatar extends StatelessWidget {
   }
 }
 
+class _PlayerSignalBadge extends StatelessWidget {
+  const _PlayerSignalBadge({
+    required this.emoji,
+    required this.compact,
+  });
+
+  final String emoji;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Text(
+        emoji,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: compact ? 24 : 36,
+          height: 1,
+          shadows: const [
+            Shadow(
+              color: Colors.black54,
+              blurRadius: 5,
+              offset: Offset(0, 2),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _TurnAvatarHighlight extends StatelessWidget {
   const _TurnAvatarHighlight({
     super.key,
@@ -1761,101 +1810,123 @@ class _BotSeat extends StatelessWidget {
         player.team == 0 ? const Color(0xFF5CB6FF) : const Color(0xFFFFC857);
     final reveal =
         game.canHumanSeePartnerCardsInTenHand && player.team == game.humanTeam;
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 250),
-      padding: EdgeInsets.symmetric(
-        horizontal: compact ? 4 : 8,
-        vertical: compact ? 2 : 6,
-      ),
-      decoration: BoxDecoration(
-        color:
-            active ? teamColor.withValues(alpha: .22) : const Color(0xB8052D22),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-            color: active ? teamColor : Colors.white12, width: active ? 2 : 1),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Column(
+    final signalEmoji = game.signalEmojiFor(playerIndex);
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 4 : 8,
+            vertical: compact ? 2 : 6,
+          ),
+          decoration: BoxDecoration(
+            color: active
+                ? teamColor.withValues(alpha: .22)
+                : const Color(0xB8052D22),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: active ? teamColor : Colors.white12,
+              width: active ? 2 : 1,
+            ),
+          ),
+          child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _TablePlayerAvatar(
-                key: ValueKey('avatar-jogador-$playerIndex'),
-                isBot: !player.isHuman,
-                photoUrl: player.photoUrl,
-                color: teamColor,
-                radius: compact ? 14 : 22,
-              ),
-              const SizedBox(height: 2),
-              Row(
+              Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  ConstrainedBox(
-                    constraints: BoxConstraints(maxWidth: compact ? 66 : 90),
-                    child: Text(
-                      player.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: teamColor,
-                        fontWeight: FontWeight.bold,
-                        fontSize: compact ? 10 : 12,
-                      ),
-                    ),
+                  _TablePlayerAvatar(
+                    key: ValueKey('avatar-jogador-$playerIndex'),
+                    isBot: !player.isHuman,
+                    photoUrl: player.photoUrl,
+                    color: teamColor,
+                    radius: compact ? 14 : 22,
                   ),
-                  if (game.footIndex == playerIndex)
-                    const Padding(
-                      padding: EdgeInsets.only(left: 5),
-                      child: Text('PÉ',
-                          style: TextStyle(color: Colors.white60, fontSize: 9)),
-                    ),
+                  const SizedBox(height: 2),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ConstrainedBox(
+                        constraints:
+                            BoxConstraints(maxWidth: compact ? 66 : 90),
+                        child: Text(
+                          player.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: teamColor,
+                            fontWeight: FontWeight.bold,
+                            fontSize: compact ? 10 : 12,
+                          ),
+                        ),
+                      ),
+                      if (game.footIndex == playerIndex)
+                        const Padding(
+                          padding: EdgeInsets.only(left: 5),
+                          child: Text(
+                            'PÉ',
+                            style:
+                                TextStyle(color: Colors.white60, fontSize: 9),
+                          ),
+                        ),
+                    ],
+                  ),
                 ],
               ),
+              if (clockActive) ...[
+                const SizedBox(height: 4),
+                _TurnProgress(
+                  progress: turnProgress,
+                  secondsLeft: secondsLeft,
+                  width: compact ? 66 : 94,
+                ),
+              ],
+              if (spectatorMode && hiddenCardCount > 0) ...[
+                const SizedBox(height: 4),
+                Row(
+                  key: ValueKey('cartas-espectador-$playerIndex'),
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (var index = 0; index < hiddenCardCount; index++)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 1),
+                        child: _CardBack(
+                          width: compact ? 18 : 22,
+                          height: compact ? 26 : 32,
+                        ),
+                      ),
+                  ],
+                ),
+              ] else if (!spectatorMode && (!compact || reveal)) ...[
+                const SizedBox(height: 4),
+                Row(
+                  key: reveal ? ValueKey('cartas-parceiro-$playerIndex') : null,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final card in player.hand)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 1),
+                        child: reveal
+                            ? _CardFace(card: card, width: 28, height: 40)
+                            : const _CardBack(width: 22, height: 32),
+                      ),
+                  ],
+                ),
+              ],
             ],
           ),
-          if (clockActive) ...[
-            const SizedBox(height: 4),
-            _TurnProgress(
-              progress: turnProgress,
-              secondsLeft: secondsLeft,
-              width: compact ? 66 : 94,
-            ),
-          ],
-          if (spectatorMode && hiddenCardCount > 0) ...[
-            const SizedBox(height: 4),
-            Row(
-              key: ValueKey('cartas-espectador-$playerIndex'),
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (var index = 0; index < hiddenCardCount; index++)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 1),
-                    child: _CardBack(
-                      width: compact ? 18 : 22,
-                      height: compact ? 26 : 32,
-                    ),
-                  ),
-              ],
-            ),
-          ] else if (!spectatorMode && (!compact || reveal)) ...[
-            const SizedBox(height: 4),
-            Row(
-              key: reveal ? ValueKey('cartas-parceiro-$playerIndex') : null,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (final card in player.hand)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 1),
-                    child: reveal
-                        ? _CardFace(card: card, width: 28, height: 40)
-                        : const _CardBack(width: 22, height: 32),
-                  ),
-              ],
-            ),
-          ],
-        ],
-      ),
+        ),
+        Positioned(
+          right: compact ? -10 : -14,
+          bottom: compact ? -12 : -16,
+          child: _PlayerSignalBadge(
+            emoji: signalEmoji,
+            compact: compact,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -3159,7 +3230,9 @@ class _FootLegend extends StatelessWidget {
 }
 
 class _ManilhasButton extends StatelessWidget {
-  const _ManilhasButton();
+  const _ManilhasButton({required this.game});
+
+  final DouradinhaGame game;
 
   static const cardsFromWeakestToStrongest = [
     PlayingCard('7', 'o'),
@@ -3171,6 +3244,18 @@ class _ManilhasButton extends StatelessWidget {
     PlayingCard('2', 'p'),
     PlayingCard('J', 'p'),
     PlayingCard('Q', 'o'),
+  ];
+
+  static const signalEmojisFromWeakestToStrongest = [
+    '😶',
+    '😉',
+    '😮',
+    '😎',
+    '🤨',
+    '😬',
+    '😏',
+    '😡',
+    '🤩',
   ];
 
   @override
@@ -3236,6 +3321,8 @@ class _ManilhasButton extends StatelessWidget {
                       separatorBuilder: (_, __) => const SizedBox(height: 5),
                       itemBuilder: (context, index) {
                         final card = cardsFromWeakestToStrongest[index];
+                        final signalEmoji =
+                            signalEmojisFromWeakestToStrongest[index];
                         final isStrongest =
                             index == cardsFromWeakestToStrongest.length - 1;
                         return Container(
@@ -3254,6 +3341,15 @@ class _ManilhasButton extends StatelessWidget {
                           ),
                           child: Row(
                             children: [
+                              _ManilhaSignalButton(
+                                emoji: signalEmoji,
+                                card: card,
+                                onTap: () {
+                                  game.showHumanSignal(signalEmoji);
+                                  Navigator.of(context).pop();
+                                },
+                              ),
+                              const SizedBox(width: 8),
                               SizedBox(
                                 width: 28,
                                 child: Text(
@@ -3314,6 +3410,42 @@ class _ManilhasButton extends StatelessWidget {
         ),
       ),
       icon: const Icon(Icons.auto_awesome, size: 18),
+    );
+  }
+}
+
+class _ManilhaSignalButton extends StatelessWidget {
+  const _ManilhaSignalButton({
+    required this.emoji,
+    required this.card,
+    required this.onTap,
+  });
+
+  final String emoji;
+  final PlayingCard card;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Enviar sinal: ${card.displayName}',
+      child: Material(
+        color: const Color(0xEE052D22),
+        shape: const CircleBorder(),
+        child: InkWell(
+          onTap: onTap,
+          customBorder: const CircleBorder(),
+          child: SizedBox.square(
+            dimension: 34,
+            child: Center(
+              child: Text(
+                emoji,
+                style: const TextStyle(fontSize: 18, height: 1),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
