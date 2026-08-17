@@ -19,276 +19,8 @@ jobs:
         with:
           ref: fix/bot-fold-disputa-perdida
 
-      - name: Aplicar correção e testes
-        shell: python
-        run: |
-          from pathlib import Path
-          import re
-
-          def regex_replace(path, pattern, replacement):
-              file = Path(path)
-              text = file.read_text()
-              updated, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
-              if count != 1:
-                  raise SystemExit(f"{path}: trecho não encontrado para alteração")
-              file.write_text(updated)
-
-          dart_lock = '''  bool _currentTrickIsLockedAgainst(int team) {
-            final visibleTrick = currentTrick.where((play) => !play.hidden).toList();
-            if (visibleTrick.isEmpty) return false;
-
-            final playersWhoAlreadyPlayed =
-                currentTrick.map((play) => play.playerIndex).toSet();
-            final remainingTeamCards = <({int playerIndex, PlayingCard card})>[
-              for (final player in players)
-                if (player.team == team &&
-                    !playersWhoAlreadyPlayed.contains(player.id))
-                  for (final card in player.hand)
-                    (playerIndex: player.id, card: card),
-            ];
-
-            bool disputeIsLostWith(List<PlayedCard> trick) {
-              final provisionalWinner = resolveTrickWinner(trick, players)?.team;
-              final disputeWinner = resolveDisputeWinner([
-                ...trickWinners,
-                provisionalWinner,
-              ]);
-              return disputeWinner != null && disputeWinner != team;
-            }
-
-            if (remainingTeamCards.isEmpty) {
-              return disputeIsLostWith(currentTrick);
-            }
-
-            // Derrota matemática: nenhuma carta que este trio ainda pode
-            // realmente jogar evita que a disputa seja encerrada contra ele.
-            for (final candidate in remainingTeamCards) {
-              final simulatedTrick = [
-                ...currentTrick,
-                PlayedCard(
-                  playerIndex: candidate.playerIndex,
-                  card: candidate.card,
-                ),
-              ];
-              if (!disputeIsLostWith(simulatedTrick)) return false;
-            }
-            return true;
-          }'''
-          regex_replace(
-              'lib/game/douradinha_game.dart',
-              r'  bool _currentTrickIsLockedAgainst\(int team\) \{.*?\n  \}\n\n  void requestHumanChallenge\(\)',
-              dart_lock + '\n\n  void requestHumanChallenge()',
-          )
-
-          dart = Path('lib/game/douradinha_game.dart')
-          text = dart.read_text()
-          marker = '    _botChallengeConsideredThisTrick[botTeam] = true;\n'
-          addition = '''    _botChallengeConsideredThisTrick[botTeam] = true;
-
-            if (_currentTrickIsLockedAgainst(botTeam)) {
-              const message = 'O trio adversário conversou e correu do desafio.';
-              challengeNotice = message;
-              challengeNoticeAccepted = false;
-              _finishHand(
-                challenge.challengerTeam,
-                points: handValue,
-                reason: message,
-              );
-              return;
-            }
-          '''
-          if text.count(marker) != 1:
-              raise SystemExit('Dart: ponto de decisão do desafio não encontrado')
-          dart.write_text(text.replace(marker, addition, 1))
-
-          dart_tests = Path('test/douradinha_game_test.dart')
-          text = dart_tests.read_text()
-          marker = "    test('trio de robôs conversa e corre quando todos estão fracos', () {\n"
-          tests = '''    test('trio de robôs corre quando a disputa já está matematicamente perdida', () {
-            final game = DouradinhaGame(random: Random(43));
-            game.currentPlayerIndex = game.humanPlayerIndex;
-            game.trickLeaderIndex = 2;
-            game.trickWinners.add(0);
-            const leadingPlay = PlayedCard(
-              playerIndex: 2,
-              card: PlayingCard('J', 'p'),
-            );
-            game.currentTrick.add(leadingPlay);
-            game.playedCards.add(leadingPlay);
-            final botCards = <int, List<PlayingCard>>{
-              1: const [PlayingCard('2', 'p')],
-              3: const [PlayingCard('A', 'p')],
-              5: const [PlayingCard('5', 'p')],
-            };
-            for (final entry in botCards.entries) {
-              game.players[entry.key].hand
-                ..clear()
-                ..addAll(entry.value);
-            }
-
-            game.requestHumanChallenge();
-            game.resolveBotChallenge();
-
-            expect(game.phase, MatchPhase.handFinished);
-            expect(game.lastHandWinner, 0);
-            expect(game.pendingChallenge, isNull);
-            expect(game.challengeNoticeAccepted, isFalse);
-            expect(game.challengeNotice, contains('correu'));
-          });
-
-          test('trio não é forçado a correr se ainda consegue superar a mesa', () {
-            final game = DouradinhaGame(random: Random(47));
-            game.currentPlayerIndex = game.humanPlayerIndex;
-            game.trickLeaderIndex = 2;
-            game.trickWinners.add(0);
-            const leadingPlay = PlayedCard(
-              playerIndex: 2,
-              card: PlayingCard('J', 'p'),
-            );
-            game.currentTrick.add(leadingPlay);
-            game.playedCards.add(leadingPlay);
-            final botCards = <int, List<PlayingCard>>{
-              1: const [PlayingCard('2', 'p')],
-              3: const [PlayingCard('Q', 'o')],
-              5: const [PlayingCard('A', 'p')],
-            };
-            for (final entry in botCards.entries) {
-              game.players[entry.key].hand
-                ..clear()
-                ..addAll(entry.value);
-            }
-
-            game.requestHumanChallenge();
-            game.resolveBotChallenge();
-
-            expect(game.phase, MatchPhase.playing);
-            expect(game.lastHandWinner, isNull);
-            expect(game.scores, [0, 0]);
-          });
-
-          '''
-          if text.count(marker) != 1:
-              raise SystemExit('Teste Dart: ponto de inserção não encontrado')
-          dart_tests.write_text(text.replace(marker, tests + marker, 1))
-
-          worker = Path('cloudflare/src/game.ts')
-          text = worker.read_text()
-          old = '''  if (game.pendingChallenge !== null) {
-            acceptPendingChallenge(game);
-            return { state: game, nextDelayMs: 650 };
-          }
-          '''
-          new = '''  if (game.pendingChallenge !== null) {
-            if (
-              currentTrickIsLockedAgainst(game, game.pendingChallenge.targetTeam)
-            ) {
-              foldPendingChallenge(game);
-            } else {
-              acceptPendingChallenge(game);
-            }
-            return { state: game, nextDelayMs: 650 };
-          }
-          '''
-          if text.count(old) != 1:
-              raise SystemExit('Worker: resposta automática ao desafio não encontrada')
-          text = text.replace(old, new, 1)
-          marker = 'function chooseBotCard(game: GameState, playerIndex: number): string | null {\n'
-          helper = '''export function currentTrickIsLockedAgainst(
-            game: GameState,
-            team: number,
-          ): boolean {
-            const visibleTrick = game.currentTrick.filter((play) => !play.hidden);
-            if (visibleTrick.length === 0) return false;
-
-            const playersWhoAlreadyPlayed = new Set(
-              game.currentTrick.map((play) => play.playerIndex),
-            );
-            const remainingTeamCards = game.playerHands.flatMap((hand, playerIndex) =>
-              playerIndex % 2 === team && !playersWhoAlreadyPlayed.has(playerIndex)
-                ? hand.map((card) => ({ playerIndex, card }))
-                : [],
-            );
-
-            const disputeIsLostWith = (trick: PlayedCardState[]): boolean => {
-              const provisionalWinner = resolveTrickWinner(trick);
-              const provisionalTeam =
-                provisionalWinner === null ? null : provisionalWinner % 2;
-              const disputeWinner = resolveDisputeWinner([
-                ...game.trickWinners,
-                provisionalTeam,
-              ]);
-              return disputeWinner !== null && disputeWinner !== team;
-            };
-
-            if (remainingTeamCards.length === 0) {
-              return disputeIsLostWith(game.currentTrick);
-            }
-
-            return remainingTeamCards.every(({ playerIndex, card }) =>
-              disputeIsLostWith([
-                ...game.currentTrick,
-                { playerIndex, card },
-              ]),
-            );
-          }
-
-          '''
-          if text.count(marker) != 1:
-              raise SystemExit('Worker: ponto de inserção da regra não encontrado')
-          worker.write_text(text.replace(marker, helper + marker, 1))
-
-          worker_tests = Path('cloudflare/test/game.test.ts')
-          text = worker_tests.read_text()
-          marker = '  it("aplica no servidor aceitar, correr e aumentar", () => {\n'
-          tests = '''  it("robô substituto corre quando a disputa já está matematicamente perdida", () => {
-            const game = fixture();
-            game.trickWinners = [0];
-            game.currentTrick = [{ playerIndex: 2, card: "Jp" }];
-            game.playedCards = [...game.currentTrick];
-            game.playerHands = [["4o"], ["2p"], [], ["Ap"], ["5o"], ["5p"]];
-            game.pendingChallenge = {
-              challengerTeam: 0,
-              challengerPlayer: 0,
-              targetTeam: 1,
-              requestedValue: 2,
-              responderPlayer: 1,
-            };
-
-            const step = advanceBot(game);
-
-            expect(step.state.phase).toBe("handFinished");
-            expect(step.state.lastHandWinner).toBe(0);
-            expect(step.state.pendingChallenge).toBeNull();
-            expect(step.state.challengeNoticeAccepted).toBe(false);
-            expect(step.state.challengeNotice).toContain("correram");
-          });
-
-          it("robô substituto pode aceitar quando o trio ainda consegue superar a mesa", () => {
-            const game = fixture();
-            game.trickWinners = [0];
-            game.currentTrick = [{ playerIndex: 2, card: "Jp" }];
-            game.playedCards = [...game.currentTrick];
-            game.playerHands = [["4o"], ["2p"], [], ["Qo"], ["5o"], ["Ap"]];
-            game.pendingChallenge = {
-              challengerTeam: 0,
-              challengerPlayer: 0,
-              targetTeam: 1,
-              requestedValue: 2,
-              responderPlayer: 1,
-            };
-
-            const step = advanceBot(game);
-
-            expect(step.state.phase).toBe("playing");
-            expect(step.state.handValue).toBe(2);
-            expect(step.state.pendingChallenge).toBeNull();
-            expect(step.state.challengeNoticeAccepted).toBe(true);
-          });
-
-          '''
-          if text.count(marker) != 1:
-              raise SystemExit('Teste Worker: ponto de inserção não encontrado')
-          worker_tests.write_text(text.replace(marker, tests + marker, 1))
+      - name: Aplicar correção e testes de regressão
+        run: python .github/scripts/apply_bot_forced_fold_fix.py
 
       - name: Configurar Flutter
         uses: subosito/flutter-action@v2
@@ -296,10 +28,10 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Testar Flutter
+      - name: Validar Flutter
         run: |
           flutter pub get
-          dart format --output=none --set-exit-if-changed lib/game/douradinha_game.dart test/douradinha_game_test.dart
+          dart format lib/game/douradinha_game.dart test/douradinha_game_test.dart
           flutter test test/douradinha_game_test.dart
 
       - name: Configurar Node
@@ -309,17 +41,18 @@ jobs:
           cache: npm
           cache-dependency-path: cloudflare/package-lock.json
 
-      - name: Testar Worker
+      - name: Validar Worker
         working-directory: cloudflare
         run: |
           npm ci
           npm run check
 
-      - name: Salvar correção na branch
+      - name: Salvar correção validada na branch
         run: |
           rm .github/workflows/apply-bot-forced-fold-fix.yml
+          rm .github/scripts/apply_bot_forced_fold_fix.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add lib/game/douradinha_game.dart test/douradinha_game_test.dart cloudflare/src/game.ts cloudflare/test/game.test.ts .github/workflows/apply-bot-forced-fold-fix.yml
+          git add -A
           git commit -m "faz robos correrem de disputa ja perdida"
           git push origin HEAD:fix/bot-fold-disputa-perdida
