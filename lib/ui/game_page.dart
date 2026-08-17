@@ -7,6 +7,7 @@ import 'package:dourada/game/douradinha_game.dart';
 import 'package:dourada/online/lobby_service.dart';
 import 'package:dourada/online/table_session.dart';
 import 'package:dourada/platform/fullscreen.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -22,10 +23,43 @@ class GamePage extends StatefulWidget {
 
 class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   static const _savedGameKey = 'douradinha_partida_em_andamento_v1';
+  static const _challengeCallSounds = <int, List<String>>{
+    2: [
+      'sons/truco/truco.mp3',
+      'sons/truco/truco_ladrao.mp3',
+      'sons/truco/truco_rato.mp3',
+    ],
+    3: [
+      'sons/seis/seis.mp3',
+      'sons/seis/seis_e_seis.mp3',
+      'sons/seis/seis_vale.mp3',
+    ],
+    4: [
+      'sons/nove/nove.mp3',
+      'sons/nove/nove_entao.mp3',
+    ],
+    6: [
+      'sons/doze/doze_queda.mp3',
+      'sons/doze/doze_rato.mp3',
+      'sons/doze/doze_vale.mp3',
+    ],
+  };
+  static const _acceptedChallengeSounds = <String>[
+    'sons/aceitar/aceito.mp3',
+    'sons/aceitar/cafe.mp3',
+    'sons/aceitar/joga.mp3',
+  ];
+  static const _foldedChallengeSounds = <String>[
+    'sons/correr/quero_nao.mp3',
+    'sons/correr/to_fora.mp3',
+    'sons/correr/vazei.mp3',
+  ];
 
   late final DouradinhaGame game;
   late final TableSession tableSession;
+  late final AudioPlayer _challengeAudioPlayer;
   late final Future<SharedPreferences> _preferences;
+  final math.Random _challengeSoundRandom = math.Random();
   Future<void> _saveQueue = Future.value();
   Timer? _automationTimer;
   Timer? _turnTicker;
@@ -73,6 +107,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       ..addListener(_onGameChanged);
     tableSession = TableSession(entry: widget.entry)
       ..addListener(_onTableSessionChanged);
+    _challengeAudioPlayer = AudioPlayer();
     _preferences = SharedPreferences.getInstance();
     unawaited(_restoreSavedGame());
   }
@@ -89,6 +124,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     tableSession
       ..removeListener(_onTableSessionChanged)
       ..dispose();
+    unawaited(
+      _challengeAudioPlayer.dispose().catchError((Object _) {}),
+    );
     game
       ..removeListener(_onGameChanged)
       ..dispose();
@@ -301,10 +339,22 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
     final remaining = game.timeUntilNextSignalExpires;
     if (remaining == null) return;
-    _playerSignalTimer = Timer(remaining + const Duration(milliseconds: 20), () {
+    _playerSignalTimer =
+        Timer(remaining + const Duration(milliseconds: 20), () {
       if (!mounted) return;
       game.clearExpiredPlayerSignals();
     });
+  }
+
+  Future<void> _playChallengeSound(List<String> sounds) async {
+    if (sounds.isEmpty) return;
+    final asset = sounds[_challengeSoundRandom.nextInt(sounds.length)];
+    try {
+      await _challengeAudioPlayer.stop();
+      await _challengeAudioPlayer.play(AssetSource(asset));
+    } on Object {
+      // Som é decorativo e nunca pode bloquear a partida.
+    }
   }
 
   void _syncChallengeNotice() {
@@ -335,6 +385,13 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     }
     _challengeNoticeStarted = true;
     _challengeNoticeVisible = true;
+    unawaited(
+      _playChallengeSound(
+        game.challengeNoticeAccepted
+            ? _acceptedChallengeSounds
+            : _foldedChallengeSounds,
+      ),
+    );
     _challengeNoticeTimer = Timer(
       DouradinhaGame.challengeNoticeDuration,
       () {
@@ -386,6 +443,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       return;
     }
     _activeChallengeAnimation = _challengeAnimationQueue.removeAt(0);
+    final sounds =
+        _challengeCallSounds[_activeChallengeAnimation!.requestedValue];
+    if (sounds != null) unawaited(_playChallengeSound(sounds));
     _challengeAnimationTimer = Timer(
       DouradinhaGame.challengeAnimationDuration,
       () {
@@ -1523,7 +1583,8 @@ class _SpectatorIndicator extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.visibility_rounded, color: Color(0xFF8FD3FF), size: 18),
+          const Icon(Icons.visibility_rounded,
+              color: Color(0xFF8FD3FF), size: 18),
           const SizedBox(width: 3),
           Text(
             '$count',
