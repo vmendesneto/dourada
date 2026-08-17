@@ -231,7 +231,13 @@ export function advanceBot(state: GameState): BotStep {
   }
 
   if (game.pendingChallenge !== null) {
-    acceptPendingChallenge(game);
+    if (
+      currentTrickIsLockedAgainst(game, game.pendingChallenge.targetTeam)
+    ) {
+      foldPendingChallenge(game);
+    } else {
+      acceptPendingChallenge(game);
+    }
     return { state: game, nextDelayMs: 650 };
   }
 
@@ -342,6 +348,45 @@ export function raisePendingChallenge(
     `${teamAction(game, raisingTeam, "pedimos", "pediram")} ${challengeLabelForPoints(requestedValue)}`,
   );
   return true;
+}
+
+export function currentTrickIsLockedAgainst(
+  game: GameState,
+  team: number,
+): boolean {
+  const visibleTrick = game.currentTrick.filter((play) => !play.hidden);
+  if (visibleTrick.length === 0) return false;
+
+  const playersWhoAlreadyPlayed = new Set(
+    game.currentTrick.map((play) => play.playerIndex),
+  );
+  const remainingTeamCards = game.playerHands.flatMap((hand, playerIndex) =>
+    playerIndex % 2 === team && !playersWhoAlreadyPlayed.has(playerIndex)
+      ? hand.map((card) => ({ playerIndex, card }))
+      : [],
+  );
+
+  const disputeIsLostWith = (trick: PlayedCardState[]): boolean => {
+    const provisionalWinner = resolveTrickWinner(trick);
+    const provisionalTeam =
+      provisionalWinner === null ? null : provisionalWinner % 2;
+    const disputeWinner = resolveDisputeWinner([
+      ...game.trickWinners,
+      provisionalTeam,
+    ]);
+    return disputeWinner !== null && disputeWinner !== team;
+  };
+
+  if (remainingTeamCards.length === 0) {
+    return disputeIsLostWith(game.currentTrick);
+  }
+
+  return remainingTeamCards.every(({ playerIndex, card }) =>
+    disputeIsLostWith([
+      ...game.currentTrick,
+      { playerIndex, card },
+    ]),
+  );
 }
 
 function chooseBotCard(game: GameState, playerIndex: number): string | null {

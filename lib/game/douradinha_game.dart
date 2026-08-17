@@ -480,9 +480,7 @@ class DouradinhaGame extends ChangeNotifier {
       'currentTrick': [
         for (final play in currentTrick) _playedCardToJson(play)
       ],
-      'playedCards': [
-        for (final play in playedCards) _playedCardToJson(play)
-      ],
+      'playedCards': [for (final play in playedCards) _playedCardToJson(play)],
       'trickWinners': trickWinners,
       'history': history,
       'tenDecisionMade': _tenDecisionMade,
@@ -704,7 +702,8 @@ class DouradinhaGame extends ChangeNotifier {
             {
               'emoji': final String emoji,
               'remainingMs': final num remainingMs,
-            } when emoji.isNotEmpty && remainingMs > 0 =>
+            }
+                when emoji.isNotEmpty && remainingMs > 0 =>
               (emoji: emoji, expiresAt: now + remainingMs.toInt()),
             _ => (emoji: null, expiresAt: 0),
           }
@@ -1114,29 +1113,41 @@ class DouradinhaGame extends ChangeNotifier {
   bool _currentTrickIsLockedAgainst(int team) {
     final visibleTrick = currentTrick.where((play) => !play.hidden).toList();
     if (visibleTrick.isEmpty) return false;
-    final topStrength =
-        visibleTrick.map((play) => play.card.strength).reduce(max);
-    final publicCodes = <String>{
-      ...playedCards
-          .where((play) => !play.hidden)
-          .map((play) => play.card.code),
-      ...visibleTrick.map((play) => play.card.code),
-    };
-    final aStrongerCardCanStillAppear = PlayingCard.fullDeck().any(
-      (card) => !publicCodes.contains(card.code) && card.strength > topStrength,
-    );
-    if (aStrongerCardCanStillAppear) return false;
 
-    final topTeams = visibleTrick
-        .where((play) => play.card.strength == topStrength)
-        .map((play) => players[play.playerIndex].team)
-        .toSet();
-    final provisionalWinner = topTeams.length == 1 ? topTeams.single : null;
-    final disputeWinner = resolveDisputeWinner([
-      ...trickWinners,
-      provisionalWinner,
-    ]);
-    return disputeWinner != null && disputeWinner != team;
+    final playersWhoAlreadyPlayed =
+        currentTrick.map((play) => play.playerIndex).toSet();
+    final remainingTeamCards = <({int playerIndex, PlayingCard card})>[
+      for (final player in players)
+        if (player.team == team && !playersWhoAlreadyPlayed.contains(player.id))
+          for (final card in player.hand) (playerIndex: player.id, card: card),
+    ];
+
+    bool disputeIsLostWith(List<PlayedCard> trick) {
+      final provisionalWinner = resolveTrickWinner(trick, players)?.team;
+      final disputeWinner = resolveDisputeWinner([
+        ...trickWinners,
+        provisionalWinner,
+      ]);
+      return disputeWinner != null && disputeWinner != team;
+    }
+
+    if (remainingTeamCards.isEmpty) {
+      return disputeIsLostWith(currentTrick);
+    }
+
+    // Só é derrota matemática quando nenhuma carta que este trio ainda pode
+    // realmente jogar evita que a disputa seja encerrada contra ele.
+    for (final candidate in remainingTeamCards) {
+      final simulatedTrick = [
+        ...currentTrick,
+        PlayedCard(
+          playerIndex: candidate.playerIndex,
+          card: candidate.card,
+        ),
+      ];
+      if (!disputeIsLostWith(simulatedTrick)) return false;
+    }
+    return true;
   }
 
   void requestHumanChallenge() {
@@ -1205,6 +1216,18 @@ class DouradinhaGame extends ChangeNotifier {
     if (challenge == null || challenge.targetTeam == humanTeam) return;
     final botTeam = 1 - humanTeam;
     _botChallengeConsideredThisTrick[botTeam] = true;
+
+    if (_currentTrickIsLockedAgainst(botTeam)) {
+      const message = 'O trio adversário conversou e correu do desafio.';
+      challengeNotice = message;
+      challengeNoticeAccepted = false;
+      _finishHand(
+        challenge.challengerTeam,
+        points: handValue,
+        reason: message,
+      );
+      return;
+    }
     final foldingLosesMatch =
         scores[challenge.challengerTeam] + scorePointsForHandValue(handValue) >=
             12;

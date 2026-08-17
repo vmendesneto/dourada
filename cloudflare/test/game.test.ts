@@ -249,6 +249,51 @@ describe("motor do robô substituto", () => {
     );
   });
 
+  it("robô substituto corre quando a disputa já está matematicamente perdida", () => {
+    const game = fixture();
+    game.trickWinners = [0];
+    game.currentTrick = [{ playerIndex: 2, card: "Jp" }];
+    game.playedCards = [...game.currentTrick];
+    game.playerHands = [["4o"], ["2p"], [], ["Ap"], ["5o"], ["5p"]];
+    game.pendingChallenge = {
+      challengerTeam: 0,
+      challengerPlayer: 0,
+      targetTeam: 1,
+      requestedValue: 2,
+      responderPlayer: 1,
+    };
+
+    const step = advanceBot(game);
+
+    expect(step.state.phase).toBe("handFinished");
+    expect(step.state.lastHandWinner).toBe(0);
+    expect(step.state.pendingChallenge).toBeNull();
+    expect(step.state.challengeNoticeAccepted).toBe(false);
+    expect(step.state.challengeNotice).toContain("correram");
+  });
+
+  it("robô substituto pode aceitar quando o trio ainda consegue superar a mesa", () => {
+    const game = fixture();
+    game.trickWinners = [0];
+    game.currentTrick = [{ playerIndex: 2, card: "Jp" }];
+    game.playedCards = [...game.currentTrick];
+    game.playerHands = [["4o"], ["2p"], [], ["Qo"], ["5o"], ["Ap"]];
+    game.pendingChallenge = {
+      challengerTeam: 0,
+      challengerPlayer: 0,
+      targetTeam: 1,
+      requestedValue: 2,
+      responderPlayer: 1,
+    };
+
+    const step = advanceBot(game);
+
+    expect(step.state.phase).toBe("playing");
+    expect(step.state.handValue).toBe(2);
+    expect(step.state.pendingChallenge).toBeNull();
+    expect(step.state.challengeNoticeAccepted).toBe(true);
+  });
+
   it("aplica no servidor aceitar, correr e aumentar", () => {
     const now = 1_000;
     const challenged = fixture();

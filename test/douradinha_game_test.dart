@@ -656,6 +656,69 @@ void main() {
       expect(game.currentTrick, hasLength(2));
     });
 
+    test('trio de robôs corre quando a disputa já está matematicamente perdida',
+        () {
+      final game = DouradinhaGame(random: Random(43));
+      game.currentPlayerIndex = game.humanPlayerIndex;
+      game.trickLeaderIndex = 2;
+      game.trickWinners.add(0);
+      const leadingPlay = PlayedCard(
+        playerIndex: 2,
+        card: PlayingCard('J', 'p'),
+      );
+      game.currentTrick.add(leadingPlay);
+      game.playedCards.add(leadingPlay);
+      final botCards = <int, List<PlayingCard>>{
+        1: const [PlayingCard('2', 'p')],
+        3: const [PlayingCard('A', 'p')],
+        5: const [PlayingCard('5', 'p')],
+      };
+      for (final entry in botCards.entries) {
+        game.players[entry.key].hand
+          ..clear()
+          ..addAll(entry.value);
+      }
+
+      game.requestHumanChallenge();
+      game.resolveBotChallenge();
+
+      expect(game.phase, MatchPhase.handFinished);
+      expect(game.lastHandWinner, 0);
+      expect(game.pendingChallenge, isNull);
+      expect(game.challengeNoticeAccepted, isFalse);
+      expect(game.challengeNotice, contains('correu'));
+    });
+
+    test('trio não é forçado a correr se ainda consegue superar a mesa', () {
+      final game = DouradinhaGame(random: Random(47));
+      game.currentPlayerIndex = game.humanPlayerIndex;
+      game.trickLeaderIndex = 2;
+      game.trickWinners.add(0);
+      const leadingPlay = PlayedCard(
+        playerIndex: 2,
+        card: PlayingCard('J', 'p'),
+      );
+      game.currentTrick.add(leadingPlay);
+      game.playedCards.add(leadingPlay);
+      final botCards = <int, List<PlayingCard>>{
+        1: const [PlayingCard('2', 'p')],
+        3: const [PlayingCard('Q', 'o')],
+        5: const [PlayingCard('A', 'p')],
+      };
+      for (final entry in botCards.entries) {
+        game.players[entry.key].hand
+          ..clear()
+          ..addAll(entry.value);
+      }
+
+      game.requestHumanChallenge();
+      game.resolveBotChallenge();
+
+      expect(game.phase, MatchPhase.playing);
+      expect(game.lastHandWinner, isNull);
+      expect(game.scores, [0, 0]);
+    });
+
     test('trio de robôs conversa e corre quando todos estão fracos', () {
       final game = DouradinhaGame(random: Random(29));
       game.currentPlayerIndex = game.humanPlayerIndex;
