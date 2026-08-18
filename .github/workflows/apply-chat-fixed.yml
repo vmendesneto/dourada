@@ -47,17 +47,17 @@ jobs:
           section = text[start:end]
           section = section.replace(
               "    final color = accepted ? const Color(0xFF63E6A5) : const Color(0xFFFFC857);\n    return ColoredBox(",
-              "    final color = accepted ? const Color(0xFF63E6A5) : const Color(0xFFFFC857);\n    final phone = MediaQuery.sizeOf(context).width < 600;\n    return ColoredBox(",
+              "    final color = accepted ? const Color(0xFF63E6A5) : const Color(0xFFFFC857);\n    final compactNotice = MediaQuery.sizeOf(context).height < 700;\n    return ColoredBox(",
               1,
           )
           section = section.replace(
               'padding: const EdgeInsets.all(20),',
-              'padding: EdgeInsets.all(phone ? 10 : 20),',
+              'padding: EdgeInsets.all(compactNotice ? 10 : 20),',
               1,
           )
           section = section.replace(
               'width: 210,\n                    height: 210,',
-              'width: phone ? 150 : 210,\n                    height: phone ? 150 : 210,',
+              'width: compactNotice ? 150 : 210,\n                    height: compactNotice ? 150 : 210,',
               1,
           )
           text = text[:start] + section + text[end:]
