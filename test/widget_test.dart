@@ -325,6 +325,39 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('botão do header alterna e persiste o som', (tester) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues({});
+
+    await tester.pumpWidget(
+      DouradinhaApp(authService: FakeAuthService(signedIn: true)),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
+    await tester.pumpAndSettle();
+
+    final soundButton = find.byKey(const ValueKey('alternar-som'));
+    expect(soundButton, findsOneWidget);
+    expect(find.byKey(const ValueKey('som-desativado-traco')), findsNothing);
+
+    await tester.tap(soundButton);
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.byKey(const ValueKey('som-desativado-traco')), findsOneWidget);
+    final preferences = await SharedPreferences.getInstance();
+    expect(preferences.getBool('douradinha_som_ativado_v1'), isFalse);
+
+    await tester.tap(soundButton);
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.byKey(const ValueKey('som-desativado-traco')), findsNothing);
+    expect(preferences.getBool('douradinha_som_ativado_v1'), isTrue);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets(
     'chat mostra duas mensagens e envia apenas pelo diálogo no telefone',
     (tester) async {
@@ -385,6 +418,37 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );
+
+  testWidgets('chat mostra cinco mensagens no PC', (tester) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues({});
+
+    await tester.pumpWidget(
+      DouradinhaApp(authService: FakeAuthService(signedIn: true)),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
+    await tester.pumpAndSettle();
+
+    final dynamic pageState = tester.state(find.byType(GamePage));
+    final dynamic session = pageState.tableSession;
+    for (var index = 1; index <= 6; index++) {
+      session.sendChatMessage('mensagem $index');
+    }
+    await tester.pump();
+
+    expect(find.text('Jogador: mensagem 1'), findsNothing);
+    for (var index = 2; index <= 6; index++) {
+      expect(find.text('Jogador: mensagem $index'), findsOneWidget);
+    }
+    expect(find.byKey(const ValueKey('input-chat-rapido')), findsNothing);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 
   testWidgets('anima a foto do humano quando chega a vez dele', (tester) async {
     tester.view.physicalSize = const Size(360, 640);

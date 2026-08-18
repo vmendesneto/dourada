@@ -23,6 +23,7 @@ class GamePage extends StatefulWidget {
 
 class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   static const _savedGameKey = 'douradinha_partida_em_andamento_v1';
+  static const _soundEnabledPreferenceKey = 'douradinha_som_ativado_v1';
   static const _challengeCallSounds = <int, List<String>>{
     2: [
       'sons/truco/truco.mp3',
@@ -81,6 +82,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   bool _restoringGame = true;
   bool _leavingTable = false;
   bool _spectatorEnding = false;
+  bool _soundEnabled = true;
 
   @override
   void initState() {
@@ -282,6 +284,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   Future<void> _restoreSavedGame() async {
     try {
       final preferences = await _preferences;
+      _soundEnabled = preferences.getBool(_soundEnabledPreferenceKey) ?? true;
       try {
         final savedGame = preferences.getString(_savedGameKey);
         if (!widget.entry.online && savedGame != null) {
@@ -340,8 +343,26 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     );
   }
 
+  Future<void> _toggleSound() async {
+    final enabled = !_soundEnabled;
+    if (mounted) setState(() => _soundEnabled = enabled);
+    try {
+      final preferences = await _preferences;
+      await preferences.setBool(_soundEnabledPreferenceKey, enabled);
+    } on Object {
+      // O controle continua funcionando mesmo sem armazenamento persistente.
+    }
+    if (!enabled) {
+      try {
+        await _challengeAudioPlayer.stop();
+      } on Object {
+        // Falha ao interromper um som nunca pode afetar a partida.
+      }
+    }
+  }
+
   Future<void> _playChallengeSound(List<String> sounds) async {
-    if (sounds.isEmpty) return;
+    if (!_soundEnabled || sounds.isEmpty) return;
     final asset = sounds[_challengeSoundRandom.nextInt(sounds.length)];
     try {
       await _challengeAudioPlayer.stop();
@@ -580,6 +601,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             _ScoreBoard(
               game: game,
               tableSession: tableSession,
+              soundEnabled: _soundEnabled,
+              onSoundToggle: () => unawaited(_toggleSound()),
               leaving: _leavingTable,
               onLeave: () => unawaited(_confirmLeaveTable()),
             ),
@@ -1348,12 +1371,16 @@ class _ScoreBoard extends StatelessWidget {
   const _ScoreBoard({
     required this.game,
     required this.tableSession,
+    required this.soundEnabled,
+    required this.onSoundToggle,
     required this.leaving,
     required this.onLeave,
   });
 
   final DouradinhaGame game;
   final TableSession tableSession;
+  final bool soundEnabled;
+  final VoidCallback onSoundToggle;
   final bool leaving;
   final VoidCallback onLeave;
 
@@ -1437,6 +1464,11 @@ class _ScoreBoard extends StatelessWidget {
                           ? const Color(0xFF7CE0A3)
                           : Colors.white54,
                     ),
+                  ),
+                  _SoundToggleButton(
+                    enabled: soundEnabled,
+                    onPressed: onSoundToggle,
+                    compact: true,
                   ),
                   IconButton(
                     key: const ValueKey('sair-da-mesa'),
@@ -1560,6 +1592,7 @@ class _ScoreBoard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 6),
+          _SoundToggleButton(enabled: soundEnabled, onPressed: onSoundToggle),
           IconButton(
             key: const ValueKey('sair-da-mesa'),
             tooltip: 'Sair da mesa',
@@ -1573,6 +1606,55 @@ class _ScoreBoard extends StatelessWidget {
                 : const Icon(Icons.logout_rounded),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SoundToggleButton extends StatelessWidget {
+  const _SoundToggleButton({
+    required this.enabled,
+    required this.onPressed,
+    this.compact = false,
+  });
+
+  final bool enabled;
+  final VoidCallback onPressed;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final iconSize = compact ? 20.0 : 24.0;
+    return IconButton(
+      key: const ValueKey('alternar-som'),
+      tooltip: enabled ? 'Desativar som' : 'Ativar som',
+      onPressed: onPressed,
+      visualDensity: compact ? VisualDensity.compact : VisualDensity.standard,
+      padding: EdgeInsets.zero,
+      constraints: compact
+          ? const BoxConstraints.tightFor(width: 34, height: 34)
+          : null,
+      icon: SizedBox.square(
+        dimension: iconSize + 6,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Icon(Icons.volume_up_rounded, size: iconSize, color: Colors.white),
+            if (!enabled)
+              Transform.rotate(
+                angle: -math.pi / 4,
+                child: Container(
+                  key: const ValueKey('som-desativado-traco'),
+                  width: iconSize + 5,
+                  height: 2.5,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFF3B30),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -3487,7 +3569,7 @@ class _TableChatStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final phone = _usesVirtualChatKeyboard(context);
-    const visibleCount = 2;
+    final visibleCount = phone ? 2 : 5;
     final messages = session.chatMessages;
     final start = messages.length > visibleCount
         ? messages.length - visibleCount
@@ -3496,7 +3578,7 @@ class _TableChatStrip extends StatelessWidget {
 
     return Container(
       key: const ValueKey('chat-mesa-resumo'),
-      height: phone ? 48 : 56,
+      height: phone ? 48 : 88,
       padding: EdgeInsets.fromLTRB(phone ? 6 : 14, 5, phone ? 6 : 14, 5),
       decoration: const BoxDecoration(
         color: Color(0xFF063327),
