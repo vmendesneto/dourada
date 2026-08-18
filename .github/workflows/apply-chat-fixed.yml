@@ -37,6 +37,31 @@ jobs:
               1,
           )
           exec(compile(script, 'apply-chat.py', 'exec'))
+
+          # A faixa de chat reduz a altura útil da mesa. Deixa a imagem de
+          # resposta responsiva em telas baixas para não causar overflow.
+          game_path = Path('lib/ui/game_page.dart')
+          text = game_path.read_text()
+          start = text.index('class _ChallengeNoticeOverlay extends StatelessWidget')
+          end = text.index('class _TenHandOverlay extends StatelessWidget', start)
+          section = text[start:end]
+          section = section.replace(
+              "    final color = accepted ? const Color(0xFF63E6A5) : const Color(0xFFFFC857);\n    return ColoredBox(",
+              "    final color = accepted ? const Color(0xFF63E6A5) : const Color(0xFFFFC857);\n    final phone = MediaQuery.sizeOf(context).width < 600;\n    return ColoredBox(",
+              1,
+          )
+          section = section.replace(
+              'padding: const EdgeInsets.all(20),',
+              'padding: EdgeInsets.all(phone ? 10 : 20),',
+              1,
+          )
+          section = section.replace(
+              'width: 210,\n                    height: 210,',
+              'width: phone ? 150 : 210,\n                    height: phone ? 150 : 210,',
+              1,
+          )
+          text = text[:start] + section + text[end:]
+          game_path.write_text(text)
           PY
 
       - name: Configurar Flutter
