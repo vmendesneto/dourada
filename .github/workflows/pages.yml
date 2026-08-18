@@ -39,7 +39,7 @@ jobs:
 
       - name: Salvar ajuste validado
         run: |
-          git checkout HEAD^ -- .github/workflows/pages.yml
+          git checkout 916228fe16b85e9078963f175b0a4406f03e38e6 -- .github/workflows/pages.yml
           rm .github/workflows/apply-local-player-seat.yml
           rm .github/scripts/apply_local_player_seat.py
           git config user.name "github-actions[bot]"
