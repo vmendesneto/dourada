@@ -326,7 +326,7 @@ void main() {
   });
 
   testWidgets(
-    'chat no telefone usa teclado virtual sem abrir teclado do sistema',
+    'chat mostra duas mensagens e envia apenas pelo diálogo no telefone',
     (tester) async {
       tester.view.physicalSize = const Size(360, 640);
       tester.view.devicePixelRatio = 1;
@@ -341,7 +341,25 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
       await tester.pumpAndSettle();
 
-      final input = find.byKey(const ValueKey('input-chat-rapido'));
+      expect(find.byKey(const ValueKey('input-chat-rapido')), findsNothing);
+      expect(find.byKey(const ValueKey('enviar-chat-rapido')), findsNothing);
+
+      final dynamic pageState = tester.state(find.byType(GamePage));
+      final dynamic session = pageState.tableSession;
+      session.sendChatMessage('primeira');
+      session.sendChatMessage('segunda');
+      session.sendChatMessage('terceira');
+      await tester.pump();
+
+      expect(find.text('Jogador: primeira'), findsNothing);
+      expect(find.text('Jogador: segunda'), findsOneWidget);
+      expect(find.text('Jogador: terceira'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('abrir-chat')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('dialogo-chat')), findsOneWidget);
+
+      final input = find.byKey(const ValueKey('input-chat-dialogo'));
       expect(input, findsOneWidget);
       expect(tester.widget<TextField>(input).readOnly, isTrue);
 
@@ -357,14 +375,13 @@ void main() {
       expect(tester.widget<TextField>(input).controller!.text, 'a');
 
       await tester.tap(find.byKey(const ValueKey('tecla-chat-enviar')));
-      await tester.pump();
-      expect(find.text('Jogador: a'), findsOneWidget);
-      expect(tester.widget<TextField>(input).controller!.text, isEmpty);
-
-      await tester.tap(find.byKey(const ValueKey('fechar-teclado-chat')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('teclado-virtual-chat')), findsNothing);
+      expect(find.byKey(const ValueKey('dialogo-chat')), findsOneWidget);
+      expect(tester.widget<TextField>(input).controller!.text, isEmpty);
+      expect(find.text('a'), findsOneWidget);
       expect(tester.takeException(), isNull);
+
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );

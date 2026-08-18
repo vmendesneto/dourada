@@ -3457,7 +3457,7 @@ class _VirtualChatKeyboardState extends State<_VirtualChatKeyboard> {
                 onPressed: widget.canSend && text.trim().isNotEmpty
                     ? () {
                         widget.onSend();
-                        setState(() {});
+                        widget.onClose();
                       }
                     : null,
                 backgroundColor: const Color(0xFF1D6A50),
@@ -3472,187 +3472,91 @@ class _VirtualChatKeyboardState extends State<_VirtualChatKeyboard> {
   }
 }
 
-class _TableChatStrip extends StatefulWidget {
+class _TableChatStrip extends StatelessWidget {
   const _TableChatStrip({required this.session});
 
   final TableSession session;
 
-  @override
-  State<_TableChatStrip> createState() => _TableChatStripState();
-}
-
-class _TableChatStripState extends State<_TableChatStrip> {
-  final TextEditingController _controller = TextEditingController();
-  final FocusNode _focusNode = FocusNode();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    _focusNode.dispose();
-    super.dispose();
-  }
-
-  void _send() {
-    if (!widget.session.sendChatMessage(_controller.text)) return;
-    _controller.clear();
-    if (!_usesVirtualChatKeyboard(context)) _focusNode.requestFocus();
-  }
-
-  Future<void> _openVirtualKeyboard(bool canSend) async {
-    _focusNode.unfocus();
-    await _showVirtualChatKeyboard(
-      context: context,
-      controller: _controller,
-      canSend: canSend,
-      onSend: _send,
-    );
-  }
-
-  Future<void> _openChat() async {
-    _focusNode.unfocus();
+  Future<void> _openChat(BuildContext context) async {
     await showDialog<void>(
       context: context,
-      builder: (context) => _ChatDialog(session: widget.session),
+      builder: (context) => _ChatDialog(session: session),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final phone = _usesVirtualChatKeyboard(context);
-    final visibleCount = phone ? 1 : 5;
-    final messages = widget.session.chatMessages;
+    const visibleCount = 2;
+    final messages = session.chatMessages;
     final start = messages.length > visibleCount
         ? messages.length - visibleCount
         : 0;
     final recent = messages.sublist(start);
-    final canSend = !widget.session.enabled || widget.session.canPlayHere;
 
     return Container(
       key: const ValueKey('chat-mesa-resumo'),
-      height: phone ? 70 : 116,
-      padding: EdgeInsets.fromLTRB(phone ? 6 : 14, 4, phone ? 6 : 14, 5),
+      height: phone ? 48 : 56,
+      padding: EdgeInsets.fromLTRB(phone ? 6 : 14, 5, phone ? 6 : 14, 5),
       decoration: const BoxDecoration(
         color: Color(0xFF063327),
         border: Border(top: BorderSide(color: Colors.white12)),
       ),
-      child: Column(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SizedBox(
-            height: phone ? 27 : 65,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  child: Container(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: phone ? 8 : 10,
-                      vertical: phone ? 5 : 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: .16),
-                      borderRadius: BorderRadius.circular(7),
-                      border: Border.all(color: Colors.white12),
-                    ),
-                    child: recent.isEmpty
-                        ? Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              'Nenhuma mensagem ainda',
-                              style: TextStyle(
-                                color: Colors.white38,
-                                fontSize: phone ? 10 : 11,
-                              ),
+          Expanded(
+            child: Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: phone ? 8 : 10,
+                vertical: 4,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: .16),
+                borderRadius: BorderRadius.circular(7),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: recent.isEmpty
+                  ? Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Nenhuma mensagem ainda',
+                        style: TextStyle(
+                          color: Colors.white38,
+                          fontSize: phone ? 10 : 11,
+                        ),
+                      ),
+                    )
+                  : Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (final message in recent)
+                          Text(
+                            '${message.author}: ${message.text}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: phone ? 10 : 11,
+                              height: 1.05,
                             ),
-                          )
-                        : Column(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              for (final message in recent)
-                                Text(
-                                  '${message.author}: ${message.text}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: phone ? 10 : 11,
-                                    height: 1.05,
-                                  ),
-                                ),
-                            ],
                           ),
-                  ),
-                ),
-                const SizedBox(width: 5),
-                IconButton.filledTonal(
-                  key: const ValueKey('abrir-chat'),
-                  tooltip: 'Abrir chat',
-                  onPressed: _openChat,
-                  style: IconButton.styleFrom(
-                    fixedSize: Size.square(phone ? 34 : 42),
-                    padding: EdgeInsets.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  icon: Icon(Icons.forum_rounded, size: phone ? 17 : 20),
-                ),
-              ],
+                      ],
+                    ),
             ),
           ),
-          const SizedBox(height: 4),
-          Expanded(
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    key: const ValueKey('input-chat-rapido'),
-                    controller: _controller,
-                    focusNode: _focusNode,
-                    enabled: canSend,
-                    readOnly: phone,
-                    maxLength: TableChatMessage.maxTextLength,
-                    textInputAction: TextInputAction.send,
-                    onTap: phone && canSend
-                        ? () => _openVirtualKeyboard(canSend)
-                        : null,
-                    onSubmitted: phone ? null : (_) => _send(),
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: phone ? 11 : 13,
-                    ),
-                    decoration: InputDecoration(
-                      hintText: canSend
-                          ? 'Digite uma mensagem...'
-                          : 'Reconectando ao chat...',
-                      hintStyle: const TextStyle(color: Colors.white38),
-                      counterText: '',
-                      isDense: true,
-                      filled: true,
-                      fillColor: Colors.black12,
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: phone ? 8 : 10,
-                        vertical: phone ? 7 : 9,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(7),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 5),
-                IconButton.filled(
-                  key: const ValueKey('enviar-chat-rapido'),
-                  tooltip: 'Enviar mensagem',
-                  onPressed: canSend ? _send : null,
-                  style: IconButton.styleFrom(
-                    fixedSize: Size.square(phone ? 34 : 42),
-                    padding: EdgeInsets.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  icon: Icon(Icons.send_rounded, size: phone ? 17 : 20),
-                ),
-              ],
+          const SizedBox(width: 5),
+          IconButton.filledTonal(
+            key: const ValueKey('abrir-chat'),
+            tooltip: 'Abrir chat',
+            onPressed: () => _openChat(context),
+            style: IconButton.styleFrom(
+              fixedSize: Size.square(phone ? 34 : 42),
+              padding: EdgeInsets.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
+            icon: Icon(Icons.forum_rounded, size: phone ? 17 : 20),
           ),
         ],
       ),
