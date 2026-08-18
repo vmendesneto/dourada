@@ -1,1 +1,1 @@
-validar implementação completa do chat corrigida
+validar implementação completa do chat responsivo
