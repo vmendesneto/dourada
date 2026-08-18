@@ -42,9 +42,10 @@ jobs:
           git checkout 916228fe16b85e9078963f175b0a4406f03e38e6 -- .github/workflows/pages.yml
           rm .github/workflows/apply-local-player-seat.yml
           rm .github/scripts/apply_local_player_seat.py
+          rm .github/trigger-layout-validation.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add lib/ui/game_page.dart .github/workflows/pages.yml .github/workflows/apply-local-player-seat.yml .github/scripts/apply_local_player_seat.py
+          git add lib/ui/game_page.dart .github/workflows/pages.yml .github/workflows/apply-local-player-seat.yml .github/scripts/apply_local_player_seat.py .github/trigger-layout-validation.txt
           git commit -m "move jogador local para a mesa"
           git push origin HEAD:main
 
