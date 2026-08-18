@@ -1,1 +1,1 @@
-base do gatilho
+validar implementação completa do chat
