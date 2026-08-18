@@ -3,6 +3,8 @@ name: Publicar Flutter Web no GitHub Pages
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -18,6 +20,8 @@ jobs:
     steps:
       - name: Baixar o código
         uses: actions/checkout@v6
+        with:
+          ref: main
 
       - name: Aplicar jogador local na mesa
         run: python .github/scripts/apply_local_player_seat.py
