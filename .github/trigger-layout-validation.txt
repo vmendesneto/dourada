@@ -1,0 +1,1 @@
+validar jogador local na mesa
