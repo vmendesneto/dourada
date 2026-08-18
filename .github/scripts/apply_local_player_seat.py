@@ -33,17 +33,6 @@ replace_once(
     '''                    botSeat(\n                      game.humanPlayerIndex,\n                      const Alignment(0, .90),\n                      showHand: spectator,\n                    ),\n''',
 )
 
-# O destaque especial existia apenas para o avatar que ficava na barra inferior.
-# Ao mover o jogador local para o mesmo componente de assento dos demais, ele
-# deixa de ser necessário e não deve permanecer como código morto.
-turn_highlight_pattern = re.compile(
-    r'class _TurnAvatarHighlight extends StatelessWidget \{.*?\n\}\n\n(?=class _BotSeat extends StatelessWidget)',
-    re.S,
-)
-text, count = turn_highlight_pattern.subn('', text, count=1)
-if count != 1:
-    raise SystemExit(f'_TurnAvatarHighlight não encontrado uma vez: {count}')
-
 replace_once(
     '''    this.spectatorMode = false,\n    this.hiddenCardCount = 0,\n  });\n''',
     '''    this.spectatorMode = false,\n    this.hiddenCardCount = 0,\n    this.showHand = true,\n  });\n''',
@@ -56,12 +45,12 @@ replace_once(
 
 replace_once(
     '''    final signalEmoji = game.signalEmojiFor(playerIndex);\n\n    return Stack(\n''',
-    '''    final signalEmoji = game.signalEmojiFor(playerIndex);\n    final localSeat = playerIndex == game.humanPlayerIndex && !spectatorMode;\n\n    return Stack(\n''',
+    '''    final signalEmoji = game.signalEmojiFor(playerIndex);\n    final localSeat = playerIndex == game.humanPlayerIndex && !spectatorMode;\n    final playerAvatar = _TablePlayerAvatar(\n      key: localSeat\n          ? const ValueKey('avatar-jogador-local')\n          : ValueKey('avatar-jogador-$playerIndex'),\n      isBot: !player.isHuman,\n      photoUrl: player.photoUrl,\n      color: teamColor,\n      radius: compact ? 14 : 22,\n    );\n\n    return Stack(\n''',
 )
 
 replace_once(
-    '''                  _TablePlayerAvatar(\n                    key: ValueKey('avatar-jogador-$playerIndex'),\n''',
-    '''                  _TablePlayerAvatar(\n                    key: localSeat\n                        ? const ValueKey('avatar-jogador-local')\n                        : ValueKey('avatar-jogador-$playerIndex'),\n''',
+    '''                  _TablePlayerAvatar(\n                    key: ValueKey('avatar-jogador-$playerIndex'),\n                    isBot: !player.isHuman,\n                    photoUrl: player.photoUrl,\n                    color: teamColor,\n                    radius: compact ? 14 : 22,\n                  ),\n''',
+    '''                  localSeat\n                      ? _TurnAvatarHighlight(\n                          key: const ValueKey(\n                            'animacao-turno-jogador-local',\n                          ),\n                          active: active,\n                          color: teamColor,\n                          child: playerAvatar,\n                        )\n                      : playerAvatar,\n''',
 )
 
 replace_once(
