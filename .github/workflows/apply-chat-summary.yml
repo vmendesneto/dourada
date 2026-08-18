@@ -31,21 +31,13 @@ jobs:
           game_path = Path('lib/ui/game_page.dart')
           text = game_path.read_text()
 
-          old_send = """                onPressed: widget.canSend && text.trim().isNotEmpty
-                    ? () {
-                        widget.onSend();
-                        setState(() {});
-                      }
-                    : null,"""
-          new_send = """                onPressed: widget.canSend && text.trim().isNotEmpty
-                    ? () {
-                        widget.onSend();
-                        widget.onClose();
-                      }
-                    : null,"""
-          if old_send not in text:
-              raise SystemExit('Botão enviar do teclado virtual não encontrado')
-          text = text.replace(old_send, new_send, 1)
+          send_pattern = re.compile(
+              r"(keyName: 'tecla-chat-enviar',\s+onPressed: widget\.canSend && text\.trim\(\)\.isNotEmpty\s+\? \(\) \{\s+widget\.onSend\(\);\s+)setState\(\(\) \{\}\);",
+              re.S,
+          )
+          text, count = send_pattern.subn(r'\1widget.onClose();', text, count=1)
+          if count != 1:
+              raise SystemExit(f'Botão enviar do teclado virtual substituído {count} vezes')
 
           new_strip = r'''class _TableChatStrip extends StatelessWidget {
             const _TableChatStrip({required this.session});
@@ -141,11 +133,11 @@ jobs:
 
           class _ChatDialog extends StatefulWidget {'''
 
-          pattern = re.compile(
+          strip_pattern = re.compile(
               r'class _TableChatStrip extends StatefulWidget \{.*?class _ChatDialog extends StatefulWidget \{',
               re.S,
           )
-          text, count = pattern.subn(new_strip, text, count=1)
+          text, count = strip_pattern.subn(new_strip, text, count=1)
           if count != 1:
               raise SystemExit(f'Bloco _TableChatStrip substituído {count} vezes')
           game_path.write_text(text)
@@ -216,7 +208,7 @@ jobs:
           testWidgets('anima a foto do humano quando chega a vez dele', (tester) async {'''
 
           test_pattern = re.compile(
-              r"  testWidgets\(\n    'chat no telefone usa teclado virtual sem abrir teclado do sistema',.*?  testWidgets\('anima a foto do humano quando chega a vez dele', \(tester\) async \{",
+              r"  testWidgets\(\s*'chat no telefone usa teclado virtual sem abrir teclado do sistema',.*?  testWidgets\('anima a foto do humano quando chega a vez dele', \(tester\) async \{",
               re.S,
           )
           tests, count = test_pattern.subn(new_test, tests, count=1)
