@@ -2,7 +2,7 @@ name: Aplicar mute simples via issue
 
 on:
   issues:
-    types: [opened]
+    types: [opened, reopened]
 
 permissions:
   contents: write
