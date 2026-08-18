@@ -3,16 +3,14 @@ name: Publicar Flutter Web no GitHub Pages
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -20,14 +18,8 @@ jobs:
     steps:
       - name: Baixar o código
         uses: actions/checkout@v6
-        with:
-          ref: main
-          fetch-depth: 50
 
-      - name: Aplicar jogador local na mesa
-        run: python .github/scripts/apply_local_player_seat.py
-
-      - name: Configurar Flutter
+      - name: Configurar o Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -41,18 +33,6 @@ jobs:
 
       - name: Executar os testes
         run: flutter test
-
-      - name: Salvar ajuste validado
-        run: |
-          git checkout 916228fe16b85e9078963f175b0a4406f03e38e6 -- .github/workflows/pages.yml
-          rm .github/workflows/apply-local-player-seat.yml
-          rm .github/scripts/apply_local_player_seat.py
-          rm .github/trigger-layout-validation.txt
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add lib/ui/game_page.dart .github/workflows/pages.yml .github/workflows/apply-local-player-seat.yml .github/scripts/apply_local_player_seat.py .github/trigger-layout-validation.txt
-          git commit -m "move jogador local para a mesa"
-          git push origin HEAD:main
 
       - name: Preparar o GitHub Pages
         uses: actions/configure-pages@v5

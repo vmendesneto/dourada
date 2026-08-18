@@ -595,13 +595,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
               onLeave: () => unawaited(_confirmLeaveTable()),
             ),
             Expanded(child: _buildTable()),
-            if (!tableSession.isSpectator)
-              _HumanControls(
-                game: game,
-                clockActive: _clockPlayerIndex == game.humanPlayerIndex,
-                turnProgress: _turnProgress,
-                secondsLeft: _turnSecondsLeft,
-              ),
+            if (!tableSession.isSpectator) _HumanControls(game: game),
           ],
         ),
       ),
@@ -630,7 +624,12 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                 : 102.0;
         final sideSeatX = phone ? .84 : .92;
 
-        Widget botSeat(int playerIndex, Alignment alignment) => Align(
+        Widget botSeat(
+          int playerIndex,
+          Alignment alignment, {
+          bool showHand = true,
+        }) =>
+            Align(
               alignment: alignment,
               child: Transform.translate(
                 offset: Offset(
@@ -648,6 +647,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                   hiddenCardCount: spectator
                       ? tableSession.spectatorHandCountFor(playerIndex)
                       : 0,
+                  showHand: showHand,
                 ),
               ),
             );
@@ -710,8 +710,11 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                         Alignment(-sideSeatX, .52)),
                     botSeat((game.humanPlayerIndex + 5) % 6,
                         Alignment(sideSeatX, .52)),
-                    if (spectator)
-                      botSeat(game.humanPlayerIndex, const Alignment(0, 1)),
+                    botSeat(
+                      game.humanPlayerIndex,
+                      const Alignment(0, .90),
+                      showHand: spectator,
+                    ),
                     for (final entry in playedCardAlignments.entries)
                       playedCard(entry.key, entry.value),
                   ],
@@ -1850,6 +1853,7 @@ class _BotSeat extends StatelessWidget {
     required this.secondsLeft,
     this.spectatorMode = false,
     this.hiddenCardCount = 0,
+    this.showHand = true,
   });
 
   final DouradinhaGame game;
@@ -1860,6 +1864,7 @@ class _BotSeat extends StatelessWidget {
   final int secondsLeft;
   final bool spectatorMode;
   final int hiddenCardCount;
+  final bool showHand;
 
   @override
   Widget build(BuildContext context) {
@@ -1872,6 +1877,16 @@ class _BotSeat extends StatelessWidget {
     final reveal =
         game.canHumanSeePartnerCardsInTenHand && player.team == game.humanTeam;
     final signalEmoji = game.signalEmojiFor(playerIndex);
+    final localSeat = playerIndex == game.humanPlayerIndex && !spectatorMode;
+    final playerAvatar = _TablePlayerAvatar(
+      key: localSeat
+          ? const ValueKey('avatar-jogador-local')
+          : ValueKey('avatar-jogador-$playerIndex'),
+      isBot: !player.isHuman,
+      photoUrl: player.photoUrl,
+      color: teamColor,
+      radius: compact ? 14 : 22,
+    );
 
     return Stack(
       clipBehavior: Clip.none,
@@ -1898,13 +1913,16 @@ class _BotSeat extends StatelessWidget {
               Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _TablePlayerAvatar(
-                    key: ValueKey('avatar-jogador-$playerIndex'),
-                    isBot: !player.isHuman,
-                    photoUrl: player.photoUrl,
-                    color: teamColor,
-                    radius: compact ? 14 : 22,
-                  ),
+                  localSeat
+                      ? _TurnAvatarHighlight(
+                          key: const ValueKey(
+                            'animacao-turno-jogador-local',
+                          ),
+                          active: active,
+                          color: teamColor,
+                          child: playerAvatar,
+                        )
+                      : playerAvatar,
                   const SizedBox(height: 2),
                   Row(
                     mainAxisSize: MainAxisSize.min,
@@ -1914,6 +1932,9 @@ class _BotSeat extends StatelessWidget {
                             BoxConstraints(maxWidth: compact ? 66 : 90),
                         child: Text(
                           player.name,
+                          key: localSeat
+                              ? const ValueKey('nome-jogador-local')
+                              : null,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -1960,7 +1981,9 @@ class _BotSeat extends StatelessWidget {
                       ),
                   ],
                 ),
-              ] else if (!spectatorMode && (!compact || reveal)) ...[
+              ] else if (showHand &&
+                  !spectatorMode &&
+                  (!compact || reveal)) ...[
                 const SizedBox(height: 4),
                 Row(
                   key: reveal ? ValueKey('cartas-parceiro-$playerIndex') : null,
@@ -2174,147 +2197,84 @@ class _WinningCardPulseState extends State<_WinningCardPulse>
 }
 
 class _HumanControls extends StatelessWidget {
-  const _HumanControls({
-    required this.game,
-    required this.clockActive,
-    required this.turnProgress,
-    required this.secondsLeft,
-  });
+  const _HumanControls({required this.game});
 
   final DouradinhaGame game;
-  final bool clockActive;
-  final double turnProgress;
-  final int secondsLeft;
 
   @override
   Widget build(BuildContext context) {
     final human = game.players[game.humanPlayerIndex];
     final active = game.isHumanTurn;
     final phone = MediaQuery.sizeOf(context).width < 600;
-    final teamColor =
-        human.team == 0 ? const Color(0xFF5CB6FF) : const Color(0xFFFFC857);
-    if (phone) {
-      return Container(
-        height: 154,
-        padding: const EdgeInsets.fromLTRB(8, 5, 8, 7),
-        decoration: const BoxDecoration(
-          color: Color(0xFF052D22),
-          boxShadow: [BoxShadow(color: Colors.black45, blurRadius: 10)],
+
+    Widget challengeButton({required double width, required double height}) {
+      return SizedBox(
+        width: width,
+        height: height,
+        child: FilledButton.icon(
+          onPressed: game.canHumanChallenge ? game.requestHumanChallenge : null,
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFFE9A23B),
+            foregroundColor: const Color(0xFF271500),
+            padding: EdgeInsets.symmetric(horizontal: phone ? 8 : 12),
+          ),
+          icon: Icon(Icons.campaign, size: phone ? 17 : 20),
+          label: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              game.challengeButtonLabel,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
         ),
-        child: Column(
+      );
+    }
+
+    Widget cards({required bool compact}) {
+      return Expanded(
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            SizedBox(
-              height: 40,
-              child: Row(
-                children: [
-                  Container(
-                    width: 4,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: active ? teamColor : Colors.white24,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                  const SizedBox(width: 7),
-                  _TurnAvatarHighlight(
-                    key: const ValueKey('animacao-turno-jogador-local'),
-                    active: active,
-                    color: teamColor,
-                    child: _TablePlayerAvatar(
-                      key: const ValueKey('avatar-jogador-local'),
-                      isBot: false,
-                      photoUrl: human.photoUrl,
-                      color: teamColor,
-                      radius: 17,
-                    ),
-                  ),
-                  const SizedBox(width: 7),
-                  Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          human.name,
-                          key: const ValueKey('nome-jogador-local'),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: teamColor,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        if (clockActive)
-                          _TurnProgress(
-                            progress: turnProgress,
-                            secondsLeft: secondsLeft,
-                            width: 105,
-                          )
-                        else
-                          Text(
-                            active ? 'Sua vez' : 'Aguarde',
-                            style: const TextStyle(
-                              color: Colors.white60,
-                              fontSize: 10,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(
-                    width: 116,
-                    height: 36,
-                    child: FilledButton.icon(
-                      onPressed: game.canHumanChallenge
-                          ? game.requestHumanChallenge
-                          : null,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFFE9A23B),
-                        foregroundColor: const Color(0xFF271500),
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        textStyle: const TextStyle(fontSize: 11),
-                      ),
-                      icon: const Icon(Icons.campaign, size: 17),
-                      label: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          game.challengeButtonLabel,
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+            for (final card in human.hand)
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 5),
+                child: _PlayableCard(
+                  card: card,
+                  enabled: active,
+                  hidden: game.isHumanCardHidden(card),
+                  canToggleHidden: game.canHumanHideCard(card),
+                  compact: compact,
+                  onTap: () => game.playHumanCard(card),
+                  onToggleHidden: () => game.toggleHumanCardHidden(card),
+                ),
               ),
-            ),
-            const SizedBox(height: 4),
-            Expanded(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  for (final card in human.hand)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: _PlayableCard(
-                        card: card,
-                        enabled: active,
-                        hidden: game.isHumanCardHidden(card),
-                        canToggleHidden: game.canHumanHideCard(card),
-                        compact: true,
-                        onTap: () => game.playHumanCard(card),
-                        onToggleHidden: () => game.toggleHumanCardHidden(card),
-                      ),
-                    ),
-                ],
-              ),
-            ),
           ],
         ),
       );
     }
+
+    if (phone) {
+      return Container(
+        key: const ValueKey('controles-jogador-local'),
+        height: 101,
+        padding: const EdgeInsets.fromLTRB(8, 7, 8, 7),
+        decoration: const BoxDecoration(
+          color: Color(0xFF052D22),
+          boxShadow: [BoxShadow(color: Colors.black45, blurRadius: 10)],
+        ),
+        child: Row(
+          children: [
+            cards(compact: true),
+            const SizedBox(width: 6),
+            challengeButton(width: 116, height: 42),
+          ],
+        ),
+      );
+    }
+
     return Container(
-      height: 126,
+      key: const ValueKey('controles-jogador-local'),
+      height: 112,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
       decoration: const BoxDecoration(
         color: Color(0xFF052D22),
@@ -2322,95 +2282,9 @@ class _HumanControls extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Container(
-            width: 5,
-            height: 70,
-            decoration: BoxDecoration(
-              color: active ? teamColor : Colors.white24,
-              borderRadius: BorderRadius.circular(4),
-            ),
-          ),
-          const SizedBox(width: 10),
-          SizedBox(
-            width: 112,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _TurnAvatarHighlight(
-                  key: const ValueKey('animacao-turno-jogador-local'),
-                  active: active,
-                  color: teamColor,
-                  child: _TablePlayerAvatar(
-                    key: const ValueKey('avatar-jogador-local'),
-                    isBot: false,
-                    photoUrl: human.photoUrl,
-                    color: teamColor,
-                    radius: 22,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  human.name,
-                  key: const ValueKey('nome-jogador-local'),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style:
-                      TextStyle(color: teamColor, fontWeight: FontWeight.bold),
-                ),
-                if (clockActive)
-                  _TurnProgress(
-                    progress: turnProgress,
-                    secondsLeft: secondsLeft,
-                    width: 105,
-                  )
-                else
-                  Text(
-                    active ? 'Sua vez' : 'Aguarde',
-                    style: const TextStyle(color: Colors.white60, fontSize: 12),
-                  ),
-                if (game.footIndex == game.humanPlayerIndex)
-                  const Text('PÉ',
-                      style: TextStyle(color: Colors.white38, fontSize: 10)),
-              ],
-            ),
-          ),
+          cards(compact: false),
           const SizedBox(width: 16),
-          Expanded(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                for (final card in human.hand)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 5),
-                    child: _PlayableCard(
-                      card: card,
-                      enabled: active,
-                      hidden: game.isHumanCardHidden(card),
-                      canToggleHidden: game.canHumanHideCard(card),
-                      onTap: () => game.playHumanCard(card),
-                      onToggleHidden: () => game.toggleHumanCardHidden(card),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          SizedBox(
-            width: 150,
-            child: FilledButton.icon(
-              onPressed:
-                  game.canHumanChallenge ? game.requestHumanChallenge : null,
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFE9A23B),
-                foregroundColor: const Color(0xFF271500),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-              ),
-              icon: const Icon(Icons.campaign),
-              label: Text(
-                game.challengeButtonLabel,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-          ),
+          challengeButton(width: 150, height: 52),
         ],
       ),
     );
