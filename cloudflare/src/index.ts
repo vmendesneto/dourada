@@ -34,6 +34,12 @@ import {
   type ChallengeVote,
   type ChallengeVoteChoice,
 } from "./challenge_vote";
+import {
+  cleanChatText,
+  maxChatMessages,
+  normalizeChatMessages,
+  type TableChatMessage,
+} from "./chat";
 
 type TablePhase = LobbyTablePhase;
 type SeatKind = "human" | "bot";
@@ -59,6 +65,7 @@ interface SharedTableState {
   seats: Array<TableSeat | null>;
   gameState: GameState | null;
   playerSignals: Array<PlayerSignalState | null>;
+  chatMessages: TableChatMessage[];
   nextActionAt: number | null;
   waitingStartAt: number | null;
   fillBotsVote: FillBotsVote | null;
@@ -323,8 +330,7 @@ export class GameTable extends DurableObject<Env> {
       return;
     }
 
-    // Eventos sociais da mesa não dependem da vez. O sinal usa este canal
-    // agora; o chat digitado poderá entrar como outro `kind` no mesmo envelope.
+    // Eventos sociais da mesa não dependem da vez.
     if (payload.type === "tableEvent" && table.phase === "playing") {
       const rawEvent = payload.event;
       if (!rawEvent || typeof rawEvent !== "object" || Array.isArray(rawEvent)) {
@@ -339,6 +345,26 @@ export class GameTable extends DurableObject<Env> {
           expiresAt: Date.now() + playerSignalMs,
         };
         table.updatedAt = Date.now();
+        await this.saveAndSchedule(table);
+        this.broadcast(table);
+        return;
+      }
+      if (event.kind === "chat") {
+        const text = cleanChatText(event.text);
+        const seat = table.seats[attachment.seatIndex];
+        if (text === null || seat?.kind !== "human") return;
+        const now = Date.now();
+        table.chatMessages = [
+          ...table.chatMessages,
+          {
+            id: crypto.randomUUID(),
+            seatIndex: attachment.seatIndex,
+            author: seat.name,
+            text,
+            sentAt: now,
+          },
+        ].slice(-maxChatMessages);
+        table.updatedAt = now;
         await this.saveAndSchedule(table);
         this.broadcast(table);
       }
@@ -962,6 +988,7 @@ export class GameTable extends DurableObject<Env> {
     table.phase = "playing";
     table.gameState = createInitialGame();
     table.playerSignals = Array.from({ length: seatCount }, () => null);
+    table.chatMessages = [];
     table.waitingStartAt = null;
     table.fillBotsVote = null;
     table.challengeVote = null;
@@ -973,6 +1000,7 @@ export class GameTable extends DurableObject<Env> {
     table.phase = "waiting";
     table.gameState = null;
     table.playerSignals = Array.from({ length: seatCount }, () => null);
+    table.chatMessages = [];
     table.nextActionAt = null;
     table.waitingStartAt = null;
     table.fillBotsVote = null;
@@ -991,6 +1019,7 @@ export class GameTable extends DurableObject<Env> {
       phase: table.phase,
       seats: publicSeats(table),
       gameState: gameStateForClient(table),
+      chatMessages: table.chatMessages,
       waitingStartAt: table.waitingStartAt,
       fillBotsVote: table.fillBotsVote,
       fillBotsVotingVersion,
@@ -1024,6 +1053,7 @@ export class GameTable extends DurableObject<Env> {
       seatIndex,
       seats: publicSeats(table),
       gameState: gameStateForClient(table),
+      chatMessages: table.chatMessages,
       waitingStartAt: table.waitingStartAt,
       fillBotsVote: table.fillBotsVote,
       fillBotsVotingVersion,
@@ -1044,6 +1074,7 @@ export class GameTable extends DurableObject<Env> {
       spectatorHandCounts: spectatorHandCounts(table.gameState),
       seats: publicSeats(table),
       gameState: spectatorGameState(table),
+      chatMessages: table.chatMessages,
       waitingStartAt: null,
       fillBotsVote: null,
       fillBotsVotingVersion: 0,
@@ -1222,6 +1253,7 @@ export class GameTable extends DurableObject<Env> {
       stored.fillBotsVote ??= null;
       stored.challengeVote ??= null;
       stored.playerSignals = normalizePlayerSignals(stored.playerSignals);
+      stored.chatMessages = normalizeChatMessages(stored.chatMessages);
       if (
         stored.fillBotsVote !== null &&
         (typeof stored.fillBotsVote.id !== "string" ||
@@ -1317,6 +1349,7 @@ function emptyTableState(tableNumber: number): SharedTableState {
     seats: Array.from({ length: seatCount }, () => null),
     gameState: null,
     playerSignals: Array.from({ length: seatCount }, () => null),
+    chatMessages: [],
     nextActionAt: null,
     waitingStartAt: null,
     fillBotsVote: null,

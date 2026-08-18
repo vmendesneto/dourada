@@ -14,8 +14,10 @@ String botAvatarAsset(int number) =>
     'assets/images/avatar/robos/robo_${number.toString().padLeft(2, '0')}.png';
 
 class SavedTableSession {
-  const SavedTableSession(
-      {required this.tableNumber, required this.playerToken});
+  const SavedTableSession({
+    required this.tableNumber,
+    required this.playerToken,
+  });
 
   final String tableNumber;
   final String playerToken;
@@ -41,13 +43,71 @@ class LobbySeat {
   bool get isBot => kind == 'bot';
 
   factory LobbySeat.fromJson(Map<String, dynamic> json) => LobbySeat(
-        index: json['index'] as int,
-        kind: json['kind'] as String,
-        name: json['name'] as String,
-        team: json['team'] as int,
-        connected: json['connected'] as bool? ?? true,
-        photoUrl: json['photoUrl'] as String?,
+    index: json['index'] as int,
+    kind: json['kind'] as String,
+    name: json['name'] as String,
+    team: json['team'] as int,
+    connected: json['connected'] as bool? ?? true,
+    photoUrl: json['photoUrl'] as String?,
+  );
+}
+
+class TableChatMessage {
+  const TableChatMessage({
+    required this.id,
+    required this.seatIndex,
+    required this.author,
+    required this.text,
+    required this.sentAt,
+  });
+
+  static const maxTextLength = 240;
+  static const maxHistory = 100;
+
+  final String id;
+  final int seatIndex;
+  final String author;
+  final String text;
+  final DateTime sentAt;
+
+  static List<TableChatMessage> listFromJson(Object? value) {
+    if (value is! List) return const [];
+    final messages = <TableChatMessage>[];
+    for (final raw in value) {
+      if (raw is! Map) continue;
+      final json = Map<String, dynamic>.from(raw);
+      final id = json['id'];
+      final seatIndex = json['seatIndex'];
+      final author = json['author'];
+      final text = json['text'];
+      final sentAt = json['sentAt'];
+      if (id is! String ||
+          seatIndex is! num ||
+          author is! String ||
+          text is! String ||
+          sentAt is! num) {
+        continue;
+      }
+      final cleanAuthor = author.trim();
+      final cleanText = text.trim();
+      if (cleanAuthor.isEmpty || cleanText.isEmpty) continue;
+      messages.add(
+        TableChatMessage(
+          id: id,
+          seatIndex: seatIndex.toInt(),
+          author: cleanAuthor,
+          text: cleanText.length > maxTextLength
+              ? cleanText.substring(0, maxTextLength)
+              : cleanText,
+          sentAt: DateTime.fromMillisecondsSinceEpoch(sentAt.toInt()),
+        ),
       );
+    }
+    final start = messages.length > maxHistory
+        ? messages.length - maxHistory
+        : 0;
+    return List.unmodifiable(messages.sublist(start));
+  }
 }
 
 class LobbyTable {
@@ -74,20 +134,20 @@ class LobbyTable {
   bool get canWatch => phase == LobbyTablePhase.playing;
 
   factory LobbyTable.fromJson(Map<String, dynamic> json) => LobbyTable(
-        tableNumber: json['tableNumber'] as int,
-        phase: LobbyTablePhase.values.byName(json['status'] as String),
-        playerCount: json['playerCount'] as int,
-        humanCount: json['humanCount'] as int,
-        botCount: json['botCount'] as int,
-        capacity: json['capacity'] as int,
-        seats: (json['seats'] as List<Object?>)
-            .map(
-              (seat) => seat == null
-                  ? null
-                  : LobbySeat.fromJson(Map<String, dynamic>.from(seat as Map)),
-            )
-            .toList(growable: false),
-      );
+    tableNumber: json['tableNumber'] as int,
+    phase: LobbyTablePhase.values.byName(json['status'] as String),
+    playerCount: json['playerCount'] as int,
+    humanCount: json['humanCount'] as int,
+    botCount: json['botCount'] as int,
+    capacity: json['capacity'] as int,
+    seats: (json['seats'] as List<Object?>)
+        .map(
+          (seat) => seat == null
+              ? null
+              : LobbySeat.fromJson(Map<String, dynamic>.from(seat as Map)),
+        )
+        .toList(growable: false),
+  );
 }
 
 LobbyTable? selectQuickJoinTable(Iterable<LobbyTable> tables) {
@@ -119,6 +179,7 @@ class TableEntry {
     this.spectator = false,
     this.spectatorCount = 0,
     this.spectatorHandCounts = const [],
+    this.chatMessages = const [],
   });
 
   final String serverUrl;
@@ -137,6 +198,7 @@ class TableEntry {
   final bool spectator;
   final int spectatorCount;
   final List<int> spectatorHandCounts;
+  final List<TableChatMessage> chatMessages;
 
   bool get online => serverUrl.isNotEmpty;
 
@@ -166,10 +228,10 @@ class TableEntry {
         spectator: json['spectator'] as bool? ?? false,
         spectatorCount: (json['spectatorCount'] as num?)?.toInt() ?? 0,
         spectatorHandCounts:
-            (json['spectatorHandCounts'] as List<Object?>? ??
-                    const <Object?>[])
+            (json['spectatorHandCounts'] as List<Object?>? ?? const <Object?>[])
                 .map((value) => value is num ? value.toInt() : 0)
                 .toList(growable: false),
+        chatMessages: TableChatMessage.listFromJson(json['chatMessages']),
       );
 }
 
@@ -212,8 +274,10 @@ class FillBotsVote {
         (expires != null && expires is! num)) {
       return null;
     }
-    final participantIndexes =
-        participants.whereType<num>().map((index) => index.toInt()).toList();
+    final participantIndexes = participants
+        .whereType<num>()
+        .map((index) => index.toInt())
+        .toList();
     if (participantIndexes.length != participants.length) return null;
     return FillBotsVote(
       id: id,
@@ -223,9 +287,11 @@ class FillBotsVote {
           .map<bool?>((vote) => vote is bool ? vote : null)
           .toList(growable: false),
       shownAt: rawShownAt
-          .map<DateTime?>((value) => value is num
-              ? DateTime.fromMillisecondsSinceEpoch(value.toInt())
-              : null)
+          .map<DateTime?>(
+            (value) => value is num
+                ? DateTime.fromMillisecondsSinceEpoch(value.toInt())
+                : null,
+          )
           .toList(growable: false),
       expiresAt: expires is num
           ? DateTime.fromMillisecondsSinceEpoch(expires.toInt())
@@ -294,8 +360,10 @@ class TeamChallengeVote {
         rawVotes is! List) {
       return null;
     }
-    final participantIndexes =
-        participants.whereType<num>().map((index) => index.toInt()).toList();
+    final participantIndexes = participants
+        .whereType<num>()
+        .map((index) => index.toInt())
+        .toList();
     if (participantIndexes.length != participants.length) return null;
     return TeamChallengeVote(
       id: id,
@@ -319,10 +387,10 @@ String normalizeServerUrl(String value) =>
 
 class LobbyService {
   LobbyService({http.Client? client, String? serverUrl})
-      : _client = client ?? http.Client(),
-        serverUrl = normalizeServerUrl(
-          serverUrl ?? const String.fromEnvironment('DOURADA_SERVER_URL'),
-        );
+    : _client = client ?? http.Client(),
+      serverUrl = normalizeServerUrl(
+        serverUrl ?? const String.fromEnvironment('DOURADA_SERVER_URL'),
+      );
 
   static const tableNumberKey = 'douradinha_numero_mesa_v2';
   static const playerTokenKey = 'douradinha_token_jogador_v2';
@@ -377,8 +445,10 @@ class LobbyService {
       throw const FormatException('Atualização do lobby inválida.');
     }
     return (payload['tables'] as List<Object?>)
-        .map((value) =>
-            LobbyTable.fromJson(Map<String, dynamic>.from(value as Map)))
+        .map(
+          (value) =>
+              LobbyTable.fromJson(Map<String, dynamic>.from(value as Map)),
+        )
         .toList(growable: false);
   }
 
@@ -434,7 +504,8 @@ class LobbyService {
     final payload = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode != 200 && response.statusCode != 201) {
       throw StateError(
-          payload['error'] as String? ?? 'Não foi possível entrar na mesa.');
+        payload['error'] as String? ?? 'Não foi possível entrar na mesa.',
+      );
     }
     final entry = TableEntry.fromJson(serverUrl, payload);
     await preferences.setString(tableNumberKey, entry.tableNumber);
@@ -482,9 +553,7 @@ class LobbyService {
     if (!enabled) return false;
     final response = await _client
         .post(
-          Uri.parse(
-            '$serverUrl/api/tables/${session.tableNumber}/can-resume',
-          ),
+          Uri.parse('$serverUrl/api/tables/${session.tableNumber}/can-resume'),
           headers: const {'Content-Type': 'application/json'},
           body: jsonEncode({'playerToken': session.playerToken}),
         )
@@ -543,15 +612,15 @@ class LobbyService {
   }
 
   static List<LobbyTable> _localTables() => List.generate(
-        10,
-        (index) => LobbyTable(
-          tableNumber: index + 1,
-          phase: LobbyTablePhase.empty,
-          playerCount: 0,
-          humanCount: 0,
-          botCount: 0,
-          capacity: 6,
-          seats: List.filled(6, null),
-        ),
-      );
+    10,
+    (index) => LobbyTable(
+      tableNumber: index + 1,
+      phase: LobbyTablePhase.empty,
+      playerCount: 0,
+      humanCount: 0,
+      botCount: 0,
+      capacity: 6,
+      seats: List.filled(6, null),
+    ),
+  );
 }

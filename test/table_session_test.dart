@@ -167,8 +167,10 @@ void main() {
     await session.fillRemainingWithBots();
 
     expect(requestCount, 0);
-    expect(session.errorMessage,
-        contains('servidor da mesa precisa ser atualizado'));
+    expect(
+      session.errorMessage,
+      contains('servidor da mesa precisa ser atualizado'),
+    );
     session.dispose();
   });
 
@@ -239,6 +241,49 @@ void main() {
     expect(preferences.getString(TableSession.tableNumberKey), isNull);
     expect(preferences.getString(TableSession.playerTokenKey), isNull);
     expect(preferences.getInt(LobbyService.seatIndexKey), isNull);
+    session.dispose();
+  });
+
+  test('chat local guarda, normaliza e limita mensagens', () async {
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+    final game = DouradinhaGame(random: Random(81));
+    final session = TableSession(
+      entry: TableEntry(
+        serverUrl: '',
+        tableNumber: '1',
+        playerToken: 'local',
+        websocketUrl: '',
+        seatIndex: 0,
+        phase: LobbyTablePhase.playing,
+        seats: [
+          const LobbySeat(
+            index: 0,
+            kind: 'human',
+            name: 'Ana',
+            team: 0,
+            connected: true,
+          ),
+          ...List<LobbySeat?>.filled(5, null),
+        ],
+      ),
+    );
+    await session.initialize(game, preferences);
+
+    expect(session.sendChatMessage('   Olá   mesa   '), isTrue);
+    expect(session.chatMessages.single.author, 'Ana');
+    expect(session.chatMessages.single.text, 'Olá mesa');
+    expect(session.sendChatMessage('   '), isFalse);
+
+    final longText = List.filled(
+      TableChatMessage.maxTextLength + 20,
+      'x',
+    ).join();
+    expect(session.sendChatMessage(longText), isTrue);
+    expect(
+      session.chatMessages.last.text.length,
+      TableChatMessage.maxTextLength,
+    );
     session.dispose();
   });
 }

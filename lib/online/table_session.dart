@@ -9,16 +9,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 class TableSession extends ChangeNotifier {
-  TableSession({
-    this.entry,
-    http.Client? client,
-    String? serverUrl,
-  })  : _client = client ?? http.Client(),
-        _serverUrl = normalizeServerUrl(
-          entry?.serverUrl ??
-              serverUrl ??
-              const String.fromEnvironment('DOURADA_SERVER_URL'),
-        ) {
+  TableSession({this.entry, http.Client? client, String? serverUrl})
+    : _client = client ?? http.Client(),
+      _serverUrl = normalizeServerUrl(
+        entry?.serverUrl ??
+            serverUrl ??
+            const String.fromEnvironment('DOURADA_SERVER_URL'),
+      ) {
     if (entry != null) {
       tableNumber = entry!.tableNumber;
       playerToken = entry!.playerToken;
@@ -33,6 +30,7 @@ class TableSession extends ChangeNotifier {
       challengeVote = entry!.challengeVote;
       spectatorCount = entry!.spectatorCount;
       spectatorHandCounts = entry!.spectatorHandCounts;
+      chatMessages = entry!.chatMessages;
     }
   }
 
@@ -75,6 +73,7 @@ class TableSession extends ChangeNotifier {
   bool spectatorMatchEnded = false;
   int spectatorCount = 0;
   List<int> spectatorHandCounts = const [];
+  List<TableChatMessage> chatMessages = const [];
   String? _reportedShownFillBotsVoteId;
 
   bool get enabled => _serverUrl.isNotEmpty && entry?.online != false;
@@ -85,16 +84,16 @@ class TableSession extends ChangeNotifier {
       !isSpectator && enabled && phase == LobbyTablePhase.waiting;
   bool get canPlayHere => isSpectator
       ? (!enabled ||
-          (connected &&
-              phase == LobbyTablePhase.playing &&
-              !spectatorMatchEnded))
+            (connected &&
+                phase == LobbyTablePhase.playing &&
+                !spectatorMatchEnded))
       : (!enabled || (connected && phase == LobbyTablePhase.playing));
   int get playerCount => seats.where((seat) => seat != null).length;
   int get missingPlayers => 6 - playerCount;
   int spectatorHandCountFor(int playerIndex) =>
       playerIndex >= 0 && playerIndex < spectatorHandCounts.length
-          ? spectatorHandCounts[playerIndex]
-          : 0;
+      ? spectatorHandCounts[playerIndex]
+      : 0;
   bool get isFillBotsVoteRequester =>
       fillBotsVote?.requesterSeatIndex == seatIndex;
   bool get canRespondToFillBotsVote {
@@ -155,8 +154,7 @@ class TableSession extends ChangeNotifier {
       return;
     }
     if (fillBotsVotingVersion < 2) {
-      errorMessage =
-          'O servidor da mesa precisa ser atualizado antes de iniciar a votação.';
+      errorMessage = 'O servidor da mesa precisa ser atualizado antes de iniciar a votação.';
       notifyListeners();
       return;
     }
@@ -181,7 +179,8 @@ class TableSession extends ChangeNotifier {
       final payload = jsonDecode(response.body) as Map<String, dynamic>;
       if (response.statusCode != 200) {
         throw StateError(
-            payload['error'] as String? ?? 'Não foi possível iniciar.');
+          payload['error'] as String? ?? 'Não foi possível iniciar.',
+        );
       }
       _applyRoomPayload(payload);
     } on Object catch (error) {
@@ -200,11 +199,13 @@ class TableSession extends ChangeNotifier {
       return;
     }
     submittingFillBotsVote = true;
-    _channel!.sink.add(jsonEncode({
-      'type': 'fillBotsVote',
-      'voteId': fillBotsVote!.id,
-      'accepted': accepted,
-    }));
+    _channel!.sink.add(
+      jsonEncode({
+        'type': 'fillBotsVote',
+        'voteId': fillBotsVote!.id,
+        'accepted': accepted,
+      }),
+    );
     notifyListeners();
   }
 
@@ -220,21 +221,22 @@ class TableSession extends ChangeNotifier {
       return;
     }
     _reportedShownFillBotsVoteId = voteId;
-    _channel!.sink.add(jsonEncode({
-      'type': 'fillBotsVoteShown',
-      'voteId': voteId,
-    }));
+    _channel!.sink.add(
+      jsonEncode({'type': 'fillBotsVoteShown', 'voteId': voteId}),
+    );
   }
 
   void respondToChallengeVote(ChallengeVoteChoice choice) {
     final vote = challengeVote;
     if (!canRespondToChallengeVote || vote == null) return;
     submittingChallengeVote = true;
-    _channel!.sink.add(jsonEncode({
-      'type': 'challengeVote',
-      'voteId': vote.id,
-      'choice': choice.wireValue,
-    }));
+    _channel!.sink.add(
+      jsonEncode({
+        'type': 'challengeVote',
+        'voteId': vote.id,
+        'choice': choice.wireValue,
+      }),
+    );
     notifyListeners();
   }
 
@@ -245,6 +247,8 @@ class TableSession extends ChangeNotifier {
         await preferences.remove(tableNumberKey);
         await preferences.remove(playerTokenKey);
       }
+      chatMessages = const [];
+      notifyListeners();
       game.restart();
       return;
     }
@@ -313,6 +317,48 @@ class TableSession extends ChangeNotifier {
     await _rejoinAndConnect();
   }
 
+  bool sendChatMessage(String rawText) {
+    final normalized = rawText.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (normalized.isEmpty) return false;
+    final text = normalized.length > TableChatMessage.maxTextLength
+        ? normalized.substring(0, TableChatMessage.maxTextLength)
+        : normalized;
+
+    if (!enabled) {
+      LobbySeat? seat;
+      if (seatIndex >= 0 && seatIndex < seats.length) {
+        seat = seats[seatIndex];
+      }
+      var author = seat?.name;
+      if ((author == null || author.trim().isEmpty) &&
+          _game != null &&
+          seatIndex >= 0 &&
+          seatIndex < _game!.players.length) {
+        author = _game!.players[seatIndex].name;
+      }
+      final next = <TableChatMessage>[
+        ...chatMessages,
+        TableChatMessage(
+          id: 'local-${DateTime.now().microsecondsSinceEpoch}',
+          seatIndex: seatIndex,
+          author: author?.trim().isNotEmpty == true ? author!.trim() : 'Você',
+          text: text,
+          sentAt: DateTime.now(),
+        ),
+      ];
+      final start = next.length > TableChatMessage.maxHistory
+          ? next.length - TableChatMessage.maxHistory
+          : 0;
+      chatMessages = List.unmodifiable(next.sublist(start));
+      notifyListeners();
+      return true;
+    }
+
+    if (isSpectator || !canPlayHere || _channel == null) return false;
+    _sendTableEvent('chat', {'text': text});
+    return true;
+  }
+
   void syncGame(DouradinhaGame game) {
     if (isSpectator ||
         _applyingRemoteState ||
@@ -352,7 +398,8 @@ class TableSession extends ChangeNotifier {
 
     final expiresAt =
         DateTime.now().millisecondsSinceEpoch + remainingMs.toInt();
-    final sameSignal = _lastSentSignalEmoji == emoji &&
+    final sameSignal =
+        _lastSentSignalEmoji == emoji &&
         _lastSentSignalExpiresAt != null &&
         (expiresAt - _lastSentSignalExpiresAt!).abs() < 40;
     if (sameSignal) return;
@@ -364,13 +411,12 @@ class TableSession extends ChangeNotifier {
 
   void _sendTableEvent(String kind, Map<String, Object?> data) {
     if (isSpectator || !canPlayHere || _channel == null) return;
-    _channel!.sink.add(jsonEncode({
-      'type': 'tableEvent',
-      'event': {
-        'kind': kind,
-        ...data,
-      },
-    }));
+    _channel!.sink.add(
+      jsonEncode({
+        'type': 'tableEvent',
+        'event': {'kind': kind, ...data},
+      }),
+    );
   }
 
   void _applyEntry(TableEntry value) {
@@ -387,6 +433,7 @@ class TableSession extends ChangeNotifier {
     challengeVote = value.challengeVote;
     spectatorCount = value.spectatorCount;
     spectatorHandCounts = value.spectatorHandCounts;
+    chatMessages = value.chatMessages;
     _configureSeats();
     _restoreRemoteState(value.gameState);
   }
@@ -396,13 +443,16 @@ class TableSession extends ChangeNotifier {
     final votingVersion = payload['fillBotsVotingVersion'];
     fillBotsVotingVersion = votingVersion is num ? votingVersion.toInt() : 0;
     final challengeVersion = payload['challengeVotingVersion'];
-    challengeVotingVersion =
-        challengeVersion is num ? challengeVersion.toInt() : 0;
+    challengeVotingVersion = challengeVersion is num
+        ? challengeVersion.toInt()
+        : 0;
     seatIndex = payload['seatIndex'] as int? ?? seatIndex;
     seats = (payload['seats'] as List<Object?>)
-        .map((value) => value == null
-            ? null
-            : LobbySeat.fromJson(Map<String, dynamic>.from(value as Map)))
+        .map(
+          (value) => value == null
+              ? null
+              : LobbySeat.fromJson(Map<String, dynamic>.from(value as Map)),
+        )
         .toList(growable: false);
     final countdownValue = payload['waitingStartAt'];
     waitingStartAt = countdownValue is num
@@ -414,9 +464,10 @@ class TableSession extends ChangeNotifier {
     final rawSpectatorHandCounts = payload['spectatorHandCounts'];
     spectatorHandCounts = rawSpectatorHandCounts is List
         ? rawSpectatorHandCounts
-            .map((value) => value is num ? value.toInt() : 0)
-            .toList(growable: false)
+              .map((value) => value is num ? value.toInt() : 0)
+              .toList(growable: false)
         : const [];
+    chatMessages = TableChatMessage.listFromJson(payload['chatMessages']);
     final gameState = payload['gameState'];
     if (isSpectator &&
         (phase != LobbyTablePhase.playing ||
@@ -439,11 +490,7 @@ class TableSession extends ChangeNotifier {
       for (final seat in seats)
         seat == null
             ? null
-            : (
-                name: seat.name,
-                isHuman: !seat.isBot,
-                photoUrl: seat.photoUrl,
-              ),
+            : (name: seat.name, isHuman: !seat.isBot, photoUrl: seat.photoUrl),
     ]);
   }
 
@@ -471,8 +518,7 @@ class TableSession extends ChangeNotifier {
       );
     } on Object {
       connected = false;
-      replacementBotActive =
-          !isSpectator && phase == LobbyTablePhase.playing;
+      replacementBotActive = !isSpectator && phase == LobbyTablePhase.playing;
       errorMessage = isSpectator
           ? 'Não foi possível conectar à transmissão.'
           : 'Não foi possível conectar à mesa.';
@@ -643,8 +689,7 @@ class TableSession extends ChangeNotifier {
   void _handleSocketClosed() {
     if (_disposed) return;
     connected = false;
-    replacementBotActive =
-        !isSpectator && phase == LobbyTablePhase.playing;
+    replacementBotActive = !isSpectator && phase == LobbyTablePhase.playing;
     if (isSpectator && phase != LobbyTablePhase.playing) {
       spectatorMatchEnded = true;
       _presencePaused = true;

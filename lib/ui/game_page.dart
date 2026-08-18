@@ -584,6 +584,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
               onLeave: () => unawaited(_confirmLeaveTable()),
             ),
             Expanded(child: _buildTable()),
+            if (!tableSession.isSpectator)
+              _TableChatStrip(session: tableSession),
             if (!tableSession.isSpectator) _HumanControls(game: game),
           ],
         ),
@@ -715,11 +717,6 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                   ],
                 ),
               ),
-            ),
-            Positioned(
-              left: phone ? 6 : 18,
-              bottom: phone ? 2 : 8,
-              child: _FootLegend(game: game),
             ),
             if (!spectator && game.humanMustAnswerChallenge)
               Positioned.fill(
@@ -2815,6 +2812,7 @@ class _ChallengeNoticeOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     final accepted = game.challengeNoticeAccepted;
     final color = accepted ? const Color(0xFF63E6A5) : const Color(0xFFFFC857);
+    final compactNotice = MediaQuery.sizeOf(context).height < 700;
     return ColoredBox(
       color: Colors.black.withValues(alpha: .45),
       child: Center(
@@ -2823,7 +2821,7 @@ class _ChallengeNoticeOverlay extends StatelessWidget {
           child: SizedBox(
             width: 370,
             child: Padding(
-              padding: const EdgeInsets.all(20),
+              padding: EdgeInsets.all(compactNotice ? 10 : 20),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -2836,8 +2834,8 @@ class _ChallengeNoticeOverlay extends StatelessWidget {
                           ? 'imagem-desafio-aceito'
                           : 'imagem-desafio-correu',
                     ),
-                    width: 210,
-                    height: 210,
+                    width: compactNotice ? 150 : 210,
+                    height: compactNotice ? 150 : 210,
                     fit: BoxFit.contain,
                     semanticLabel: accepted ? 'Desafio aceito' : 'Trio correu',
                   ),
@@ -3190,16 +3188,395 @@ class _SpectatorEndedOverlay extends StatelessWidget {
   }
 }
 
-class _FootLegend extends StatelessWidget {
-  const _FootLegend({required this.game});
+class _TableChatStrip extends StatefulWidget {
+  const _TableChatStrip({required this.session});
 
-  final DouradinhaGame game;
+  final TableSession session;
+
+  @override
+  State<_TableChatStrip> createState() => _TableChatStripState();
+}
+
+class _TableChatStripState extends State<_TableChatStrip> {
+  final TextEditingController _controller = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _send() {
+    if (!widget.session.sendChatMessage(_controller.text)) return;
+    _controller.clear();
+    _focusNode.requestFocus();
+  }
+
+  Future<void> _openChat() async {
+    _focusNode.unfocus();
+    await showDialog<void>(
+      context: context,
+      builder: (context) => _ChatDialog(session: widget.session),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      'Pé da mão: ${game.players[game.footIndex].name}',
-      style: const TextStyle(color: Colors.white54, fontSize: 10),
+    final phone = MediaQuery.sizeOf(context).width < 600;
+    final visibleCount = phone ? 1 : 5;
+    final messages = widget.session.chatMessages;
+    final start = messages.length > visibleCount
+        ? messages.length - visibleCount
+        : 0;
+    final recent = messages.sublist(start);
+    final canSend = !widget.session.enabled || widget.session.canPlayHere;
+
+    return Container(
+      key: const ValueKey('chat-mesa-resumo'),
+      height: phone ? 70 : 116,
+      padding: EdgeInsets.fromLTRB(phone ? 6 : 14, 4, phone ? 6 : 14, 5),
+      decoration: const BoxDecoration(
+        color: Color(0xFF063327),
+        border: Border(top: BorderSide(color: Colors.white12)),
+      ),
+      child: Column(
+        children: [
+          SizedBox(
+            height: phone ? 27 : 65,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: Container(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: phone ? 8 : 10,
+                      vertical: phone ? 5 : 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: .16),
+                      borderRadius: BorderRadius.circular(7),
+                      border: Border.all(color: Colors.white12),
+                    ),
+                    child: recent.isEmpty
+                        ? Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'Nenhuma mensagem ainda',
+                              style: TextStyle(
+                                color: Colors.white38,
+                                fontSize: phone ? 10 : 11,
+                              ),
+                            ),
+                          )
+                        : Column(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              for (final message in recent)
+                                Text(
+                                  '${message.author}: ${message.text}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: phone ? 10 : 11,
+                                    height: 1.05,
+                                  ),
+                                ),
+                            ],
+                          ),
+                  ),
+                ),
+                const SizedBox(width: 5),
+                IconButton.filledTonal(
+                  key: const ValueKey('abrir-chat'),
+                  tooltip: 'Abrir chat',
+                  onPressed: _openChat,
+                  style: IconButton.styleFrom(
+                    fixedSize: Size.square(phone ? 34 : 42),
+                    padding: EdgeInsets.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  icon: Icon(Icons.forum_rounded, size: phone ? 17 : 20),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          Expanded(
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    key: const ValueKey('input-chat-rapido'),
+                    controller: _controller,
+                    focusNode: _focusNode,
+                    enabled: canSend,
+                    maxLength: TableChatMessage.maxTextLength,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => _send(),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: phone ? 11 : 13,
+                    ),
+                    decoration: InputDecoration(
+                      hintText: canSend
+                          ? 'Digite uma mensagem...'
+                          : 'Reconectando ao chat...',
+                      hintStyle: const TextStyle(color: Colors.white38),
+                      counterText: '',
+                      isDense: true,
+                      filled: true,
+                      fillColor: Colors.black12,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: phone ? 8 : 10,
+                        vertical: phone ? 7 : 9,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(7),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 5),
+                IconButton.filled(
+                  key: const ValueKey('enviar-chat-rapido'),
+                  tooltip: 'Enviar mensagem',
+                  onPressed: canSend ? _send : null,
+                  style: IconButton.styleFrom(
+                    fixedSize: Size.square(phone ? 34 : 42),
+                    padding: EdgeInsets.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  icon: Icon(Icons.send_rounded, size: phone ? 17 : 20),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChatDialog extends StatefulWidget {
+  const _ChatDialog({required this.session});
+
+  final TableSession session;
+
+  @override
+  State<_ChatDialog> createState() => _ChatDialogState();
+}
+
+class _ChatDialogState extends State<_ChatDialog> {
+  final TextEditingController _controller = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  final FocusNode _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    widget.session.addListener(_onSessionChanged);
+    _scrollToBottom(jump: true);
+  }
+
+  @override
+  void dispose() {
+    widget.session.removeListener(_onSessionChanged);
+    _controller.dispose();
+    _scrollController.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _onSessionChanged() {
+    if (!mounted) return;
+    setState(() {});
+    _scrollToBottom();
+  }
+
+  void _scrollToBottom({bool jump = false}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      final target = _scrollController.position.maxScrollExtent;
+      if (jump) {
+        _scrollController.jumpTo(target);
+      } else {
+        _scrollController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  void _send() {
+    if (!widget.session.sendChatMessage(_controller.text)) return;
+    _controller.clear();
+    _focusNode.requestFocus();
+    _scrollToBottom();
+  }
+
+  String _time(DateTime value) {
+    final hour = value.hour.toString().padLeft(2, '0');
+    final minute = value.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    final width = math.min(680.0, math.max(280.0, size.width - 24));
+    final height = math.min(620.0, math.max(260.0, size.height * .88));
+    final canSend = !widget.session.enabled || widget.session.canPlayHere;
+    final messages = widget.session.chatMessages;
+
+    return Dialog(
+      key: const ValueKey('dialogo-chat'),
+      insetPadding: const EdgeInsets.all(12),
+      backgroundColor: const Color(0xFF123C30),
+      child: SizedBox(
+        width: width,
+        height: height,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 8, 6, 6),
+              child: Row(
+                children: [
+                  const Icon(Icons.forum_rounded, color: Color(0xFFFFC857)),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'CHAT DA MESA',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Fechar',
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1, color: Colors.white12),
+            Expanded(
+              child: messages.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'Nenhuma mensagem ainda.',
+                        style: TextStyle(color: Colors.white38),
+                      ),
+                    )
+                  : ListView.builder(
+                      key: const ValueKey('lista-chat'),
+                      controller: _scrollController,
+                      padding: const EdgeInsets.all(12),
+                      itemCount: messages.length,
+                      itemBuilder: (context, index) {
+                        final message = messages[index];
+                        final mine =
+                            message.seatIndex == widget.session.seatIndex;
+                        return Align(
+                          alignment: mine
+                              ? Alignment.centerRight
+                              : Alignment.centerLeft,
+                          child: Container(
+                            constraints: BoxConstraints(maxWidth: width * .78),
+                            margin: const EdgeInsets.only(bottom: 7),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 7,
+                            ),
+                            decoration: BoxDecoration(
+                              color: mine
+                                  ? const Color(0xFF1D6A50)
+                                  : Colors.white.withValues(alpha: .08),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: mine
+                                  ? CrossAxisAlignment.end
+                                  : CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${message.author} • ${_time(message.sentAt)}',
+                                  style: const TextStyle(
+                                    color: Color(0xFFFFD77E),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  message.text,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+            const Divider(height: 1, color: Colors.white12),
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        key: const ValueKey('input-chat-dialogo'),
+                        controller: _controller,
+                        focusNode: _focusNode,
+                        enabled: canSend,
+                        maxLength: TableChatMessage.maxTextLength,
+                        textInputAction: TextInputAction.send,
+                        onSubmitted: (_) => _send(),
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          hintText: canSend
+                              ? 'Digite uma mensagem...'
+                              : 'Reconectando ao chat...',
+                          hintStyle: const TextStyle(color: Colors.white38),
+                          counterText: '',
+                          isDense: true,
+                          filled: true,
+                          fillColor: Colors.black12,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(9),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton.filled(
+                      key: const ValueKey('enviar-chat-dialogo'),
+                      tooltip: 'Enviar mensagem',
+                      onPressed: canSend ? _send : null,
+                      icon: const Icon(Icons.send_rounded),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
