@@ -72,13 +72,14 @@ jobs:
           path.write_text(text)
           PY
 
-          dart format lib/ui/game_page.dart
-
       - name: Configurar Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
+
+      - name: Formatar ajuste
+        run: dart format lib/ui/game_page.dart
 
       - name: Instalar dependências
         run: flutter pub get
