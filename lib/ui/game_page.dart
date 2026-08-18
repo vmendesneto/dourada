@@ -3188,6 +3188,290 @@ class _SpectatorEndedOverlay extends StatelessWidget {
   }
 }
 
+bool _usesVirtualChatKeyboard(BuildContext context) {
+  return MediaQuery.sizeOf(context).shortestSide < 600;
+}
+
+Future<void> _showVirtualChatKeyboard({
+  required BuildContext context,
+  required TextEditingController controller,
+  required VoidCallback onSend,
+  required bool canSend,
+}) {
+  return showGeneralDialog<void>(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: 'Fechar teclado virtual',
+    barrierColor: Colors.transparent,
+    transitionDuration: const Duration(milliseconds: 180),
+    pageBuilder: (dialogContext, animation, secondaryAnimation) {
+      return Align(
+        alignment: Alignment.bottomCenter,
+        child: Material(
+          color: Colors.transparent,
+          child: SafeArea(
+            top: false,
+            child: _VirtualChatKeyboard(
+              controller: controller,
+              canSend: canSend,
+              onSend: onSend,
+              onClose: () => Navigator.of(dialogContext).pop(),
+            ),
+          ),
+        ),
+      );
+    },
+    transitionBuilder: (context, animation, secondaryAnimation, child) {
+      final position = Tween<Offset>(
+        begin: const Offset(0, 1),
+        end: Offset.zero,
+      ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
+      return SlideTransition(position: position, child: child);
+    },
+  );
+}
+
+class _VirtualChatKeyboard extends StatefulWidget {
+  const _VirtualChatKeyboard({
+    required this.controller,
+    required this.canSend,
+    required this.onSend,
+    required this.onClose,
+  });
+
+  final TextEditingController controller;
+  final bool canSend;
+  final VoidCallback onSend;
+  final VoidCallback onClose;
+
+  @override
+  State<_VirtualChatKeyboard> createState() => _VirtualChatKeyboardState();
+}
+
+class _VirtualChatKeyboardState extends State<_VirtualChatKeyboard> {
+  static const _rows = <List<String>>[
+    ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
+    ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'ç'],
+    ['z', 'x', 'c', 'v', 'b', 'n', 'm'],
+    ['á', 'é', 'í', 'ó', 'ú', 'ã', 'õ', 'ç', '?', '!'],
+  ];
+
+  bool _shift = false;
+
+  int _safeOffset(int value, int length) =>
+      math.max(0, math.min(value, length));
+
+  void _insert(String rawValue) {
+    if (!widget.canSend) return;
+    final value = _shift ? rawValue.toUpperCase() : rawValue;
+    final current = widget.controller.value;
+    final text = current.text;
+    final selection = current.selection;
+    final rawStart = selection.isValid ? selection.start : text.length;
+    final rawEnd = selection.isValid ? selection.end : text.length;
+    final start = _safeOffset(math.min(rawStart, rawEnd), text.length);
+    final end = _safeOffset(math.max(rawStart, rawEnd), text.length);
+    final next = text.replaceRange(start, end, value);
+    if (next.length > TableChatMessage.maxTextLength) return;
+    widget.controller.value = TextEditingValue(
+      text: next,
+      selection: TextSelection.collapsed(offset: start + value.length),
+    );
+    setState(() {
+      if (_shift && RegExp(r'[A-Za-zÀ-ÿ]').hasMatch(value)) {
+        _shift = false;
+      }
+    });
+  }
+
+  void _backspace() {
+    if (!widget.canSend) return;
+    final current = widget.controller.value;
+    final text = current.text;
+    if (text.isEmpty) return;
+    final selection = current.selection;
+    var start = selection.isValid ? selection.start : text.length;
+    var end = selection.isValid ? selection.end : text.length;
+    start = _safeOffset(start, text.length);
+    end = _safeOffset(end, text.length);
+    if (start > end) {
+      final swap = start;
+      start = end;
+      end = swap;
+    }
+    if (start == end) {
+      if (start == 0) return;
+      start -= 1;
+    }
+    final next = text.replaceRange(start, end, '');
+    widget.controller.value = TextEditingValue(
+      text: next,
+      selection: TextSelection.collapsed(offset: start),
+    );
+    setState(() {});
+  }
+
+  Widget _button({
+    required Widget child,
+    required VoidCallback? onPressed,
+    required String keyName,
+    int flex = 1,
+    Color? backgroundColor,
+    Color? foregroundColor,
+  }) {
+    return Expanded(
+      flex: flex,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+        child: SizedBox(
+          height: 32,
+          child: FilledButton.tonal(
+            key: ValueKey(keyName),
+            onPressed: onPressed,
+            style: FilledButton.styleFrom(
+              padding: EdgeInsets.zero,
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+              backgroundColor: backgroundColor,
+              foregroundColor: foregroundColor,
+            ),
+            child: FittedBox(fit: BoxFit.scaleDown, child: child),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _letterRow(List<String> keys) {
+    return Row(
+      children: [
+        for (final key in keys)
+          _button(
+            keyName: 'tecla-chat-$key',
+            onPressed: widget.canSend ? () => _insert(key) : null,
+            child: Text(
+              _shift ? key.toUpperCase() : key,
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = widget.controller.text;
+    return Container(
+      key: const ValueKey('teclado-virtual-chat'),
+      width: double.infinity,
+      constraints: const BoxConstraints(maxWidth: 900),
+      padding: const EdgeInsets.fromLTRB(6, 6, 6, 7),
+      decoration: const BoxDecoration(
+        color: Color(0xFF092E25),
+        border: Border(top: BorderSide(color: Colors.white24)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black54,
+            blurRadius: 14,
+            offset: Offset(0, -4),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  height: 32,
+                  alignment: Alignment.centerLeft,
+                  padding: const EdgeInsets.symmetric(horizontal: 9),
+                  decoration: BoxDecoration(
+                    color: Colors.black26,
+                    borderRadius: BorderRadius.circular(7),
+                    border: Border.all(color: Colors.white12),
+                  ),
+                  child: Text(
+                    text.isEmpty ? 'Digite uma mensagem...' : text,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: text.isEmpty ? Colors.white38 : Colors.white,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '${text.length}/${TableChatMessage.maxTextLength}',
+                style: const TextStyle(color: Colors.white38, fontSize: 9),
+              ),
+              IconButton(
+                key: const ValueKey('fechar-teclado-chat'),
+                tooltip: 'Fechar teclado',
+                onPressed: widget.onClose,
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.keyboard_hide_rounded, size: 20),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          for (final row in _rows) _letterRow(row),
+          Row(
+            children: [
+              _button(
+                keyName: 'tecla-chat-shift',
+                onPressed: widget.canSend
+                    ? () => setState(() => _shift = !_shift)
+                    : null,
+                backgroundColor: _shift ? const Color(0xFFB9822D) : null,
+                foregroundColor: _shift ? Colors.white : null,
+                child: const Icon(Icons.arrow_upward_rounded, size: 17),
+              ),
+              _button(
+                keyName: 'tecla-chat-virgula',
+                onPressed: widget.canSend ? () => _insert(',') : null,
+                child: const Text(','),
+              ),
+              _button(
+                keyName: 'tecla-chat-espaco',
+                flex: 4,
+                onPressed: widget.canSend ? () => _insert(' ') : null,
+                child: const Text('ESPAÇO', style: TextStyle(fontSize: 10)),
+              ),
+              _button(
+                keyName: 'tecla-chat-ponto',
+                onPressed: widget.canSend ? () => _insert('.') : null,
+                child: const Text('.'),
+              ),
+              _button(
+                keyName: 'tecla-chat-apagar',
+                onPressed: widget.canSend ? _backspace : null,
+                child: const Icon(Icons.backspace_outlined, size: 17),
+              ),
+              _button(
+                keyName: 'tecla-chat-enviar',
+                onPressed: widget.canSend && text.trim().isNotEmpty
+                    ? () {
+                        widget.onSend();
+                        setState(() {});
+                      }
+                    : null,
+                backgroundColor: const Color(0xFF1D6A50),
+                foregroundColor: Colors.white,
+                child: const Icon(Icons.send_rounded, size: 17),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _TableChatStrip extends StatefulWidget {
   const _TableChatStrip({required this.session});
 
@@ -3211,7 +3495,17 @@ class _TableChatStripState extends State<_TableChatStrip> {
   void _send() {
     if (!widget.session.sendChatMessage(_controller.text)) return;
     _controller.clear();
-    _focusNode.requestFocus();
+    if (!_usesVirtualChatKeyboard(context)) _focusNode.requestFocus();
+  }
+
+  Future<void> _openVirtualKeyboard(bool canSend) async {
+    _focusNode.unfocus();
+    await _showVirtualChatKeyboard(
+      context: context,
+      controller: _controller,
+      canSend: canSend,
+      onSend: _send,
+    );
   }
 
   Future<void> _openChat() async {
@@ -3224,7 +3518,7 @@ class _TableChatStripState extends State<_TableChatStrip> {
 
   @override
   Widget build(BuildContext context) {
-    final phone = MediaQuery.sizeOf(context).width < 600;
+    final phone = _usesVirtualChatKeyboard(context);
     final visibleCount = phone ? 1 : 5;
     final messages = widget.session.chatMessages;
     final start = messages.length > visibleCount
@@ -3314,9 +3608,13 @@ class _TableChatStripState extends State<_TableChatStrip> {
                     controller: _controller,
                     focusNode: _focusNode,
                     enabled: canSend,
+                    readOnly: phone,
                     maxLength: TableChatMessage.maxTextLength,
                     textInputAction: TextInputAction.send,
-                    onSubmitted: (_) => _send(),
+                    onTap: phone && canSend
+                        ? () => _openVirtualKeyboard(canSend)
+                        : null,
+                    onSubmitted: phone ? null : (_) => _send(),
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: phone ? 11 : 13,
@@ -3417,8 +3715,18 @@ class _ChatDialogState extends State<_ChatDialog> {
   void _send() {
     if (!widget.session.sendChatMessage(_controller.text)) return;
     _controller.clear();
-    _focusNode.requestFocus();
+    if (!_usesVirtualChatKeyboard(context)) _focusNode.requestFocus();
     _scrollToBottom();
+  }
+
+  Future<void> _openVirtualKeyboard(bool canSend) async {
+    _focusNode.unfocus();
+    await _showVirtualChatKeyboard(
+      context: context,
+      controller: _controller,
+      canSend: canSend,
+      onSend: _send,
+    );
   }
 
   String _time(DateTime value) {
@@ -3430,6 +3738,7 @@ class _ChatDialogState extends State<_ChatDialog> {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
+    final phone = _usesVirtualChatKeyboard(context);
     final width = math.min(680.0, math.max(280.0, size.width - 24));
     final height = math.min(620.0, math.max(260.0, size.height * .88));
     final canSend = !widget.session.enabled || widget.session.canPlayHere;
@@ -3543,9 +3852,13 @@ class _ChatDialogState extends State<_ChatDialog> {
                         controller: _controller,
                         focusNode: _focusNode,
                         enabled: canSend,
+                        readOnly: phone,
                         maxLength: TableChatMessage.maxTextLength,
                         textInputAction: TextInputAction.send,
-                        onSubmitted: (_) => _send(),
+                        onTap: phone && canSend
+                            ? () => _openVirtualKeyboard(canSend)
+                            : null,
+                        onSubmitted: phone ? null : (_) => _send(),
                         style: const TextStyle(color: Colors.white),
                         decoration: InputDecoration(
                           hintText: canSend

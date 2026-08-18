@@ -14,8 +14,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'support/fake_auth_service.dart';
 
 void main() {
-  testWidgets('entra na mesa mesmo se o lobby nao confirmar o fechamento',
-      (tester) async {
+  testWidgets('entra na mesa mesmo se o lobby nao confirmar o fechamento', (
+    tester,
+  ) async {
     final service = _HangingCancelLobbyService();
     final authService = FakeAuthService(signedIn: true);
     await tester.pumpWidget(
@@ -48,8 +49,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('entrada rápida escolhe a primeira mesa aguardando',
-      (tester) async {
+  testWidgets('entrada rápida escolhe a primeira mesa aguardando', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(360, 640);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -86,8 +88,9 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('perfil só altera Firebase ao salvar e permite cancelar',
-      (tester) async {
+  testWidgets('perfil só altera Firebase ao salvar e permite cancelar', (
+    tester,
+  ) async {
     final authService = FakeAuthService();
     await tester.pumpWidget(
       MaterialApp(
@@ -168,8 +171,9 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('avatar escolhido só fica permanente depois de salvar',
-      (tester) async {
+  testWidgets('avatar escolhido só fica permanente depois de salvar', (
+    tester,
+  ) async {
     final authService = FakeAuthService(signedIn: true);
     await tester.pumpWidget(
       MaterialApp(
@@ -240,8 +244,9 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('visitante precisa fazer login antes de entrar na mesa',
-      (tester) async {
+  testWidgets('visitante precisa fazer login antes de entrar na mesa', (
+    tester,
+  ) async {
     final service = _HangingCancelLobbyService();
     final authService = FakeAuthService();
     await tester.pumpWidget(
@@ -266,8 +271,9 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('abre o lobby e só entra na mesa depois do clique',
-      (tester) async {
+  testWidgets('abre o lobby e só entra na mesa depois do clique', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       DouradinhaApp(authService: FakeAuthService(signedIn: true)),
     );
@@ -291,8 +297,9 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('mesa de jogo se adapta a telefone sem sobreposicoes',
-      (tester) async {
+  testWidgets('mesa de jogo se adapta a telefone sem sobreposicoes', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(360, 640);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -318,6 +325,50 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets(
+    'chat no telefone usa teclado virtual sem abrir teclado do sistema',
+    (tester) async {
+      tester.view.physicalSize = const Size(360, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      SharedPreferences.setMockInitialValues({});
+
+      await tester.pumpWidget(
+        DouradinhaApp(authService: FakeAuthService(signedIn: true)),
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
+      await tester.pumpAndSettle();
+
+      final input = find.byKey(const ValueKey('input-chat-rapido'));
+      expect(input, findsOneWidget);
+      expect(tester.widget<TextField>(input).readOnly, isTrue);
+
+      await tester.tap(input);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('teclado-virtual-chat')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const ValueKey('tecla-chat-a')));
+      await tester.pump();
+      expect(tester.widget<TextField>(input).controller!.text, 'a');
+
+      await tester.tap(find.byKey(const ValueKey('tecla-chat-enviar')));
+      await tester.pump();
+      expect(find.text('Jogador: a'), findsOneWidget);
+      expect(tester.widget<TextField>(input).controller!.text, isEmpty);
+
+      await tester.tap(find.byKey(const ValueKey('fechar-teclado-chat')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('teclado-virtual-chat')), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
   testWidgets('anima a foto do humano quando chega a vez dele', (tester) async {
     tester.view.physicalSize = const Size(360, 640);
     tester.view.devicePixelRatio = 1;
@@ -337,14 +388,17 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
     await tester.pumpAndSettle();
 
-    final highlight =
-        find.byKey(const ValueKey('animacao-turno-jogador-local'));
+    final highlight = find.byKey(
+      const ValueKey('animacao-turno-jogador-local'),
+    );
     expect(highlight, findsOneWidget);
     expect(
       tester
           .widget<AnimatedScale>(
             find.descendant(
-                of: highlight, matching: find.byType(AnimatedScale)),
+              of: highlight,
+              matching: find.byType(AnimatedScale),
+            ),
           )
           .scale,
       1,
@@ -372,8 +426,9 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('todos os humanos do trio veem a decisão conjunta do desafio',
-      (tester) async {
+  testWidgets('todos os humanos do trio veem a decisão conjunta do desafio', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(360, 640);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -387,12 +442,11 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
 
     expect(find.text('TRUCO!'), findsWidgets);
+    expect(find.textContaining('o trio corre ao fim do tempo'), findsOneWidget);
     expect(
-      find.textContaining('o trio corre ao fim do tempo'),
+      find.byKey(const ValueKey('tempo-resposta-desafio')),
       findsOneWidget,
     );
-    expect(
-        find.byKey(const ValueKey('tempo-resposta-desafio')), findsOneWidget);
     expect(find.text('Ana • Aguardando'), findsOneWidget);
     expect(find.text('Carla • Correu'), findsOneWidget);
     expect(find.byKey(const ValueKey('aceitar-desafio')), findsOneWidget);
@@ -431,27 +485,22 @@ void main() {
     await tester.pump(const Duration(seconds: 12));
   });
 
-  testWidgets('espera o gif do pedido terminar antes de mostrar a resposta',
-      (tester) async {
+  testWidgets('espera o gif do pedido terminar antes de mostrar a resposta', (
+    tester,
+  ) async {
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(
       MaterialApp(home: GamePage(entry: _challengeVoteEntry())),
     );
     await tester.pump();
 
-    expect(
-      find.byKey(const ValueKey('imagem-gif-desafio-2')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const ValueKey('imagem-gif-desafio-2')), findsOneWidget);
     final dynamic pageState = tester.state(find.byType(GamePage));
     final game = pageState.game as DouradinhaGame;
     game.acceptHumanChallenge();
     await tester.pump();
 
-    expect(
-      find.byKey(const ValueKey('imagem-gif-desafio-2')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const ValueKey('imagem-gif-desafio-2')), findsOneWidget);
     expect(find.byKey(const ValueKey('imagem-desafio-aceito')), findsNothing);
 
     await tester.pump(
@@ -475,8 +524,9 @@ void main() {
     await tester.pump(const Duration(seconds: 12));
   });
 
-  testWidgets('esconde a carta na mão e mantém o verso ao descartá-la',
-      (tester) async {
+  testWidgets('esconde a carta na mão e mantém o verso ao descartá-la', (
+    tester,
+  ) async {
     final savedGame = DouradinhaGame()..currentPlayerIndex = 0;
     final card = savedGame.players[0].hand.first;
     SharedPreferences.setMockInitialValues({
@@ -531,8 +581,9 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('decisão da mão de dez não cobre os parceiros no celular',
-      (tester) async {
+  testWidgets('decisão da mão de dez não cobre os parceiros no celular', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(360, 640);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -571,8 +622,9 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('saida confirmada volta ao lobby e encerra a sessao',
-      (tester) async {
+  testWidgets('saida confirmada volta ao lobby e encerra a sessao', (
+    tester,
+  ) async {
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(
       DouradinhaApp(authService: FakeAuthService(signedIn: true)),
@@ -587,9 +639,11 @@ void main() {
     expect(find.textContaining('Não será possível retornar'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('confirmar-saida-mesa')));
-    for (var attempt = 0;
-        attempt < 30 && find.text('DOURADA').evaluate().isEmpty;
-        attempt++) {
+    for (
+      var attempt = 0;
+      attempt < 30 && find.text('DOURADA').evaluate().isEmpty;
+      attempt++
+    ) {
       await tester.pump(const Duration(milliseconds: 100));
     }
     expect(find.text('DOURADA'), findsOneWidget);
@@ -597,25 +651,21 @@ void main() {
     expect(find.byType(GamePage), findsNothing);
   });
 
-  testWidgets('barra do resultado diminui durante os cinco segundos',
-      (tester) async {
+  testWidgets('barra do resultado diminui durante os cinco segundos', (
+    tester,
+  ) async {
     tester.platformDispatcher.accessibilityFeaturesTestValue =
         const FakeAccessibilityFeatures(disableAnimations: true);
-    addTearDown(
-      tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
-    );
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
 
     await tester.pumpWidget(
       const MaterialApp(
-        home: Scaffold(
-          body: HandResultProgress(color: Colors.amber),
-        ),
+        home: Scaffold(body: HandResultProgress(color: Colors.amber)),
       ),
     );
 
-    LinearProgressIndicator progress() => tester.widget(
-          find.byKey(const ValueKey('barra-resultado-mao')),
-        );
+    LinearProgressIndicator progress() =>
+        tester.widget(find.byKey(const ValueKey('barra-resultado-mao')));
 
     expect(progress().value, 1);
     await tester.pump(const Duration(milliseconds: 2500));
@@ -624,8 +674,9 @@ void main() {
     expect(progress().value, closeTo(0, .001));
   });
 
-  testWidgets('solicitante aguarda os votos para completar com robôs',
-      (tester) async {
+  testWidgets('solicitante aguarda os votos para completar com robôs', (
+    tester,
+  ) async {
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(
       MaterialApp(home: GamePage(entry: _fillBotsVoteEntry(seatIndex: 0))),
@@ -642,8 +693,9 @@ void main() {
     await tester.pump(const Duration(seconds: 12));
   });
 
-  testWidgets('outro humano recebe o pedido com avatares e ações',
-      (tester) async {
+  testWidgets('outro humano recebe o pedido com avatares e ações', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(360, 640);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -667,8 +719,9 @@ void main() {
     await tester.pump(const Duration(seconds: 12));
   });
 
-  testWidgets('tempo da votação espera o diálogo aparecer para o humano',
-      (tester) async {
+  testWidgets('tempo da votação espera o diálogo aparecer para o humano', (
+    tester,
+  ) async {
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(
       MaterialApp(
@@ -681,7 +734,9 @@ void main() {
 
     expect(find.text('O tempo de resposta ainda não começou'), findsOneWidget);
     expect(
-        find.textContaining('Preparando o tempo de resposta'), findsOneWidget);
+      find.textContaining('Preparando o tempo de resposta'),
+      findsOneWidget,
+    );
     expect(
       tester
           .widget<LinearProgressIndicator>(
@@ -697,8 +752,9 @@ void main() {
     await tester.pump(const Duration(seconds: 12));
   });
 
-  testWidgets('retomada escolhe não voltar depois de vinte segundos',
-      (tester) async {
+  testWidgets('retomada escolhe não voltar depois de vinte segundos', (
+    tester,
+  ) async {
     await tester.pumpWidget(const MaterialApp(home: _ResumeDialogHarness()));
     await tester.tap(find.text('ABRIR'));
     await tester.pump();
@@ -760,8 +816,9 @@ TableEntry _fillBotsVoteEntry({
         null,
         null,
       ],
-      expiresAt:
-          timerStarted ? DateTime.now().add(const Duration(seconds: 10)) : null,
+      expiresAt: timerStarted
+          ? DateTime.now().add(const Duration(seconds: 10))
+          : null,
     ),
     fillBotsVotingVersion: 2,
   );
@@ -847,23 +904,25 @@ LobbyTable _lobbyTable(
   int tableNumber,
   LobbyTablePhase phase, {
   int playerCount = 0,
-}) =>
-    LobbyTable(
-      tableNumber: tableNumber,
-      phase: phase,
-      playerCount: playerCount,
-      humanCount: playerCount,
-      botCount: 0,
-      capacity: 6,
-      seats: List<LobbySeat?>.filled(6, null),
-    );
+}) => LobbyTable(
+  tableNumber: tableNumber,
+  phase: phase,
+  playerCount: playerCount,
+  humanCount: playerCount,
+  botCount: 0,
+  capacity: 6,
+  seats: List<LobbySeat?>.filled(6, null),
+);
 
 class _HangingCancelLobbyService extends LobbyService {
   _HangingCancelLobbyService({List<LobbyTable>? tables})
-      : _tables = tables ??
-            List.generate(
-                10, (index) => _lobbyTable(index + 1, LobbyTablePhase.empty)),
-        super(serverUrl: '') {
+    : _tables =
+          tables ??
+          List.generate(
+            10,
+            (index) => _lobbyTable(index + 1, LobbyTablePhase.empty),
+          ),
+      super(serverUrl: '') {
     _controller = StreamController<List<LobbyTable>>();
     _controller.onListen = () => _controller.add(_tables);
     _controller.onCancel = () => Completer<void>().future;
