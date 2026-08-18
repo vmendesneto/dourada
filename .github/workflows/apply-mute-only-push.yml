@@ -1,0 +1,147 @@
+name: Aplicar mute simples por push
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-mute-only-push.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  apply-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Simplificar mute
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          game_path = Path('lib/ui/game_page.dart')
+          text = game_path.read_text()
+
+          text = text.replace(
+              "  static const _soundEnabledPreferenceKey = 'douradinha_som_ativado_v1';\n",
+              '',
+              1,
+          )
+          text = text.replace(
+              "      _soundEnabled = preferences.getBool(_soundEnabledPreferenceKey) ?? true;\n",
+              '',
+              1,
+          )
+
+          pattern = re.compile(
+              r"  Future<void> _toggleSound\(\) async \{.*?\n  \}\n\n  Future<void> _playChallengeSound",
+              re.S,
+          )
+          replacement = '''  Future<void> _toggleSound() async {
+            final enabled = !_soundEnabled;
+            if (mounted) setState(() => _soundEnabled = enabled);
+            try {
+              await _challengeAudioPlayer.setVolume(enabled ? 1 : 0);
+            } on Object {
+              // O mute do áudio nunca pode afetar a partida.
+            }
+          }
+
+          Future<void> _playChallengeSound'''
+          text, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f'_toggleSound substituído {count} vezes')
+
+          text = text.replace(
+              "    if (!_soundEnabled || sounds.isEmpty) return;",
+              "    if (sounds.isEmpty) return;",
+              1,
+          )
+          game_path.write_text(text)
+
+          test_path = Path('test/widget_test.dart')
+          tests = test_path.read_text()
+          pattern = re.compile(
+              r"  testWidgets\('botão do header alterna e persiste o som'.*?(?=  testWidgets\(\n    'chat mostra duas mensagens)",
+              re.S,
+          )
+          replacement = r'''  testWidgets('botão do header muta e desmuta o som', (tester) async {
+            tester.view.physicalSize = const Size(360, 640);
+            tester.view.devicePixelRatio = 1;
+            addTearDown(tester.view.resetPhysicalSize);
+            addTearDown(tester.view.resetDevicePixelRatio);
+            SharedPreferences.setMockInitialValues({});
+
+            await tester.pumpWidget(
+              DouradinhaApp(authService: FakeAuthService(signedIn: true)),
+            );
+            await tester.pump();
+            await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
+            await tester.pumpAndSettle();
+
+            final soundButton = find.byKey(const ValueKey('alternar-som'));
+            expect(soundButton, findsOneWidget);
+            expect(find.byKey(const ValueKey('som-desativado-traco')), findsNothing);
+
+            await tester.tap(soundButton);
+            await tester.pump();
+            expect(find.byKey(const ValueKey('som-desativado-traco')), findsOneWidget);
+
+            await tester.tap(soundButton);
+            await tester.pump();
+            expect(find.byKey(const ValueKey('som-desativado-traco')), findsNothing);
+            expect(tester.takeException(), isNull);
+
+            await tester.pumpWidget(const SizedBox.shrink());
+          });
+
+'''
+          tests, count = pattern.subn(replacement, tests, count=1)
+          if count != 1:
+              raise SystemExit(f'teste do som substituído {count} vezes')
+          test_path.write_text(tests)
+          PY
+
+      - name: Configurar Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Formatar
+        run: dart format lib/ui/game_page.dart test/widget_test.dart
+
+      - name: Dependências
+        run: flutter pub get
+
+      - name: Analisar
+        run: flutter analyze
+
+      - name: Testar
+        run: flutter test
+
+      - name: Salvar implementação validada
+        shell: bash
+        run: |
+          rm -f .github/workflows/apply-mute-only.yml
+          rm -f .github/workflows/apply-mute-only-push.yml
+          git checkout -- analysis_options.yaml pubspec.lock 2>/dev/null || true
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add lib/ui/game_page.dart test/widget_test.dart .github/workflows/apply-mute-only.yml .github/workflows/apply-mute-only-push.yml
+          git commit -m 'simplifica controle de som para mute'
+          git push origin HEAD:main
+
+      - name: Publicar Flutter Web
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run pages.yml --ref main
