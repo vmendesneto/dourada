@@ -321,6 +321,47 @@ void main() {
           .height,
       72,
     );
+    expect(
+      tester
+          .widget<Positioned>(
+            find.byKey(const ValueKey('emoji-jogador-1')),
+          )
+          .bottom,
+      -20,
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('mensagem da mesa fica compacta à direita no desktop', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues({});
+    addTearDown(() => SharedPreferences.setMockInitialValues({}));
+
+    await tester.pumpWidget(
+      DouradinhaApp(authService: FakeAuthService(signedIn: true)),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
+    await tester.pumpAndSettle();
+
+    final messageBox =
+        find.byKey(const ValueKey('caixa-mensagem-mesa-desktop'));
+    expect(tester.getSize(messageBox).width, lessThanOrEqualTo(420));
+    expect(tester.getCenter(messageBox).dx, greaterThan(600));
+    expect(
+      tester
+          .widget<Positioned>(
+            find.byKey(const ValueKey('emoji-jogador-1')),
+          )
+          .bottom,
+      -24,
+    );
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });

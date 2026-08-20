@@ -56,6 +56,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   late final DouradinhaGame game;
   late final TableSession tableSession;
   late final AudioPlayer _challengeAudioPlayer;
+  AudioPlayer? _turnAudioPlayer;
   late final Future<SharedPreferences> _preferences;
   final math.Random _challengeSoundRandom = math.Random();
   Future<void> _saveQueue = Future.value();
@@ -79,6 +80,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   int _turnLimitSeconds = 15;
   int _turnSecondsLeft = 15;
   double _turnProgress = 1;
+  ({int playerIndex, int playedCardCount})? _lastAnnouncedTurn;
   bool _restoringGame = true;
   bool _leavingTable = false;
   bool _spectatorEnding = false;
@@ -120,6 +122,10 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     _challengeAnimationTimer?.cancel();
     _playerSignalTimer?.cancel();
     _spectatorReturnTimer?.cancel();
+    final turnAudioPlayer = _turnAudioPlayer;
+    if (turnAudioPlayer != null) {
+      unawaited(turnAudioPlayer.dispose().catchError((Object _) {}));
+    }
     tableSession
       ..removeListener(_onTableSessionChanged)
       ..dispose();
@@ -164,6 +170,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     _syncChallengeAnimation();
     _syncChallengeNotice();
     _syncPlayerSignalTimer();
+    _syncTurnSound();
     _syncTurnClock();
     setState(() {});
     _persistGame();
@@ -264,6 +271,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       _automationScheduled = false;
       _stopTurnClock();
     } else if (!_restoringGame) {
+      _syncTurnSound();
       _syncTurnClock();
       _scheduleAutomation();
     }
@@ -305,6 +313,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         _syncChallengeAnimation();
         _syncChallengeNotice();
         _syncPlayerSignalTimer();
+        _syncTurnSound();
         _syncTurnClock();
         setState(() {});
         _persistGame();
@@ -317,6 +326,39 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     if (widget.entry.online) return;
     final snapshot = jsonEncode(game.toJson());
     _saveQueue = _saveQueue.then((_) => _writeSavedGame(snapshot));
+  }
+
+  void _syncTurnSound() {
+    if (!mounted ||
+        _restoringGame ||
+        !_soundEnabled ||
+        tableSession.isSpectator ||
+        !tableSession.canPlayHere ||
+        !game.canCurrentPlayerPlayCard) {
+      return;
+    }
+
+    final playerIndex = game.currentPlayerIndex;
+    final turn = (
+      playerIndex: playerIndex,
+      playedCardCount: game.playedCards.length,
+    );
+    if (_lastAnnouncedTurn == turn) return;
+    _lastAnnouncedTurn = turn;
+    final asset = playerIndex == game.humanPlayerIndex
+        ? 'sons/jogar/usuario.mp3'
+        : 'sons/jogar/adv.mp3';
+    unawaited(_playTurnSound(asset));
+  }
+
+  Future<void> _playTurnSound(String asset) async {
+    try {
+      final player = _turnAudioPlayer ??= AudioPlayer();
+      await player.stop();
+      await player.play(AssetSource(asset));
+    } on Object {
+      // O jogo continua normalmente se o dispositivo não puder tocar áudio.
+    }
   }
 
   Future<void> _writeSavedGame(String snapshot) async {
@@ -355,9 +397,12 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     if (!enabled) {
       try {
         await _challengeAudioPlayer.stop();
+        await _turnAudioPlayer?.stop();
       } on Object {
         // Falha ao interromper um som nunca pode afetar a partida.
       }
+    } else {
+      _syncTurnSound();
     }
   }
 
@@ -1533,37 +1578,59 @@ class _ScoreBoard extends StatelessWidget {
           Container(width: 1, height: 38, color: Colors.white24),
           const SizedBox(width: 20),
           Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    _HandWinnerDots(game: game, results: game.trickWinners),
-                    const SizedBox(width: 9),
-                    Flexible(
-                      child: Text(
-                        '${game.displayedHandNumber}ª Mão • Vale ${DouradinhaGame.spokenValueForPoints(game.handValue)}',
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: Container(
+                  key: const ValueKey('caixa-mensagem-mesa-desktop'),
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: .16),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.white12),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          _HandWinnerDots(
+                            game: game,
+                            results: game.trickWinners,
+                          ),
+                          const SizedBox(width: 9),
+                          Flexible(
+                            child: Text(
+                              '${game.displayedHandNumber}ª Mão • Vale ${DouradinhaGame.spokenValueForPoints(game.handValue)}',
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        game.statusMessage,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 12,
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  game.statusMessage,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
+                    ],
                   ),
                 ),
-              ],
+              ),
             ),
           ),
           if (!tableSession.isSpectator && tableSession.spectatorCount > 0) ...[
@@ -2096,8 +2163,9 @@ class _BotSeat extends StatelessWidget {
           ),
         ),
         Positioned(
+          key: ValueKey('emoji-jogador-$playerIndex'),
           right: compact ? -10 : -14,
-          bottom: compact ? -12 : -16,
+          bottom: compact ? -20 : -24,
           child: _PlayerSignalBadge(emoji: signalEmoji, compact: compact),
         ),
       ],

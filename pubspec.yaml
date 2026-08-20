@@ -76,6 +76,7 @@ flutter:
     - assets/sons/doze/
     - assets/sons/aceitar/
     - assets/sons/correr/
+    - assets/sons/jogar/
   #   - images/a_dot_ham.jpeg
 
   # An image asset can refer to one or more resolution-specific "variants", see
