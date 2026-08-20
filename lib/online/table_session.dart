@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:dourada/game/douradinha_game.dart';
+import 'package:dourada/online/chat_moderation.dart';
 import 'package:dourada/online/lobby_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -336,9 +337,10 @@ class TableSession extends ChangeNotifier {
   bool sendChatMessage(String rawText) {
     final normalized = rawText.replaceAll(RegExp(r'\s+'), ' ').trim();
     if (normalized.isEmpty) return false;
-    final text = normalized.length > TableChatMessage.maxTextLength
-        ? normalized.substring(0, TableChatMessage.maxTextLength)
-        : normalized;
+    final moderated = moderateChatText(normalized);
+    final text = moderated.length > TableChatMessage.maxTextLength
+        ? moderated.substring(0, TableChatMessage.maxTextLength)
+        : moderated;
 
     if (!enabled) {
       LobbySeat? seat;

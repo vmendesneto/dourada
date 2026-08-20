@@ -2874,7 +2874,9 @@ class _ChallengeOverlay extends StatelessWidget {
     }
 
     String instructions() {
-      if (!online) return 'Eles desafiaram o seu trio.';
+      if (!online) {
+        return 'Eles desafiaram o seu trio. Sem resposta, seu trio corre ao fim do tempo.';
+      }
       if (tableSession.challengeVotingVersion < 1) {
         return 'O servidor da mesa precisa ser atualizado para receber a decisão do trio.';
       }
@@ -2918,9 +2920,23 @@ class _ChallengeOverlay extends StatelessWidget {
                     textAlign: TextAlign.center,
                     style: const TextStyle(color: Colors.white70),
                   ),
-                  if (online && vote != null) ...[
+                  if (!online) ...[
                     const SizedBox(height: 10),
-                    _ChallengeResponseCountdown(vote: vote),
+                    _LocalChallengeResponseCountdown(
+                      key: ValueKey(
+                        'tempo-desafio-local-'
+                        '${challenge.challengerPlayer}-'
+                        '${challenge.requestedValue}',
+                      ),
+                      game: game,
+                      challenge: challenge,
+                    ),
+                  ] else if (vote != null) ...[
+                    const SizedBox(height: 10),
+                    _ChallengeResponseCountdown(
+                      countdownId: vote.id,
+                      expiresAt: vote.expiresAt,
+                    ),
                     const SizedBox(height: 10),
                     Wrap(
                       alignment: WrapAlignment.center,
@@ -2986,14 +3002,82 @@ class _ChallengeOverlay extends StatelessWidget {
   }
 }
 
-class _ChallengeResponseCountdown extends StatelessWidget {
-  const _ChallengeResponseCountdown({required this.vote});
+class _LocalChallengeResponseCountdown extends StatefulWidget {
+  const _LocalChallengeResponseCountdown({
+    super.key,
+    required this.game,
+    required this.challenge,
+  });
 
-  final TeamChallengeVote vote;
+  final DouradinhaGame game;
+  final Challenge challenge;
+
+  @override
+  State<_LocalChallengeResponseCountdown> createState() =>
+      _LocalChallengeResponseCountdownState();
+}
+
+class _LocalChallengeResponseCountdownState
+    extends State<_LocalChallengeResponseCountdown> {
+  late DateTime _expiresAt;
+  Timer? _timeoutTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimeout();
+  }
+
+  @override
+  void didUpdateWidget(_LocalChallengeResponseCountdown oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.challenge, widget.challenge)) {
+      _startTimeout();
+    }
+  }
+
+  void _startTimeout() {
+    _timeoutTimer?.cancel();
+    _expiresAt = DateTime.now().add(TeamChallengeVote.responseTimeout);
+    _timeoutTimer = Timer(TeamChallengeVote.responseTimeout, () {
+      if (!mounted ||
+          !identical(widget.game.pendingChallenge, widget.challenge) ||
+          !widget.game.humanMustAnswerChallenge) {
+        return;
+      }
+      _debugChallengeLog('tempo de resposta local esgotado: trio correu');
+      widget.game.foldHumanChallenge();
+    });
+  }
+
+  @override
+  void dispose() {
+    _timeoutTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final remaining = vote.expiresAt.difference(DateTime.now());
+    return _ChallengeResponseCountdown(
+      countdownId: 'local-${widget.challenge.challengerPlayer}-'
+          '${widget.challenge.requestedValue}',
+      expiresAt: _expiresAt,
+    );
+  }
+}
+
+class _ChallengeResponseCountdown extends StatelessWidget {
+  const _ChallengeResponseCountdown({
+    required this.countdownId,
+    required this.expiresAt,
+  });
+
+  final String countdownId;
+  final DateTime expiresAt;
+
+  @override
+  Widget build(BuildContext context) {
+    final remaining = expiresAt.difference(DateTime.now());
     final remainingMs = remaining.inMilliseconds.clamp(
       0,
       TeamChallengeVote.responseTimeout.inMilliseconds,
@@ -3001,33 +3085,63 @@ class _ChallengeResponseCountdown extends StatelessWidget {
     final initialProgress =
         remainingMs / TeamChallengeVote.responseTimeout.inMilliseconds;
     return SizedBox(
-      width: 230,
+      width: 300,
       child: TweenAnimationBuilder<double>(
-        key: ValueKey('challenge-countdown-${vote.id}'),
+        key: ValueKey('challenge-countdown-$countdownId'),
         tween: Tween(begin: initialProgress, end: 0),
         duration: Duration(milliseconds: remainingMs),
         builder: (context, progress, child) {
           final seconds =
               (progress * TeamChallengeVote.responseTimeout.inSeconds).ceil();
+          final color = progress > .5
+              ? const Color(0xFF63E6A5)
+              : progress > .25
+                  ? const Color(0xFFFFC857)
+                  : const Color(0xFFFF6B6B);
           return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                '$seconds s para responder',
-                key: const ValueKey('tempo-resposta-desafio'),
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.timer_outlined,
+                    color: Colors.white70,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 5),
+                  const Expanded(
+                    child: Text(
+                      'Tempo para o trio responder',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    '$seconds s',
+                    key: const ValueKey('tempo-resposta-desafio'),
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 4),
-              LinearProgressIndicator(
-                value: progress,
-                minHeight: 4,
-                borderRadius: BorderRadius.circular(4),
-                color: const Color(0xFFFFC857),
-                backgroundColor: Colors.white12,
+              const SizedBox(height: 6),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(5),
+                child: LinearProgressIndicator(
+                  key: const ValueKey('barra-tempo-resposta-desafio'),
+                  value: progress,
+                  minHeight: 8,
+                  color: color,
+                  backgroundColor: Colors.white12,
+                  semanticsLabel: 'Tempo restante para o trio responder',
+                ),
               ),
             ],
           );
@@ -3096,6 +3210,30 @@ class _ChallengeNoticeOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accepted = game.challengeNoticeAccepted;
+    final tenHandNotice = game.challengeNotice!.toLowerCase().contains(
+      'mão de dez',
+    );
+    final imageAsset = tenHandNotice
+        ? accepted
+            ? 'assets/images/challenge/aceita10.png'
+            : 'assets/images/challenge/correu10.png'
+        : accepted
+            ? 'assets/images/challenge/aceito.png'
+            : 'assets/images/challenge/correu.png';
+    final imageKey = tenHandNotice
+        ? accepted
+            ? 'imagem-mao-de-dez-aceita'
+            : 'imagem-mao-de-dez-correu'
+        : accepted
+            ? 'imagem-desafio-aceito'
+            : 'imagem-desafio-correu';
+    final semanticLabel = tenHandNotice
+        ? accepted
+            ? 'Trio aceitou jogar a mão de dez'
+            : 'Trio correu na mão de dez'
+        : accepted
+            ? 'Desafio aceito'
+            : 'Trio correu';
     final color = accepted ? const Color(0xFF63E6A5) : const Color(0xFFFFC857);
     final compactNotice = MediaQuery.sizeOf(context).height < 700;
     return ColoredBox(
@@ -3111,18 +3249,12 @@ class _ChallengeNoticeOverlay extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Image.asset(
-                    accepted
-                        ? 'assets/images/challenge/aceito.png'
-                        : 'assets/images/challenge/correu.png',
-                    key: ValueKey(
-                      accepted
-                          ? 'imagem-desafio-aceito'
-                          : 'imagem-desafio-correu',
-                    ),
+                    imageAsset,
+                    key: ValueKey(imageKey),
                     width: compactNotice ? 150 : 210,
                     height: compactNotice ? 150 : 210,
                     fit: BoxFit.contain,
-                    semanticLabel: accepted ? 'Desafio aceito' : 'Trio correu',
+                    semanticLabel: semanticLabel,
                   ),
                   const SizedBox(height: 6),
                   Text(
@@ -3130,7 +3262,7 @@ class _ChallengeNoticeOverlay extends StatelessWidget {
                     textAlign: TextAlign.center,
                     style: const TextStyle(color: Colors.white70),
                   ),
-                  if (!accepted) ...[
+                  if (!accepted && !tenHandNotice) ...[
                     const SizedBox(height: 4),
                     const Text(
                       'Nós vencemos a disputa.',

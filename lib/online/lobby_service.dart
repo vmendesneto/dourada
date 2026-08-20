@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:dourada/online/chat_moderation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -89,7 +90,7 @@ class TableChatMessage {
         continue;
       }
       final cleanAuthor = author.trim();
-      final cleanText = text.trim();
+      final cleanText = moderateChatText(text.trim());
       if (cleanAuthor.isEmpty || cleanText.isEmpty) continue;
       messages.add(
         TableChatMessage(

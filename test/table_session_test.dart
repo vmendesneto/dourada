@@ -288,6 +288,8 @@ void main() {
     expect(session.sendChatMessage('   Olá   mesa   '), isTrue);
     expect(session.chatMessages.single.author, 'Ana');
     expect(session.chatMessages.single.text, 'Olá mesa');
+    expect(session.sendChatMessage('Que merda!'), isTrue);
+    expect(session.chatMessages.last.text, 'Que m****!');
     expect(session.sendChatMessage('   '), isFalse);
 
     final longText = List.filled(

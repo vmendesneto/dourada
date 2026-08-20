@@ -9,6 +9,42 @@ export interface TableChatMessage {
   sentAt: number;
 }
 
+const chatWordPattern = /[A-Za-zÀ-ÖØ-öø-ÿ]+(?:-[A-Za-zÀ-ÖØ-öø-ÿ]+)*/g;
+
+const profanityPatterns = [
+  /^caralh(?:o|a|os|as|inho|inha|ao|oes)?$/,
+  /^porr(?:a|as|inha|inhas|ao|oes)?$/,
+  /^put(?:a|o|as|os|aria|arias|inha|inho|ona|ao)?$/,
+  /^fod(?:a|as|ase|am|ao|er|eu|endo|ido|ida|idos|idas)?$/,
+  /^merd(?:a|as|inha|inhas|ao|oes)?$/,
+  /^bost(?:a|as|inha|inhas|ao|oes)?$/,
+  /^(?:bucet|bocet)(?:a|as|inha|inhas|ao|oes)?$/,
+  /^cacet(?:e|es|inho|inhos|ao|oes)?$/,
+  /^desgrac(?:a|ado|ada|ados|adas|adinho|adinha)?$/,
+  /^arrombad(?:o|a|os|as|inho|inha)?$/,
+  /^viad(?:o|a|os|as|inho|inha)?$/,
+  /^piroc(?:a|as|ao|oes|inha|inhas)?$/,
+  /^cu(?:zao|zoes|zinho|zinhos)?$/,
+  /^corn(?:o|a|os|as|inho|inha)?$/,
+  /^vagabund(?:o|a|os|as)?$/,
+  /^escrot(?:o|a|os|as)?$/,
+  /^(?:fdp|pqp|vsf)$/,
+];
+
+export function moderateChatText(text: string): string {
+  return text.replace(chatWordPattern, (word) => {
+    const canonical = word
+      .toLocaleLowerCase("pt-BR")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f-]/g, "");
+    if (!profanityPatterns.some((pattern) => pattern.test(canonical))) {
+      return word;
+    }
+    const characters = Array.from(word);
+    return `${characters[0]}${"*".repeat(characters.length - 1)}`;
+  });
+}
+
 export function cleanChatText(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = value
@@ -16,7 +52,9 @@ export function cleanChatText(value: unknown): string | null {
     .replace(/\s+/g, " ")
     .trim();
   if (normalized.length === 0) return null;
-  return Array.from(normalized).slice(0, maxChatTextLength).join("");
+  return Array.from(moderateChatText(normalized))
+    .slice(0, maxChatTextLength)
+    .join("");
 }
 
 export function normalizeChatMessages(value: unknown): TableChatMessage[] {

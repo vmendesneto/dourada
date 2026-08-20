@@ -646,13 +646,79 @@ void main() {
       find.byKey(const ValueKey('tempo-resposta-desafio')),
       findsOneWidget,
     );
-    expect(find.text('20 s para responder'), findsOneWidget);
+    expect(find.text('Tempo para o trio responder'), findsOneWidget);
+    expect(find.text('20 s'), findsOneWidget);
+    final progressFinder = find.byKey(
+      const ValueKey('barra-tempo-resposta-desafio'),
+    );
+    expect(progressFinder, findsOneWidget);
+    final initialProgress =
+        tester.widget<LinearProgressIndicator>(progressFinder).value!;
+    expect(initialProgress, greaterThan(.99));
     expect(find.text('Ana • Aguardando'), findsOneWidget);
     expect(find.text('Carla • Correu'), findsOneWidget);
     expect(find.byKey(const ValueKey('aceitar-desafio')), findsOneWidget);
     expect(find.byKey(const ValueKey('correr-desafio')), findsOneWidget);
     expect(find.byKey(const ValueKey('aumentar-desafio')), findsOneWidget);
     expect(tester.takeException(), isNull);
+
+    await tester.pump(const Duration(seconds: 5));
+    final updatedProgress =
+        tester.widget<LinearProgressIndicator>(progressFinder).value!;
+    expect(updatedProgress, lessThan(initialProgress));
+    expect(updatedProgress, closeTo(.75, .02));
+    expect(find.text('15 s'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 12));
+  });
+
+  testWidgets('desafio local mostra o prazo e faz o trio correr ao zerar', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+
+    await tester.pumpWidget(
+      MaterialApp(home: GamePage(entry: _localGameEntry())),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    final dynamic pageState = tester.state(find.byType(GamePage));
+    final dynamic game = pageState.game;
+    game.pendingChallenge = const Challenge(
+      challengerTeam: 1,
+      challengerPlayer: 1,
+      targetTeam: 0,
+      requestedValue: 2,
+      responderPlayer: 2,
+    );
+    game.notifyListeners();
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('imagem-gif-desafio-2')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('barra-tempo-resposta-desafio')),
+      findsNothing,
+    );
+
+    await tester.pump(DouradinhaGame.challengeAnimationDuration);
+
+    expect(
+      find.byKey(const ValueKey('barra-tempo-resposta-desafio')),
+      findsOneWidget,
+    );
+    expect(find.text('Tempo para o trio responder'), findsOneWidget);
+    expect(find.text('20 s'), findsOneWidget);
+    expect(find.textContaining('seu trio corre ao fim do tempo'), findsOneWidget);
+
+    await tester.pump(TeamChallengeVote.responseTimeout);
+    await tester.pump();
+
+    expect(game.pendingChallenge, isNull);
+    expect(game.challengeNotice, 'Seu trio correu do desafio.');
+    expect(find.byKey(const ValueKey('aceitar-desafio')), findsNothing);
+    expect(find.byKey(const ValueKey('correr-desafio')), findsNothing);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(seconds: 12));
@@ -804,6 +870,58 @@ void main() {
     expect(find.byKey(const ValueKey('imagem-desafio-correu')), findsOneWidget);
     expect(find.byKey(const ValueKey('imagem-desafio-aceito')), findsNothing);
     expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 12));
+  });
+
+  testWidgets('usa imagens próprias para a decisão da mão de dez', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: GamePage(entry: _challengeNoticeEntry(true, tenHand: true)),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(
+      find.byKey(const ValueKey('imagem-mao-de-dez-aceita')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('imagem-desafio-aceito')), findsNothing);
+    final acceptedImage = tester.widget<Image>(
+      find.byKey(const ValueKey('imagem-mao-de-dez-aceita')),
+    );
+    expect(
+      (acceptedImage.image as AssetImage).assetName,
+      'assets/images/challenge/aceita10.png',
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 12));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: GamePage(entry: _challengeNoticeEntry(false, tenHand: true)),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(
+      find.byKey(const ValueKey('imagem-mao-de-dez-correu')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('imagem-desafio-correu')), findsNothing);
+    final foldedImage = tester.widget<Image>(
+      find.byKey(const ValueKey('imagem-mao-de-dez-correu')),
+    );
+    expect(
+      (foldedImage.image as AssetImage).assetName,
+      'assets/images/challenge/correu10.png',
+    );
+    expect(find.text('Nós vencemos a disputa.'), findsNothing);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(seconds: 12));
@@ -1219,11 +1337,15 @@ TableEntry _challengeVoteEntry() {
   );
 }
 
-TableEntry _challengeNoticeEntry(bool accepted) {
+TableEntry _challengeNoticeEntry(bool accepted, {bool tenHand = false}) {
   final game = DouradinhaGame()
-    ..challengeNotice = accepted
-        ? 'O trio adversário aceitou o desafio.'
-        : 'O trio adversário correu do desafio.'
+    ..challengeNotice = tenHand
+        ? accepted
+            ? 'O trio adversário decidiu jogar a mão de dez.'
+            : 'O trio adversário correu na mão de dez.'
+        : accepted
+            ? 'O trio adversário aceitou o desafio.'
+            : 'O trio adversário correu do desafio.'
     ..challengeNoticeAccepted = accepted;
   return TableEntry(
     serverUrl: 'http://127.0.0.1:1',
