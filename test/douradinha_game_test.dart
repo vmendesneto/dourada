@@ -11,6 +11,37 @@ import 'support/fake_auth_service.dart';
 
 void main() {
   group('baralho e hierarquia', () {
+    test('embaralha os sinais somente a cada nova queda', () {
+      final game = DouradinhaGame(
+        random: Random(91),
+        signalRandom: Random(17),
+      );
+      final firstFall = [...game.signalEmojisFromWeakestToStrongest];
+      final otherTeamFirstFall = [...game.signalEmojisForTeam(1)];
+
+      expect(firstFall, unorderedEquals(DouradinhaGame.signalEmojiPool));
+      expect(otherTeamFirstFall, unorderedEquals(DouradinhaGame.signalEmojiPool));
+      expect(otherTeamFirstFall, isNot(equals(firstFall)));
+
+      game.phase = MatchPhase.handFinished;
+      game.startNextHand();
+      expect(game.signalEmojisFromWeakestToStrongest, firstFall);
+
+      game.restart();
+      expect(
+        game.signalEmojisFromWeakestToStrongest,
+        isNot(equals(firstFall)),
+      );
+      expect(
+        game.signalEmojisFromWeakestToStrongest,
+        unorderedEquals(DouradinhaGame.signalEmojiPool),
+      );
+      expect(
+        game.signalEmojisForTeam(1),
+        isNot(equals(game.signalEmojisForTeam(0))),
+      );
+    });
+
     test('usa exatamente as 40 cartas permitidas', () {
       final deck = PlayingCard.fullDeck();
 
@@ -135,6 +166,14 @@ void main() {
 
       expect(restoredSuccessfully, isTrue);
       expect(jsonEncode(restored.toJson()), snapshot);
+      expect(
+        restored.signalEmojisFromWeakestToStrongest,
+        original.signalEmojisFromWeakestToStrongest,
+      );
+      expect(
+        restored.signalEmojisForTeam(1),
+        original.signalEmojisForTeam(1),
+      );
       expect(restored.currentPlayerIndex, original.currentPlayerIndex);
       expect(restored.players[0].hand, original.players[0].hand);
       expect(restored.playedCards.first.hidden, isTrue);

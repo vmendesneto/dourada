@@ -28,6 +28,7 @@ export interface GameState {
   tenDecisionMade: boolean[];
   botChallengeConsideredThisTrick: boolean[];
   automaticTimeouts: number[];
+  signalEmojisByTeam?: string[][];
   dealerIndex: number;
   trickLeaderIndex: number;
   currentPlayerIndex: number;
@@ -63,6 +64,17 @@ export const betweenPartidasTransitionMs =
 
 const ranks = ["4", "5", "6", "7", "Q", "J", "K", "A", "2", "3"];
 const suits = ["o", "e", "c", "p"];
+export const signalEmojiPool = [
+  "😶",
+  "😉",
+  "😮",
+  "😎",
+  "🤨",
+  "😬",
+  "😏",
+  "😡",
+  "🤩",
+];
 
 export const fullDeck = (): string[] =>
   ranks.flatMap((rank) => suits.map((suit) => `${rank}${suit}`));
@@ -83,6 +95,7 @@ export function createInitialGame(
     tenDecisionMade: [true, true],
     botChallengeConsideredThisTrick: [false, false],
     automaticTimeouts: [0, 0, 0, 0, 0, 0],
+    signalEmojisByTeam: shuffledSignalEmojisByTeam(),
     // dealHand gira o carteador antes de distribuir. Esta posição faz com que
     // a cadeira sorteada seja a primeira a jogar após esse giro.
     dealerIndex: (firstPlayerIndex + 4) % 6,
@@ -143,6 +156,42 @@ export function cardStrength(code: string): number {
   return common[code.slice(0, -1)] ?? 1;
 }
 
+export function cardDisplayName(code: string): string {
+  const rank = code.slice(0, -1);
+  const suit = code.slice(-1);
+  const rankName: Record<string, string> = {
+    A: "Ás",
+    K: "Rei",
+    Q: "Dama",
+    J: "Valete",
+    "7": "7",
+    "6": "6",
+    "5": "5",
+    "4": "4",
+    "3": "3",
+    "2": "2",
+  };
+  const suitName: Record<string, string> = {
+    o: "Ouros",
+    e: "Espadas",
+    c: "Copas",
+    p: "Paus",
+  };
+  if (rankName[rank] === undefined || suitName[suit] === undefined) return code;
+
+  const name = `${rankName[rank]} de ${suitName[suit]}`;
+  const nickname: Record<string, string> = {
+    Qo: "Douradinha",
+    Jp: "Valetinho",
+    "2p": "Dunguinha",
+    Ap: "Azinho",
+    "5p": "Cinquinho",
+    "4p": "Zap",
+    Ae: "Espadilha",
+  };
+  return nickname[code] === undefined ? name : `${name} (${nickname[code]})`;
+}
+
 export function scorePoints(handValue: number): number {
   return (
     ({ 1: 2, 2: 4, 3: 6, 4: 8, 6: 12 } as Record<number, number>)[handValue] ??
@@ -172,6 +221,8 @@ export function isGameState(value: unknown): value is GameState {
     hasLegalHiddenDiscards(state.currentTrick, state.scores) &&
     Array.isArray(state.playedCards) &&
     Array.isArray(state.trickWinners) &&
+    (state.signalEmojisByTeam === undefined ||
+      isSignalEmojiMappings(state.signalEmojisByTeam)) &&
     (state.challengeNoticeUntil === undefined ||
       state.challengeNoticeUntil === null ||
       (typeof state.challengeNoticeUntil === "number" &&
@@ -437,7 +488,7 @@ function playCard(game: GameState, playerIndex: number, card: string): void {
     game,
     hidden
       ? "Robô substituto descartou uma carta fechada."
-      : `Robô substituto jogou ${card}.`,
+      : `Robô substituto jogou ${cardDisplayName(card)}.`,
   );
 
   if (game.currentTrick.length === 6) {
@@ -590,6 +641,37 @@ function shuffle<T>(values: T[]): T[] {
     [values[index], values[target]] = [values[target], values[index]];
   }
   return values;
+}
+
+function isSignalEmojiPermutation(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length === signalEmojiPool.length &&
+    new Set(value).size === signalEmojiPool.length &&
+    signalEmojiPool.every((emoji) => value.includes(emoji))
+  );
+}
+
+function isSignalEmojiMappings(value: unknown): value is string[][] {
+  return (
+    Array.isArray(value) &&
+    value.length === 2 &&
+    value.every(isSignalEmojiPermutation)
+  );
+}
+
+export function normalizeSignalEmojisByTeam(value: unknown): string[][] {
+  return isSignalEmojiMappings(value)
+    ? value.map((emojis) => [...emojis])
+    : [[...signalEmojiPool], [...signalEmojiPool]];
+}
+
+function shuffledSignalEmojis(): string[] {
+  return shuffle([...signalEmojiPool]);
+}
+
+function shuffledSignalEmojisByTeam(): string[][] {
+  return [shuffledSignalEmojis(), shuffledSignalEmojis()];
 }
 
 function hiddenPlaysForTeam(plays: PlayedCardState[], team: number): number {

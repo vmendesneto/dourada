@@ -3,16 +3,19 @@ import {
   acceptPendingChallenge,
   advanceBot,
   betweenPartidasTransitionMs,
+  cardDisplayName,
   cardStrength,
   challengeNoticeMs,
   createInitialGame,
   foldPendingChallenge,
   handTransitionMs,
   isGameState,
+  normalizeSignalEmojisByTeam,
   raisePendingChallenge,
   resolveDisputeWinner,
   resolveTrickWinner,
   scorePoints,
+  signalEmojiPool,
   type GameState,
 } from "../src/game";
 
@@ -69,6 +72,43 @@ describe("motor do robô substituto", () => {
     expect(scorePoints(1)).toBe(2);
     expect(scorePoints(4)).toBe(8);
     expect(scorePoints(6)).toBe(12);
+  });
+
+  it("cria uma associação aleatória e válida de sinais para cada queda", () => {
+    const game = createInitialGame(0);
+
+    expect(game.signalEmojisByTeam).toHaveLength(2);
+    expect(game.signalEmojisByTeam![0]).not.toBe(game.signalEmojisByTeam![1]);
+    for (const emojis of game.signalEmojisByTeam!) {
+      expect([...emojis].sort()).toEqual([...signalEmojiPool].sort());
+    }
+    expect(normalizeSignalEmojisByTeam(undefined)).toEqual([
+      signalEmojiPool,
+      signalEmojiPool,
+    ]);
+
+    const invalid = fixture();
+    invalid.signalEmojisByTeam = [
+      Array(signalEmojiPool.length).fill("😶"),
+      [...signalEmojiPool],
+    ];
+    expect(isGameState(invalid)).toBe(false);
+  });
+
+  it("usa o nome completo das cartas nas mensagens", () => {
+    expect(cardDisplayName("7e")).toBe("7 de Espadas");
+    expect(cardDisplayName("Ae")).toBe("Ás de Espadas (Espadilha)");
+
+    const game = fixture();
+    game.currentPlayerIndex = 4;
+    const step = advanceBot(game);
+
+    expect(step.state.statusMessage).toBe(
+      "Robô substituto jogou 7 de Espadas.",
+    );
+    expect(step.state.history[0]).toBe(
+      "Robô substituto jogou 7 de Espadas.",
+    );
   });
 
   it("mantém as regras de empate das três mãos", () => {

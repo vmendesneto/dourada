@@ -154,9 +154,24 @@ class DouradinhaGame extends ChangeNotifier {
   static const challengeAnimationDuration = Duration(milliseconds: 2780);
   static const signalDuration = Duration(milliseconds: 350);
   static const defaultSignalEmoji = '🙂';
+  static const signalEmojiPool = [
+    '😶',
+    '😉',
+    '😮',
+    '😎',
+    '🤨',
+    '😬',
+    '😏',
+    '😡',
+    '🤩',
+  ];
 
-  DouradinhaGame({Random? random, this.humanPlayerIndex = 0})
-      : _random = random ?? Random() {
+  DouradinhaGame({
+    Random? random,
+    Random? signalRandom,
+    this.humanPlayerIndex = 0,
+  })  : _random = random ?? Random(),
+        _signalRandom = signalRandom ?? Random() {
     players = List.generate(
       6,
       (index) => PlayerSeat(
@@ -170,6 +185,7 @@ class DouradinhaGame extends ChangeNotifier {
   }
 
   final Random _random;
+  final Random _signalRandom;
   final int humanPlayerIndex;
   late final List<PlayerSeat> players;
   final List<int> scores = [0, 0];
@@ -182,6 +198,16 @@ class DouradinhaGame extends ChangeNotifier {
   final List<int> _automaticTimeouts = List.filled(6, 0);
   final List<String?> _playerSignalEmojis = List.filled(6, null);
   final List<int> _playerSignalExpiresAt = List.filled(6, 0);
+  final List<List<String>> _signalEmojisByTeam = [
+    [...signalEmojiPool],
+    [...signalEmojiPool],
+  ];
+
+  List<String> get signalEmojisFromWeakestToStrongest =>
+      signalEmojisForTeam(humanTeam);
+
+  List<String> signalEmojisForTeam(int team) =>
+      List.unmodifiable(_signalEmojisByTeam[team]);
 
   int dealerIndex = 5;
   int trickLeaderIndex = 0;
@@ -486,6 +512,7 @@ class DouradinhaGame extends ChangeNotifier {
       'tenDecisionMade': _tenDecisionMade,
       'botChallengeConsideredThisTrick': _botChallengeConsideredThisTrick,
       'automaticTimeouts': _automaticTimeouts,
+      'signalEmojisByTeam': _signalEmojisByTeam,
       'playerSignals': [
         for (var index = 0; index < players.length; index++)
           _playerSignalToJson(index, now),
@@ -573,6 +600,9 @@ class DouradinhaGame extends ChangeNotifier {
               .cast<bool>();
       final restoredTimeouts =
           _intList(json['automaticTimeouts'], length: players.length);
+      final restoredSignalEmojis = _signalEmojiLists(
+        json['signalEmojisByTeam'] ?? json['signalEmojis'],
+      );
       final restoredSignals =
           _playerSignalList(json['playerSignals'], length: players.length);
       if (restoredTenDecisionMade.length != 2 ||
@@ -619,6 +649,9 @@ class DouradinhaGame extends ChangeNotifier {
         ..clear()
         ..addAll(restoredBotConsidered);
       _automaticTimeouts.setAll(0, restoredTimeouts);
+      for (var team = 0; team < _signalEmojisByTeam.length; team++) {
+        _signalEmojisByTeam[team].setAll(0, restoredSignalEmojis[team]);
+      }
       for (var index = 0; index < players.length; index++) {
         _playerSignalEmojis[index] = restoredSignals[index].emoji;
         _playerSignalExpiresAt[index] = restoredSignals[index].expiresAt;
@@ -682,6 +715,28 @@ class DouradinhaGame extends ChangeNotifier {
     final list = (value as List<Object?>).cast<int>();
     if (list.length != length) throw const FormatException('Lista inválida.');
     return list;
+  }
+
+  static List<String> _validatedSignalEmojiList(Object? value) {
+    final emojis = (value as List<Object?>).cast<String>();
+    if (emojis.length != signalEmojiPool.length ||
+        emojis.toSet().length != signalEmojiPool.length ||
+        !emojis.toSet().containsAll(signalEmojiPool)) {
+      throw const FormatException('Sinais de cartas inválidos.');
+    }
+    return emojis;
+  }
+
+  static List<List<String>> _signalEmojiLists(Object? value) {
+    if (value == null) {
+      return [for (var team = 0; team < 2; team++) [...signalEmojiPool]];
+    }
+    final values = value as List<Object?>;
+    if (values.length == 2 && values.every((entry) => entry is List)) {
+      return values.map(_validatedSignalEmojiList).toList();
+    }
+    final legacy = _validatedSignalEmojiList(values);
+    return [[...legacy], [...legacy]];
   }
 
   static List<({String? emoji, int expiresAt})> _playerSignalList(
@@ -769,6 +824,7 @@ class DouradinhaGame extends ChangeNotifier {
       );
 
   void restart() {
+    _shuffleSignalEmojis();
     scores
       ..clear()
       ..addAll([0, 0]);
@@ -778,6 +834,14 @@ class DouradinhaGame extends ChangeNotifier {
     dealerIndex = (firstPlayerIndex + players.length - 1) % players.length;
     matchWinner = null;
     _dealHand(rotateDealer: false);
+  }
+
+  void _shuffleSignalEmojis() {
+    for (final emojis in _signalEmojisByTeam) {
+      emojis
+        ..setAll(0, signalEmojiPool)
+        ..shuffle(_signalRandom);
+    }
   }
 
   void startNextHand() {

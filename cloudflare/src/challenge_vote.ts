@@ -1,7 +1,7 @@
 export type ChallengeVoteChoice = "accept" | "fold" | "raise";
 export type ChallengeVoteDecision = ChallengeVoteChoice | "pending";
 
-export const challengeVoteTimeoutMs = 15_000;
+export const challengeVoteTimeoutMs = 20_000;
 
 export interface ChallengeVote {
   id: string;
@@ -64,6 +64,20 @@ export function challengeVoteDecision(
   }
   if (now >= vote.expiresAt) return "fold";
   return "pending";
+}
+
+export function foldUnansweredChallengeVotes(
+  vote: ChallengeVote,
+  now: number,
+): boolean {
+  if (now < vote.expiresAt) return false;
+  let changed = false;
+  for (const seatIndex of vote.participantSeatIndexes) {
+    if (vote.votes[seatIndex] !== null) continue;
+    vote.votes[seatIndex] = "fold";
+    changed = true;
+  }
+  return changed;
 }
 
 export function removeChallengeVoteParticipant(

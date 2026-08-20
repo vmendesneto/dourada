@@ -8,6 +8,21 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+void _debugRemoteChallengeLog(String message) {
+  if (!kDebugMode) return;
+  debugPrint(
+    '[DOURADINHA][DESAFIO][SOCKET] '
+    '${DateTime.now().toIso8601String()} $message',
+  );
+}
+
+String normalizeServerGameMessage(String message) {
+  return message.replaceAllMapped(
+    RegExp(r'\b([2-7AJKQ][oecp])\b'),
+    (match) => PlayingCard.fromCode(match.group(1)!).displayName,
+  );
+}
+
 class TableSession extends ChangeNotifier {
   TableSession({this.entry, http.Client? client, String? serverUrl})
     : _client = client ?? http.Client(),
@@ -75,6 +90,7 @@ class TableSession extends ChangeNotifier {
   List<int> spectatorHandCounts = const [];
   List<TableChatMessage> chatMessages = const [];
   String? _reportedShownFillBotsVoteId;
+  String? _lastRemoteChallengeDebugSnapshot;
 
   bool get enabled => _serverUrl.isNotEmpty && entry?.online != false;
   bool get isSpectator => entry?.spectator == true;
@@ -545,16 +561,38 @@ class TableSession extends ChangeNotifier {
 
   void _restoreRemoteState(Object? value) {
     if (value is! Map || _game == null) return;
+    final remoteState = Map<String, dynamic>.from(value);
+    final pendingChallenge = remoteState['pendingChallenge'];
+    final history = remoteState['history'];
+    final snapshot = [
+      jsonEncode(pendingChallenge),
+      remoteState['challengeNotice'],
+      remoteState['challengeNoticeAccepted'],
+      history is List ? history.length : 'inválido',
+      remoteState['statusMessage'],
+    ].join('|');
+    if (_lastRemoteChallengeDebugSnapshot != snapshot) {
+      _lastRemoteChallengeDebugSnapshot = snapshot;
+      _debugRemoteChallengeLog(
+        'recebido pedido=${jsonEncode(pendingChallenge)} '
+        'aviso=${remoteState['challengeNotice'] ?? 'nenhum'} '
+        'historico=${history is List ? history.length : 'inválido'} '
+        'status=${remoteState['statusMessage'] ?? 'nenhum'}',
+      );
+    }
     _applyingRemoteState = true;
     try {
-      final restored = _game!.restoreState(Map<String, dynamic>.from(value));
-      if (restored) _normalizeLegacyTeamMessages();
+      final restored = _game!.restoreState(remoteState);
+      if (!restored) {
+        _debugRemoteChallengeLog('estado remoto rejeitado pelo Flutter');
+      }
+      if (restored) _normalizeServerMessages();
     } finally {
       _applyingRemoteState = false;
     }
   }
 
-  void _normalizeLegacyTeamMessages() {
+  void _normalizeServerMessages() {
     final game = _game;
     if (game == null) return;
 
@@ -591,7 +629,7 @@ class TableSession extends ChangeNotifier {
       for (final entry in conjugations.entries) {
         normalized = normalized.replaceAll(entry.key, entry.value);
       }
-      return normalized;
+      return normalizeServerGameMessage(normalized);
     }
 
     game.statusMessage = normalize(game.statusMessage);

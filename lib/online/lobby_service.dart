@@ -318,7 +318,7 @@ enum ChallengeVoteChoice {
 }
 
 class TeamChallengeVote {
-  static const responseTimeout = Duration(seconds: 15);
+  static const responseTimeout = Duration(seconds: 20);
 
   const TeamChallengeVote({
     required this.id,

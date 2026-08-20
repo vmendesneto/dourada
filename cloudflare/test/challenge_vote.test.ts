@@ -3,6 +3,7 @@ import {
   challengeVoteDecision,
   challengeVoteTimeoutMs,
   createChallengeVote,
+  foldUnansweredChallengeVotes,
   recordChallengeVote,
   removeChallengeVoteParticipant,
 } from "../src/challenge_vote";
@@ -51,19 +52,24 @@ describe("decisao conjunta do trio para truco e aumentos", () => {
     expect(challengeVoteDecision(vote, now)).toBe("fold");
   });
 
-  it("corre ao fim de 15 segundos quando ninguem aceita ou aumenta", () => {
+  it("aguarda 20 segundos antes de encerrar a decisao", () => {
     const vote = createChallengeVote("vote-6", 0, 2, 1, [0, 2], now, 6);
 
+    expect(challengeVoteTimeoutMs).toBe(20_000);
     expect(vote.expiresAt).toBe(now + challengeVoteTimeoutMs);
     expect(challengeVoteDecision(vote, vote.expiresAt - 1)).toBe("pending");
     expect(challengeVoteDecision(vote, vote.expiresAt)).toBe("fold");
   });
 
-  it("tambem corre no prazo quando apenas parte do trio correu", () => {
+  it("considera correr para cada humano que nao respondeu no prazo", () => {
     const vote = createChallengeVote("vote-7", 0, 2, 1, [0, 2], now, 6);
     recordChallengeVote(vote, 0, "fold");
 
-    expect(challengeVoteDecision(vote, vote.expiresAt - 1)).toBe("pending");
+    expect(foldUnansweredChallengeVotes(vote, vote.expiresAt - 1)).toBe(false);
+    expect(vote.votes[2]).toBeNull();
+    expect(foldUnansweredChallengeVotes(vote, vote.expiresAt)).toBe(true);
+    expect(vote.votes[0]).toBe("fold");
+    expect(vote.votes[2]).toBe("fold");
     expect(challengeVoteDecision(vote, vote.expiresAt)).toBe("fold");
   });
 });

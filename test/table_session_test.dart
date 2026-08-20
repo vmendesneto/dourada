@@ -12,6 +12,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('converte códigos de cartas recebidos em nomes completos', () {
+    expect(
+      normalizeServerGameMessage('Robô substituto jogou 7e.'),
+      'Robô substituto jogou 7 de Espadas.',
+    );
+    expect(
+      normalizeServerGameMessage('Robô substituto jogou Ae.'),
+      'Robô substituto jogou Ás de Espadas (Espadilha).',
+    );
+    expect(
+      normalizeServerGameMessage('Robô descartou uma carta fechada.'),
+      'Robô descartou uma carta fechada.',
+    );
+  });
+
   test('mantém jogo local quando servidor não foi configurado', () async {
     SharedPreferences.setMockInitialValues({});
     final preferences = await SharedPreferences.getInstance();

@@ -366,6 +366,67 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('som do turno toca somente quando a borda muda de jogador', (
+    tester,
+  ) async {
+    final savedGame = DouradinhaGame()..currentPlayerIndex = 1;
+    SharedPreferences.setMockInitialValues({
+      'douradinha_partida_em_andamento_v1': jsonEncode(savedGame.toJson()),
+    });
+    addTearDown(() => SharedPreferences.setMockInitialValues({}));
+    final playedAssets = <String>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: GamePage(
+          entry: _localGameEntry(),
+          turnSoundPlayer: (asset) async => playedAssets.add(asset),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    BoxDecoration playerCardDecoration(int playerIndex) => tester
+        .widget<AnimatedContainer>(
+          find.byKey(ValueKey('card-jogador-$playerIndex')),
+        )
+        .decoration! as BoxDecoration;
+
+    expect(playedAssets, ['sons/jogar/adv.mp3']);
+    expect(playerCardDecoration(1).border!.top.width, 2);
+
+    final dynamic pageState = tester.state(find.byType(GamePage));
+    final dynamic game = pageState.game;
+    game.pendingChallenge = const Challenge(
+      challengerTeam: 1,
+      challengerPlayer: 1,
+      targetTeam: 0,
+      requestedValue: 2,
+      responderPlayer: 2,
+    );
+    game.notifyListeners();
+    await tester.pump();
+
+    expect(playerCardDecoration(1).border!.top.width, 2);
+    expect(playedAssets, ['sons/jogar/adv.mp3']);
+
+    game.pendingChallenge = null;
+    game.currentPlayerIndex = game.humanPlayerIndex;
+    game.notifyListeners();
+    await tester.pump();
+
+    expect(playerCardDecoration(1).border!.top.width, 1);
+    expect(playerCardDecoration(0).border!.top.width, 2);
+    expect(playedAssets, ['sons/jogar/adv.mp3', 'sons/jogar/usuario.mp3']);
+
+    game.notifyListeners();
+    await tester.pump();
+    expect(playedAssets, ['sons/jogar/adv.mp3', 'sons/jogar/usuario.mp3']);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('botão do header alterna e persiste o som', (tester) async {
     tester.view.physicalSize = const Size(360, 640);
     tester.view.devicePixelRatio = 1;
@@ -415,6 +476,10 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
       await tester.pumpAndSettle();
 
+      expect(
+        tester.getSize(find.byKey(const ValueKey('chat-mesa-resumo'))).width,
+        360,
+      );
       expect(find.byKey(const ValueKey('input-chat-rapido')), findsNothing);
       expect(find.byKey(const ValueKey('enviar-chat-rapido')), findsNothing);
 
@@ -480,6 +545,10 @@ void main() {
       session.sendChatMessage('mensagem $index');
     }
     await tester.pump();
+
+    final chatSummary = find.byKey(const ValueKey('chat-mesa-resumo'));
+    expect(tester.getSize(chatSummary).width, 300);
+    expect(tester.getTopLeft(chatSummary).dx, 0);
 
     expect(find.text('Jogador: mensagem 1'), findsNothing);
     for (var index = 2; index <= 6; index++) {
@@ -563,12 +632,21 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
+    expect(find.byKey(const ValueKey('imagem-gif-desafio-2')), findsOneWidget);
+    expect(find.byKey(const ValueKey('aceitar-desafio')), findsNothing);
+    expect(find.byKey(const ValueKey('correr-desafio')), findsNothing);
+    expect(find.byKey(const ValueKey('aumentar-desafio')), findsNothing);
+
+    await tester.pump(DouradinhaGame.challengeAnimationDuration);
+
+    expect(find.byKey(const ValueKey('imagem-gif-desafio-2')), findsNothing);
     expect(find.text('TRUCO!'), findsWidgets);
     expect(find.textContaining('o trio corre ao fim do tempo'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('tempo-resposta-desafio')),
       findsOneWidget,
     );
+    expect(find.text('20 s para responder'), findsOneWidget);
     expect(find.text('Ana • Aguardando'), findsOneWidget);
     expect(find.text('Carla • Correu'), findsOneWidget);
     expect(find.byKey(const ValueKey('aceitar-desafio')), findsOneWidget);
@@ -579,6 +657,129 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(seconds: 12));
   });
+
+  testWidgets(
+    'repete animação e som do mesmo pedido com o histórico cheio',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final playedAssets = <String>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GamePage(
+            entry: _localGameEntry(),
+            challengeSoundPlayer: (asset) async => playedAssets.add(asset),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final dynamic pageState = tester.state(find.byType(GamePage));
+      final game = pageState.game as DouradinhaGame;
+      const challenge = Challenge(
+        challengerTeam: 0,
+        challengerPlayer: 0,
+        targetTeam: 1,
+        requestedValue: 2,
+        responderPlayer: 1,
+      );
+
+      game.history
+        ..clear()
+        ..addAll(List.generate(30, (index) => 'Evento $index'));
+      game.pendingChallenge = challenge;
+      game.notifyListeners();
+      await tester.pump();
+
+      expect(find.byKey(const ValueKey('imagem-gif-desafio-2')), findsOneWidget);
+      expect(
+        playedAssets.where((asset) => asset.startsWith('sons/truco/')),
+        hasLength(1),
+      );
+
+      await tester.pump(DouradinhaGame.challengeAnimationDuration);
+      game
+        ..pendingChallenge = null
+        ..challengeNotice = null
+        ..challengeNoticeAccepted = false;
+      game.notifyListeners();
+      await tester.pump();
+
+      game.history
+        ..insert(0, 'Novo pedido de TRUCO')
+        ..removeLast();
+      expect(game.history, hasLength(30));
+      game.pendingChallenge = challenge;
+      game.notifyListeners();
+      await tester.pump();
+
+      expect(find.byKey(const ValueKey('imagem-gif-desafio-2')), findsOneWidget);
+      expect(
+        playedAssets.where((asset) => asset.startsWith('sons/truco/')),
+        hasLength(2),
+      );
+      expect(
+        playedAssets.where((asset) => asset.startsWith('sons/truco/')),
+        everyElement(startsWith('sons/truco/')),
+      );
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'atualização anterior da mesa não interrompe animação do pedido',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final playedAssets = <String>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GamePage(
+            entry: _localGameEntry(),
+            challengeSoundPlayer: (asset) async => playedAssets.add(asset),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final dynamic pageState = tester.state(find.byType(GamePage));
+      final game = pageState.game as DouradinhaGame;
+      game.history
+        ..clear()
+        ..addAll(['Pedido atual', 'Evento anterior']);
+      game.pendingChallenge = const Challenge(
+        challengerTeam: 0,
+        challengerPlayer: 0,
+        targetTeam: 1,
+        requestedValue: 2,
+        responderPlayer: 1,
+      );
+      game.notifyListeners();
+      await tester.pump();
+
+      expect(find.byKey(const ValueKey('imagem-gif-desafio-2')), findsOneWidget);
+      expect(playedAssets.single, startsWith('sons/truco/'));
+
+      game.history.removeLast();
+      game
+        ..pendingChallenge = null
+        ..challengeNotice = 'Eles aceitaram o desafio.'
+        ..challengeNoticeAccepted = true;
+      game.notifyListeners();
+      await tester.pump();
+
+      expect(find.byKey(const ValueKey('imagem-gif-desafio-2')), findsOneWidget);
+      expect(find.byKey(const ValueKey('imagem-desafio-aceito')), findsNothing);
+
+      await tester.pump(DouradinhaGame.challengeAnimationDuration);
+
+      expect(find.byKey(const ValueKey('imagem-gif-desafio-2')), findsNothing);
+      expect(find.byKey(const ValueKey('imagem-desafio-aceito')), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 
   testWidgets('mostra a imagem da resposta para todos na mesa', (tester) async {
     SharedPreferences.setMockInitialValues({});
@@ -946,6 +1147,16 @@ TableEntry _fillBotsVoteEntry({
   );
 }
 
+TableEntry _localGameEntry() => TableEntry(
+  serverUrl: '',
+  tableNumber: '1',
+  playerToken: '',
+  websocketUrl: '',
+  seatIndex: 0,
+  phase: LobbyTablePhase.playing,
+  seats: List<LobbySeat?>.filled(6, null),
+);
+
 TableEntry _challengeVoteEntry() {
   final game = DouradinhaGame(humanPlayerIndex: 0)
     ..currentPlayerIndex = 1
@@ -996,7 +1207,10 @@ TableEntry _challengeVoteEntry() {
       targetTeam: 0,
       requestedValue: 2,
       challengerPlayer: 1,
-      expiresAt: DateTime.now().add(const Duration(seconds: 15)),
+      expiresAt: DateTime.now().add(
+        DouradinhaGame.challengeAnimationDuration +
+            TeamChallengeVote.responseTimeout,
+      ),
       participantSeatIndexes: [0, 2],
       votes: [null, null, ChallengeVoteChoice.fold, null, null, null],
     ),

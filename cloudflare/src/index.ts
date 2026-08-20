@@ -8,6 +8,7 @@ import {
   foldPendingChallenge,
   handTransitionMs,
   isGameState,
+  normalizeSignalEmojisByTeam,
   pendingTenTeam,
   raisePendingChallenge,
   type GameState,
@@ -29,6 +30,7 @@ import {
 import {
   challengeVoteDecision,
   createChallengeVote,
+  foldUnansweredChallengeVotes,
   recordChallengeVote,
   removeChallengeVoteParticipant,
   type ChallengeVote,
@@ -376,7 +378,11 @@ export class GameTable extends DurableObject<Env> {
         socket.send(JSON.stringify({ type: "rejected", reason: "Jogada inválida." }));
         return;
       }
-      table.gameState = gameStateWithoutPlayerSignals(payload.gameState);
+      const submittedGameState = gameStateWithoutPlayerSignals(payload.gameState);
+      submittedGameState.signalEmojisByTeam = normalizeSignalEmojisByTeam(
+        table.gameState?.signalEmojisByTeam,
+      );
+      table.gameState = submittedGameState;
       this.ensureChallengeVote(table);
       table.updatedAt = Date.now();
       table.nextActionAt = this.nextActionAt(table, this.activeHumanSeats());
@@ -748,11 +754,12 @@ export class GameTable extends DurableObject<Env> {
     }
     const challengerPlayer =
       challenge.challengerPlayer ?? (challenge.responderPlayer + seatCount - 1) % seatCount;
+    const now = Date.now();
     if (
       typeof challenge.animationEndsAt !== "number" ||
       !Number.isFinite(challenge.animationEndsAt)
     ) {
-      challenge.animationEndsAt = Date.now() + challengeAnimationMs;
+      challenge.animationEndsAt = now + challengeAnimationMs;
     }
     const current = table.challengeVote;
     if (
@@ -776,7 +783,7 @@ export class GameTable extends DurableObject<Env> {
           challenge.requestedValue,
           challengerPlayer,
           participants,
-          Date.now(),
+          Math.max(now, challenge.animationEndsAt),
           seatCount,
         );
   }
@@ -789,6 +796,7 @@ export class GameTable extends DurableObject<Env> {
     const vote = table.challengeVote;
     const game = table.gameState;
     if (vote === null || game?.pendingChallenge == null) return;
+    foldUnansweredChallengeVotes(vote, now);
     const decision = challengeVoteDecision(vote, now);
     table.updatedAt = now;
     if (decision === "pending") {
@@ -1254,6 +1262,11 @@ export class GameTable extends DurableObject<Env> {
       stored.challengeVote ??= null;
       stored.playerSignals = normalizePlayerSignals(stored.playerSignals);
       stored.chatMessages = normalizeChatMessages(stored.chatMessages);
+      if (stored.gameState !== null) {
+        stored.gameState.signalEmojisByTeam = normalizeSignalEmojisByTeam(
+          stored.gameState.signalEmojisByTeam,
+        );
+      }
       if (
         stored.fillBotsVote !== null &&
         (typeof stored.fillBotsVote.id !== "string" ||

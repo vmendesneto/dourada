@@ -8,14 +8,35 @@ import 'package:dourada/online/lobby_service.dart';
 import 'package:dourada/online/table_session.dart';
 import 'package:dourada/platform/fullscreen.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+void _debugChallengeLog(String message) {
+  if (!kDebugMode) return;
+  debugPrint(
+    '[DOURADINHA][DESAFIO][UI] '
+    '${DateTime.now().toIso8601String()} $message',
+  );
+}
+
+bool _playerCardHasTurnBorder(DouradinhaGame game, int playerIndex) =>
+    game.currentPlayerIndex == playerIndex &&
+    game.phase == MatchPhase.playing &&
+    !game.awaitingNextTrick;
+
 class GamePage extends StatefulWidget {
-  const GamePage({super.key, required this.entry});
+  const GamePage({
+    super.key,
+    required this.entry,
+    this.turnSoundPlayer,
+    this.challengeSoundPlayer,
+  });
 
   final TableEntry entry;
+  final Future<void> Function(String asset)? turnSoundPlayer;
+  final Future<void> Function(String asset)? challengeSoundPlayer;
 
   @override
   State<GamePage> createState() => _GamePageState();
@@ -70,17 +91,21 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   bool _challengeNoticeVisible = false;
   bool _challengeNoticeStarted = false;
   String? _scheduledChallengeNotice;
-  final List<({String id, int playerIndex, int requestedValue})>
+  final List<
+    ({String id, String dedupeKey, int playerIndex, int requestedValue})
+  >
   _challengeAnimationQueue = [];
-  final Set<String> _shownChallengeAnimations = {};
-  ({String id, int playerIndex, int requestedValue})? _activeChallengeAnimation;
-  int _lastObservedHistoryLength = 0;
+  ({String id, String dedupeKey, int playerIndex, int requestedValue})?
+  _activeChallengeAnimation;
+  String? _observedChallengeAnimationKey;
+  int _challengeAnimationSequence = 0;
+  String? _lastChallengeDebugSnapshot;
   int? _clockPlayerIndex;
   DateTime? _turnDeadline;
   int _turnLimitSeconds = 15;
   int _turnSecondsLeft = 15;
   double _turnProgress = 1;
-  ({int playerIndex, int playedCardCount})? _lastAnnouncedTurn;
+  int? _turnSoundHighlightedPlayerIndex;
   bool _restoringGame = true;
   bool _leavingTable = false;
   bool _spectatorEnding = false;
@@ -153,6 +178,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
   void _onGameChanged() {
     if (!mounted) return;
+    _logChallengeState(
+      tableSession.applyingRemoteState ? 'estado-remoto' : 'estado-local',
+    );
     if (tableSession.isSpectator) {
       _syncChallengeAnimation();
       _syncChallengeNotice();
@@ -176,6 +204,36 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     _persistGame();
     tableSession.syncGame(game);
     _scheduleAutomation();
+  }
+
+  void _logChallengeState(String origin) {
+    final challenge = game.pendingChallenge;
+    final vote = tableSession.challengeVote;
+    final snapshot = [
+      origin,
+      game.phase.name,
+      challenge?.challengerTeam,
+      challenge?.challengerPlayer,
+      challenge?.targetTeam,
+      challenge?.requestedValue,
+      challenge?.responderPlayer,
+      game.challengeNotice,
+      game.challengeNoticeAccepted,
+      game.history.length,
+      game.statusMessage,
+      vote?.id,
+    ].join('|');
+    if (_lastChallengeDebugSnapshot == snapshot) return;
+    _lastChallengeDebugSnapshot = snapshot;
+    _debugChallengeLog(
+      'estado origem=$origin fase=${game.phase.name} '
+      'pedido=${challenge == null ? 'nenhum' : '${challenge.requestedValue} pontos, jogador=${challenge.challengerPlayer}, trio=${challenge.challengerTeam}->${challenge.targetTeam}'} '
+      'aviso=${game.challengeNotice ?? 'nenhum'} '
+      'historico=${game.history.length} status=${game.statusMessage} '
+      'voto=${vote?.id ?? 'nenhum'} '
+      'ativo=${_activeChallengeAnimation?.id ?? 'nenhum'} '
+      'fila=${_challengeAnimationQueue.length}',
+    );
   }
 
   Future<void> _leaveSpectator() async {
@@ -329,22 +387,23 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   }
 
   void _syncTurnSound() {
-    if (!mounted ||
-        _restoringGame ||
-        !_soundEnabled ||
-        tableSession.isSpectator ||
-        !tableSession.canPlayHere ||
-        !game.canCurrentPlayerPlayCard) {
+    if (!mounted) return;
+
+    final playerIndex = game.currentPlayerIndex;
+    if (!_playerCardHasTurnBorder(game, playerIndex)) {
+      _turnSoundHighlightedPlayerIndex = null;
       return;
     }
 
-    final playerIndex = game.currentPlayerIndex;
-    final turn = (
-      playerIndex: playerIndex,
-      playedCardCount: game.playedCards.length,
-    );
-    if (_lastAnnouncedTurn == turn) return;
-    _lastAnnouncedTurn = turn;
+    if (_turnSoundHighlightedPlayerIndex == playerIndex) return;
+    _turnSoundHighlightedPlayerIndex = playerIndex;
+    if (_restoringGame ||
+        !_soundEnabled ||
+        tableSession.isSpectator ||
+        !tableSession.canPlayHere) {
+      return;
+    }
+
     final asset = playerIndex == game.humanPlayerIndex
         ? 'sons/jogar/usuario.mp3'
         : 'sons/jogar/adv.mp3';
@@ -353,6 +412,11 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
   Future<void> _playTurnSound(String asset) async {
     try {
+      final turnSoundPlayer = widget.turnSoundPlayer;
+      if (turnSoundPlayer != null) {
+        await turnSoundPlayer(asset);
+        return;
+      }
       final player = _turnAudioPlayer ??= AudioPlayer();
       await player.stop();
       await player.play(AssetSource(asset));
@@ -401,18 +465,32 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       } on Object {
         // Falha ao interromper um som nunca pode afetar a partida.
       }
-    } else {
-      _syncTurnSound();
     }
   }
 
   Future<void> _playChallengeSound(List<String> sounds) async {
-    if (!_soundEnabled || sounds.isEmpty) return;
+    if (!_soundEnabled) {
+      _debugChallengeLog('áudio ignorado: som desativado');
+      return;
+    }
+    if (sounds.isEmpty) {
+      _debugChallengeLog('áudio ignorado: lista de sons vazia');
+      return;
+    }
     final asset = sounds[_challengeSoundRandom.nextInt(sounds.length)];
+    _debugChallengeLog('áudio iniciando asset=$asset');
     try {
+      final challengeSoundPlayer = widget.challengeSoundPlayer;
+      if (challengeSoundPlayer != null) {
+        await challengeSoundPlayer(asset);
+        _debugChallengeLog('áudio iniciado pelo player de teste asset=$asset');
+        return;
+      }
       await _challengeAudioPlayer.stop();
       await _challengeAudioPlayer.play(AssetSource(asset));
-    } on Object {
+      _debugChallengeLog('áudio iniciado asset=$asset');
+    } on Object catch (error) {
+      _debugChallengeLog('áudio falhou asset=$asset erro=$error');
       // Som é decorativo e nunca pode bloquear a partida.
     }
   }
@@ -428,6 +506,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       return;
     }
     if (_scheduledChallengeNotice == notice) return;
+    _debugChallengeLog('resposta recebida aviso=$notice');
     _challengeNoticeTimer?.cancel();
     _scheduledChallengeNotice = notice;
     _challengeNoticeVisible = false;
@@ -438,13 +517,21 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   void _startChallengeNoticeIfReady() {
     if (_challengeNoticeStarted ||
         _scheduledChallengeNotice == null ||
-        game.challengeNotice != _scheduledChallengeNotice ||
-        _activeChallengeAnimation != null ||
+        game.challengeNotice != _scheduledChallengeNotice) {
+      return;
+    }
+    if (_activeChallengeAnimation != null ||
         _challengeAnimationQueue.isNotEmpty) {
+      _debugChallengeLog(
+        'resposta aguardando animação '
+        'ativo=${_activeChallengeAnimation?.id ?? 'nenhum'} '
+        'fila=${_challengeAnimationQueue.length}',
+      );
       return;
     }
     _challengeNoticeStarted = true;
     _challengeNoticeVisible = true;
+    _debugChallengeLog('resposta exibida aviso=$_scheduledChallengeNotice');
     unawaited(
       _playChallengeSound(
         game.challengeNoticeAccepted
@@ -463,33 +550,58 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   }
 
   void _syncChallengeAnimation() {
-    final historyLength = game.history.length;
-    if (historyLength < _lastObservedHistoryLength) {
-      _challengeAnimationTimer?.cancel();
-      _challengeAnimationTimer = null;
-      _challengeAnimationQueue.clear();
-      _shownChallengeAnimations.clear();
-      _activeChallengeAnimation = null;
-    }
-    _lastObservedHistoryLength = historyLength;
-
     final challenge = game.pendingChallenge;
-    if (challenge == null ||
-        DouradinhaGame.challengeGifAssetForPoints(challenge.requestedValue) ==
-            null) {
+    if (challenge == null) {
+      if (_observedChallengeAnimationKey != null) {
+        _debugChallengeLog(
+          'pedido deixou o estado chave=$_observedChallengeAnimationKey '
+          'ativo=${_activeChallengeAnimation?.id ?? 'nenhum'}',
+        );
+      }
+      _observedChallengeAnimationKey = null;
       return;
     }
-    final animationId = [
-      historyLength,
+    if (DouradinhaGame.challengeGifAssetForPoints(challenge.requestedValue) ==
+        null) {
+      _debugChallengeLog(
+        'pedido sem GIF configurado valor=${challenge.requestedValue}',
+      );
+      return;
+    }
+    final dedupeKey = [
+      challenge.challengerTeam,
       challenge.challengerPlayer,
+      challenge.targetTeam,
       challenge.requestedValue,
+      challenge.responderPlayer,
     ].join('-');
-    if (!_shownChallengeAnimations.add(animationId)) return;
+    if (_observedChallengeAnimationKey == dedupeKey) {
+      _debugChallengeLog('pedido já observado chave=$dedupeKey');
+      return;
+    }
+    _observedChallengeAnimationKey = dedupeKey;
+    if (_activeChallengeAnimation?.dedupeKey == dedupeKey ||
+        _challengeAnimationQueue.any(
+          (animation) => animation.dedupeKey == dedupeKey,
+        )) {
+      _debugChallengeLog(
+        'pedido já está ativo ou na fila chave=$dedupeKey '
+        'ativo=${_activeChallengeAnimation?.id ?? 'nenhum'} '
+        'fila=${_challengeAnimationQueue.length}',
+      );
+      return;
+    }
+    final animationId = '${++_challengeAnimationSequence}-$dedupeKey';
     _challengeAnimationQueue.add((
       id: animationId,
+      dedupeKey: dedupeKey,
       playerIndex: challenge.challengerPlayer,
       requestedValue: challenge.requestedValue,
     ));
+    _debugChallengeLog(
+      'pedido enfileirado id=$animationId jogador=${challenge.challengerPlayer} '
+      'valor=${challenge.requestedValue} fila=${_challengeAnimationQueue.length}',
+    );
     _startNextChallengeAnimation();
   }
 
@@ -498,13 +610,28 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       return;
     }
     _activeChallengeAnimation = _challengeAnimationQueue.removeAt(0);
+    _debugChallengeLog(
+      'animação iniciada id=${_activeChallengeAnimation!.id} '
+      'jogador=${_activeChallengeAnimation!.playerIndex} '
+      'valor=${_activeChallengeAnimation!.requestedValue} '
+      'duraçãoMs=${DouradinhaGame.challengeAnimationDuration.inMilliseconds}',
+    );
     final sounds =
         _challengeCallSounds[_activeChallengeAnimation!.requestedValue];
-    if (sounds != null) unawaited(_playChallengeSound(sounds));
+    if (sounds == null) {
+      _debugChallengeLog(
+        'animação sem sons configurados valor=${_activeChallengeAnimation!.requestedValue}',
+      );
+    } else {
+      unawaited(_playChallengeSound(sounds));
+    }
     _challengeAnimationTimer = Timer(
       DouradinhaGame.challengeAnimationDuration,
       () {
         if (!mounted) return;
+        _debugChallengeLog(
+          'animação finalizada id=${_activeChallengeAnimation?.id ?? 'desconhecido'}',
+        );
         setState(() {
           _activeChallengeAnimation = null;
           _startNextChallengeAnimation();
@@ -653,7 +780,15 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             ),
             Expanded(child: _buildTable()),
             if (!tableSession.isSpectator)
-              _TableChatStrip(session: tableSession),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: SizedBox(
+                  width: _usesVirtualChatKeyboard(context)
+                      ? double.infinity
+                      : 300,
+                  child: _TableChatStrip(session: tableSession),
+                ),
+              ),
             if (!tableSession.isSpectator) _HumanControls(game: game),
           ],
         ),
@@ -786,7 +921,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                 ),
               ),
             ),
-            if (!spectator && game.humanMustAnswerChallenge)
+            if (!spectator &&
+                game.humanMustAnswerChallenge &&
+                challengeAnimation == null)
               Positioned.fill(
                 child: _ChallengeOverlay(
                   game: game,
@@ -2026,10 +2163,7 @@ class _BotSeat extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final player = game.players[playerIndex];
-    final active =
-        game.currentPlayerIndex == playerIndex &&
-        game.phase == MatchPhase.playing &&
-        !game.awaitingNextTrick;
+    final active = _playerCardHasTurnBorder(game, playerIndex);
     final teamColor = player.team == 0
         ? const Color(0xFF5CB6FF)
         : const Color(0xFFFFC857);
@@ -2051,6 +2185,7 @@ class _BotSeat extends StatelessWidget {
       clipBehavior: Clip.none,
       children: [
         AnimatedContainer(
+          key: ValueKey('card-jogador-$playerIndex'),
           duration: const Duration(milliseconds: 250),
           padding: EdgeInsets.symmetric(
             horizontal: compact ? 4 : 8,
@@ -3966,18 +4101,6 @@ class _ManilhasButton extends StatelessWidget {
     PlayingCard('Q', 'o'),
   ];
 
-  static const signalEmojisFromWeakestToStrongest = [
-    '😶',
-    '😉',
-    '😮',
-    '😎',
-    '🤨',
-    '😬',
-    '😏',
-    '😡',
-    '🤩',
-  ];
-
   @override
   Widget build(BuildContext context) {
     return IconButton.filledTonal(
@@ -4047,7 +4170,7 @@ class _ManilhasButton extends StatelessWidget {
                       itemBuilder: (context, index) {
                         final card = cardsFromWeakestToStrongest[index];
                         final signalEmoji =
-                            signalEmojisFromWeakestToStrongest[index];
+                            game.signalEmojisFromWeakestToStrongest[index];
                         final isStrongest =
                             index == cardsFromWeakestToStrongest.length - 1;
                         return Container(
