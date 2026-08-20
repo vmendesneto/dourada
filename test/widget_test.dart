@@ -745,6 +745,7 @@ void main() {
 
       final dynamic pageState = tester.state(find.byType(GamePage));
       final game = pageState.game as DouradinhaGame;
+      game.currentPlayerIndex = game.humanPlayerIndex;
       game.history
         ..clear()
         ..addAll(['Pedido atual', 'Evento anterior']);
