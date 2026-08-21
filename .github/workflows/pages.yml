@@ -39,7 +39,7 @@ jobs:
 
       - name: Compilar o jogo para Web
         run: >-
-          flutter build web --release --base-href /dourada/
+          flutter build web --release --base-href /
           --pwa-strategy=none
           --dart-define=DOURADA_SERVER_URL=${{ vars.DOURADA_SERVER_URL }}
 
