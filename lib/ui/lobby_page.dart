@@ -50,7 +50,6 @@ class _LobbyPageState extends State<LobbyPage> {
   bool _loading = false;
   bool _resumeOfferHandled = false;
   bool _resumeDialogOpen = false;
-  bool _authBusy = false;
   bool _hasLobbySnapshot = false;
   SavedTableSession? _savedSession;
 
@@ -73,47 +72,6 @@ class _LobbyPageState extends State<LobbyPage> {
         _savedSession != null) {
       unawaited(_receiveTables(_tables));
     }
-  }
-
-  Future<void> _signIn() async {
-    if (_authBusy) return;
-    setState(() => _authBusy = true);
-    try {
-      await _authService.signInWithGoogle();
-    } on Object catch (error) {
-      if (mounted) _showAuthError(error);
-    } finally {
-      if (mounted) setState(() => _authBusy = false);
-    }
-  }
-
-  Future<void> _signOut() async {
-    if (_authBusy) return;
-    setState(() => _authBusy = true);
-    try {
-      await _authService.signOut();
-    } on Object catch (error) {
-      if (mounted) _showAuthError(error);
-    } finally {
-      if (mounted) setState(() => _authBusy = false);
-    }
-  }
-
-  Future<void> _openProfile() async {
-    if (_authBusy || _authService.currentUser == null) return;
-    await showDialog<void>(
-      context: context,
-      builder: (_) => ProfileDialog(
-        authService: _authService,
-        imagePicker: widget.profileImagePicker,
-      ),
-    );
-  }
-
-  void _showAuthError(Object error) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(readableAuthError(error))),
-    );
   }
 
   Future<void> _connectLobby() async {
@@ -215,10 +173,7 @@ class _LobbyPageState extends State<LobbyPage> {
 
   Future<void> _enter(LobbyTable table) async {
     if (_openingTable != null) return;
-    if (_authService.currentUser == null) {
-      await _signIn();
-      return;
-    }
+    if (!_confirmAuthenticatedAccess()) return;
     setState(() => _openingTable = table.tableNumber);
     // Deve acontecer antes das chamadas ao Firebase e à Cloudflare: o
     // navegador só permite fullscreen enquanto o clique ainda está ativo.
@@ -258,6 +213,7 @@ class _LobbyPageState extends State<LobbyPage> {
 
   Future<void> _watch(LobbyTable table) async {
     if (_openingTable != null || table.phase != LobbyTablePhase.playing) return;
+    if (!_confirmAuthenticatedAccess()) return;
     setState(() => _openingTable = table.tableNumber);
     await enterGameFullscreen();
     final lobbySubscription = _lobbySubscription;
@@ -286,11 +242,8 @@ class _LobbyPageState extends State<LobbyPage> {
   }
 
   Future<void> _quickEnter() async {
-    if (_openingTable != null || _authBusy || !_hasLobbySnapshot) return;
-    if (_authService.currentUser == null) {
-      await _signIn();
-      return;
-    }
+    if (_openingTable != null || !_hasLobbySnapshot) return;
+    if (!_confirmAuthenticatedAccess()) return;
     final table = selectQuickJoinTable(_tables);
     if (table == null) {
       if (!mounted) return;
@@ -300,6 +253,16 @@ class _LobbyPageState extends State<LobbyPage> {
       return;
     }
     await _enter(table);
+  }
+
+  bool _confirmAuthenticatedAccess() {
+    if (_authService.currentUser != null) return true;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Faça login na seleção de jogos para continuar.'),
+      ),
+    );
+    return false;
   }
 
   @override
@@ -323,6 +286,18 @@ class _LobbyPageState extends State<LobbyPage> {
               padding: const EdgeInsets.fromLTRB(18, 14, 18, 10),
               child: Row(
                 children: [
+                  if (Navigator.of(context).canPop()) ...[
+                    IconButton(
+                      key: const ValueKey('voltar-aos-jogos'),
+                      tooltip: 'Voltar aos jogos',
+                      onPressed: _openingTable == null
+                          ? () => Navigator.of(context).pop()
+                          : null,
+                      color: Colors.white,
+                      icon: const Icon(Icons.arrow_back_rounded),
+                    ),
+                    const SizedBox(width: 4),
+                  ],
                   const CircleAvatar(
                     backgroundColor: Color(0xFFE7A93E),
                     foregroundColor: Color(0xFF173326),
@@ -348,27 +323,6 @@ class _LobbyPageState extends State<LobbyPage> {
                       ],
                     ),
                   ),
-                  if (_authService.currentUser != null)
-                    IconButton(
-                      key: const ValueKey('sair-conta'),
-                      tooltip: 'Sair da conta',
-                      onPressed: _authBusy ? null : _signOut,
-                      color: Colors.white,
-                      icon: _authBusy
-                          ? const SizedBox.square(
-                              dimension: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.logout_rounded),
-                    ),
-                  const SizedBox(width: 4),
-                  AuthAccountButton(
-                    profile: _authService.currentUser,
-                    busy: _authBusy,
-                    available: _authService.available,
-                    onLogin: _signIn,
-                    onProfile: _openProfile,
-                  ),
                 ],
               ),
             ),
@@ -387,9 +341,7 @@ class _LobbyPageState extends State<LobbyPage> {
                     width: double.infinity,
                     child: FilledButton.icon(
                       key: const ValueKey('entrar-rapido'),
-                      onPressed: _openingTable != null ||
-                              _authBusy ||
-                              !_hasLobbySnapshot
+                      onPressed: _openingTable != null || !_hasLobbySnapshot
                           ? null
                           : _quickEnter,
                       style: FilledButton.styleFrom(
@@ -440,18 +392,14 @@ class _LobbyPageState extends State<LobbyPage> {
                           itemCount: _tables.length,
                           itemBuilder: (context, index) {
                             final table = _tables[index];
-                            final requiresLogin =
-                                _authService.currentUser == null;
                             return _TableCard(
                               table: table,
-                              opening: _openingTable == table.tableNumber ||
-                                  _authBusy,
-                              requiresLogin: requiresLogin,
-                              onEnter: table.canJoin
-                                  ? requiresLogin
-                                      ? _signIn
-                                      : () => _enter(table)
-                                  : null,
+                              opening:
+                                  _openingTable == table.tableNumber,
+                              requiresLogin:
+                                  _authService.currentUser == null,
+                              onEnter:
+                                  table.canJoin ? () => _enter(table) : null,
                               onWatch: table.canWatch ? () => _watch(table) : null,
                               firstButtonKey: index == 0
                                   ? const ValueKey('entrar-em-uma-mesa')

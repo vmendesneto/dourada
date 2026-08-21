@@ -1,7 +1,7 @@
 import 'package:dourada/auth/auth_service.dart';
 import 'package:dourada/firebase_options.dart';
 import 'package:dourada/online/lobby_service.dart';
-import 'package:dourada/ui/lobby_page.dart';
+import 'package:dourada/ui/game_selection_page.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -37,7 +37,10 @@ class DouradinhaApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: LobbyPage(service: lobbyService, authService: authService),
+      home: GameSelectionPage(
+        lobbyService: lobbyService,
+        authService: authService,
+      ),
     );
   }
 }

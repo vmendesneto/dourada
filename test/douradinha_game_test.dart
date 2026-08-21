@@ -921,6 +921,9 @@ void main() {
       DouradinhaApp(authService: FakeAuthService(signedIn: true)),
     );
     await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('abrir-dourada-interior')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
     await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
     await tester.pumpAndSettle();
 

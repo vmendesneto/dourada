@@ -6,12 +6,19 @@ import 'package:dourada/game/douradinha_game.dart';
 import 'package:dourada/main.dart';
 import 'package:dourada/online/lobby_service.dart';
 import 'package:dourada/ui/game_page.dart';
+import 'package:dourada/ui/game_selection_page.dart';
 import 'package:dourada/ui/lobby_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fake_auth_service.dart';
+
+Future<void> _openDouradaInterior(WidgetTester tester) async {
+  await tester.tap(find.byKey(const ValueKey('abrir-dourada-interior')));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 400));
+}
 
 void main() {
   testWidgets('entra na mesa mesmo se o lobby nao confirmar o fechamento', (
@@ -41,8 +48,11 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(const DouradinhaApp());
+    await tester.pumpWidget(
+      DouradinhaApp(authService: FakeAuthService(signedIn: true)),
+    );
     await tester.pump();
+    await _openDouradaInterior(tester);
 
     expect(find.byKey(const ValueKey('entrar-em-uma-mesa')), findsOneWidget);
     expect(find.byKey(const ValueKey('entrar-rapido')), findsOneWidget);
@@ -94,8 +104,8 @@ void main() {
     final authService = FakeAuthService();
     await tester.pumpWidget(
       MaterialApp(
-        home: LobbyPage(
-          service: _HangingCancelLobbyService(),
+        home: GameSelectionPage(
+          lobbyService: _HangingCancelLobbyService(),
           authService: authService,
           profileImagePicker: () async => SelectedProfileImage(
             bytes: base64Decode(
@@ -177,8 +187,8 @@ void main() {
     final authService = FakeAuthService(signedIn: true);
     await tester.pumpWidget(
       MaterialApp(
-        home: LobbyPage(
-          service: _HangingCancelLobbyService(),
+        home: GameSelectionPage(
+          lobbyService: _HangingCancelLobbyService(),
           authService: authService,
         ),
       ),
@@ -244,7 +254,38 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('visitante precisa fazer login antes de entrar na mesa', (
+  testWidgets('visitante faz login ao acessar o jogo', (
+    tester,
+  ) async {
+    final service = _HangingCancelLobbyService();
+    final authService = FakeAuthService();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: GameSelectionPage(
+          lobbyService: service,
+          authService: authService,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('abrir-dourada-interior')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(authService.signInCalls, 1);
+    expect(service.joinCalled, isFalse);
+    expect(find.byType(GamePage), findsNothing);
+    expect(find.byType(LobbyPage), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
+    await tester.pump();
+    expect(authService.idTokenCalls, 1);
+    expect(service.joinCalled, isTrue);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('acesso direto ao lobby apenas confere a autenticação', (
     tester,
   ) async {
     final service = _HangingCancelLobbyService();
@@ -256,18 +297,15 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('FAÇA LOGIN PARA ENTRAR'), findsWidgets);
     await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
     await tester.pump();
 
-    expect(authService.signInCalls, 1);
+    expect(authService.signInCalls, 0);
     expect(service.joinCalled, isFalse);
-    expect(find.byType(GamePage), findsNothing);
-
-    await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
-    await tester.pump();
-    expect(authService.idTokenCalls, 1);
-    expect(service.joinCalled, isTrue);
+    expect(
+      find.text('Faça login na seleção de jogos para continuar.'),
+      findsOneWidget,
+    );
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
@@ -278,6 +316,7 @@ void main() {
       DouradinhaApp(authService: FakeAuthService(signedIn: true)),
     );
     await tester.pump();
+    await _openDouradaInterior(tester);
 
     expect(find.byKey(const ValueKey('entrar-em-uma-mesa')), findsOneWidget);
     expect(find.text('TRUCO!'), findsNothing);
@@ -309,6 +348,7 @@ void main() {
       DouradinhaApp(authService: FakeAuthService(signedIn: true)),
     );
     await tester.pump();
+    await _openDouradaInterior(tester);
     await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
     await tester.pumpAndSettle();
 
@@ -347,6 +387,7 @@ void main() {
       DouradinhaApp(authService: FakeAuthService(signedIn: true)),
     );
     await tester.pump();
+    await _openDouradaInterior(tester);
     await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
     await tester.pumpAndSettle();
 
@@ -438,6 +479,7 @@ void main() {
       DouradinhaApp(authService: FakeAuthService(signedIn: true)),
     );
     await tester.pump();
+    await _openDouradaInterior(tester);
     await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
     await tester.pumpAndSettle();
 
@@ -473,6 +515,7 @@ void main() {
         DouradinhaApp(authService: FakeAuthService(signedIn: true)),
       );
       await tester.pump();
+      await _openDouradaInterior(tester);
       await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
       await tester.pumpAndSettle();
 
@@ -536,6 +579,7 @@ void main() {
       DouradinhaApp(authService: FakeAuthService(signedIn: true)),
     );
     await tester.pump();
+    await _openDouradaInterior(tester);
     await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
     await tester.pumpAndSettle();
 
@@ -576,6 +620,7 @@ void main() {
       DouradinhaApp(authService: FakeAuthService(signedIn: true)),
     );
     await tester.pump();
+    await _openDouradaInterior(tester);
     await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
     await tester.pumpAndSettle();
 
@@ -980,6 +1025,7 @@ void main() {
       DouradinhaApp(authService: FakeAuthService(signedIn: true)),
     );
     await tester.pump();
+    await _openDouradaInterior(tester);
     await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
     await tester.pumpAndSettle();
 
@@ -1014,6 +1060,7 @@ void main() {
       DouradinhaApp(authService: FakeAuthService(signedIn: true)),
     );
     await tester.pump();
+    await _openDouradaInterior(tester);
     await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
     await tester.pumpAndSettle();
 
@@ -1044,6 +1091,7 @@ void main() {
       DouradinhaApp(authService: FakeAuthService(signedIn: true)),
     );
     await tester.pump();
+    await _openDouradaInterior(tester);
     await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
     await tester.pumpAndSettle();
 
@@ -1072,6 +1120,7 @@ void main() {
       DouradinhaApp(authService: FakeAuthService(signedIn: true)),
     );
     await tester.pump();
+    await _openDouradaInterior(tester);
     await tester.tap(find.byKey(const ValueKey('entrar-em-uma-mesa')));
     await tester.pumpAndSettle();
 
